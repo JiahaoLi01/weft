@@ -23,7 +23,7 @@ namespace weft::render::metal::detail {
         return (__bridge id<MTLTexture>)reinterpret_cast<void*>(static_cast<std::uintptr_t>(view));
     }
 
-    // A private 2D texture of one mip level.
+    // A private 2D texture of its levels (by default one).
     id<MTLTexture> make_texture(id<MTLDevice> device, MTLPixelFormat format, std::uint32_t width,
-                                std::uint32_t height, MTLTextureUsage usage);
+                                std::uint32_t height, MTLTextureUsage usage, std::uint32_t levels = 1);
 } // namespace weft::render::metal::detail

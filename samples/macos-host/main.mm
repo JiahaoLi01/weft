@@ -1,5 +1,6 @@
 // A game engine's side of weft on macOS (Objective-C++, ARC), through the public headers only (include/weft): the HUD
-// page of examples/engine-host (or another page folder: keys 1-5 switch to the logo pages of examples/logo, R reloads)
+// page of examples/engine-host (or another page folder: keys 1-9 and 0 switch to the logo, touch, bidi, img, effects and
+// animate pages, R reloads)
 // in a window, over the engine's own picture of its world, drawn by weft's Metal backend
 // into the window's CAMetalLayer drawables. As samples/engine-host does on Windows: units walk and the engine writes
 // their positions as anchors, their health to the view model and damage to hud.damage events; the page's end-turn
@@ -341,7 +342,7 @@ namespace {
         const double gpu = _gpu_frames ? _gpu_ms / _gpu_frames : 0;
         self.window.title =
             [NSString stringWithFormat:@"weft on Metal — %s · %.0f fps · vsync %s · %ld×%ld px · CPU %.2f ms · GPU %.2f "
-                                       @"ms · keys 1–5 pages, R reload, V vsync, F full screen",
+                                       @"ms · keys 1–7 pages, R reload, V vsync, F full screen",
                                        _engine->page_name.c_str(), _frames_this_second / seconds, vsync ? "on" : "off",
                                        long(_layer.drawableSize.width), long(_layer.drawableSize.height), cpu, gpu];
         std::printf("%s: %.0f fps (vsync %s), %ldx%ld px; per frame CPU %.2f ms (View %.2f), GPU %.2f ms, waiting "
@@ -434,8 +435,11 @@ namespace {
 - (void)keyDown:(NSEvent*)event {
     NSString* key = event.charactersIgnoringModifiers.lowercaseString;
     std::string folder;
-    if (key.length == 1 && [key characterAtIndex:0] >= '1' && [key characterAtIndex:0] <= '5') {
-        folder = std::string(WEFT_EXAMPLES) + "/" + demo::switchable[[key characterAtIndex:0] - '1'];
+    // Keys 1 to 9, then 0, are the pages of demo::switchable in turn.
+    const auto digit = key.length == 1 ? [key characterAtIndex:0] : 0;
+    const std::size_t index = digit == '0' ? 9 : digit >= '1' && digit <= '9' ? std::size_t(digit - '1') : 99;
+    if (index < std::size(demo::switchable)) {
+        folder = std::string(WEFT_EXAMPLES) + "/" + demo::switchable[index];
     } else if ([key isEqualToString:@"r"]) {
         folder = page_folder;
     } else if ([key isEqualToString:@"f"]) {

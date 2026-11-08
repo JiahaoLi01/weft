@@ -40,6 +40,17 @@ namespace weft {
     // a negative size, a position or repeat CSS does not take.
     BackgroundLayout scene_background_layout(const StyleValues& style);
 
+    // An img's image as CSS Images 3 §5.5 and §5.6 place it, a background of one tile in its content box (its origin
+    // and clip, no repeat) of the size object-fit gives: fill the content box's, contain and cover scaled to it, none
+    // the natural size, scale-down none's or contain's, whichever is smaller (natural is the image's size, content the
+    // content box's); at object-position. std::invalid_argument for a value CSS does not take.
+    BackgroundLayout scene_object_layout(const StyleValues& style, std::array<float, 2> natural,
+                                         std::array<float, 2> content);
+
+    // Whether an element's images (its img's, its background's and border image's) are pixelated: image-rendering
+    // pixelated or crisp-edges, as Chrome draws both; auto, smooth, high-quality and -webkit-optimize-contrast filter.
+    bool scene_image_pixelated(const StyleValues& style);
+
     // A box of an element w x h px (its border box at 0, 0) in its px, with its corners' radii, top-left first and
     // clockwise; std::invalid_argument for a content box whose padding is a percentage.
     struct BackgroundRect {
@@ -49,6 +60,14 @@ namespace weft {
     };
 
     BackgroundRect scene_background_box(const StyleValues& style, BackgroundBox box, float w, float h);
+
+    // A length or percentage as backgrounds take one: px, a percentage's share, or calc() of the two; none for
+    // another value.
+    std::optional<BackgroundLength> scene_length(std::string_view value);
+
+    // A <position> as background-position takes one (CSS Values 4 §9): on each axis px and a share of the room;
+    // std::invalid_argument for a value CSS does not take.
+    std::array<BackgroundLength, 2> scene_position(std::string_view value);
 
     // The fit of a host texture over an element's painting area: its positioning area and sizes resolved, in px from
     // the painting area's origin.

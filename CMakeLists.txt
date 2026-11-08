@@ -52,10 +52,13 @@ endif()
 if(WEFT_BUILD_SAMPLES AND WIN32)
     add_subdirectory(samples)
 elseif(WEFT_BUILD_SAMPLES AND APPLE AND TARGET weft_scene_metal)
-    # The Metal host samples: a window on macOS (samples/macos-host), an app on iOS (samples/ios-host).
+    # The Metal host samples: a window on macOS (samples/macos-host, and the in-game UI of samples/macos-ingame), an
+    # app on iOS (samples/ios-host).
     if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
         add_subdirectory(samples/ios-host)
     elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         add_subdirectory(samples/macos-host)
+        # In-game UI: pages on world-space panels through the export texture extension.
+        add_subdirectory(samples/macos-ingame)
     endif()
 endif()

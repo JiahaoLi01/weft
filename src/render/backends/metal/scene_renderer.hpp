@@ -179,6 +179,9 @@ namespace weft::render::metal {
         id<MTLFunction> scene_vertex_;
         id<MTLRenderPipelineState> scene_pipeline_;
         id<MTLRenderPipelineState> under_pipeline_;
+        // A blending group's composite that reads the target where it draws (framebuffer fetch), on Apple GPUs; nil
+        // elsewhere (blending groups copy their backdrops).
+        id<MTLRenderPipelineState> blend_pipeline_;
         id<MTLRenderPipelineState> particle_pipeline_;
         // The area downsample, the Gaussian pass and the color matrix (render::BackdropFilter order).
         std::array<id<MTLRenderPipelineState>, 3> backdrop_pipelines_;
@@ -223,7 +226,8 @@ namespace weft::render::metal {
         std::vector<std::uint32_t> in_order_;
 
         id<MTLRenderPipelineState> pipeline(std::string_view vertex, std::string_view fragment, bool under = false);
-        id<MTLFunction> function(std::string_view source, const char* name);
+        id<MTLFunction> function(std::string_view source, const char* name,
+                                 MTLLanguageVersion version = MTLLanguageVersion2_1);
         void check_pending(const ScenePrepared& prepared) const;
         void upload(const ScenePrepared& prepared);
         // Encodes prepared's pass into target (a texture of prepared's size or larger; readable when the pass may copy

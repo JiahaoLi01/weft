@@ -222,6 +222,171 @@ namespace weft {
                    edge(P::BorderTopWidth, P::BorderWidth) + edge(P::BorderBottomWidth, P::BorderWidth);
         }
 
+        // An img's sizes beyond its box's (LayoutBox::image): its preferred aspect ratio (CSS Sizing 4 §5.1) and its
+        // minimum and maximum sizes, in content-box px. The ratio is its natural one, or aspect-ratio's (a <ratio> of
+        // its own over the natural one, of the box box-sizing names; auto && <ratio> only without a natural ratio, of
+        // the content box), with what the ratio's box adds to the content box: content width w goes with content
+        // height (w + add[0]) / ratio - add[1].
+        struct ImageSizing {
+            float ratio{};
+            std::array<float, 2> add{};
+            std::array<float, 2> min{};
+            std::array<float, 2> max{unbounded, unbounded};
+            // Its natural size, 0 x 0 without an image.
+            std::array<float, 2> natural{};
+
+            float height_of(float w) const {
+                return std::max(0.f, (w + add[0]) / ratio - add[1]);
+            }
+
+            float width_of(float h) const {
+                return std::max(0.f, (h + add[1]) * ratio - add[0]);
+            }
+
+            float clamp(std::size_t axis, float v) const {
+                return std::max(min[axis], std::min(v, std::max(min[axis], max[axis])));
+            }
+
+            // The used content size: each axis given (exact, after its minimum and maximum) or auto. One auto axis
+            // follows the other through the ratio, else takes the natural size; with both auto, the natural width
+            // and the height at the ratio, within the minimums and maximums as CSS 2 §10.4's table keeps the ratio.
+            std::array<float, 2> size(std::optional<float> width, std::optional<float> height) const {
+                if (width && height) {
+                    return {clamp(0, *width), clamp(1, *height)};
+                }
+                if (width) {
+                    const float w = clamp(0, *width);
+                    return {w, clamp(1, ratio > 0 ? height_of(w) : natural[1])};
+                }
+                if (height) {
+                    const float h = clamp(1, *height);
+                    return {clamp(0, ratio > 0 ? width_of(h) : natural[0]), h};
+                }
+                if (ratio <= 0) {
+                    return {clamp(0, natural[0]), clamp(1, natural[1])};
+                }
+                const float w = natural[0];
+                const float h = height_of(w);
+                const float max_w = std::max(min[0], max[0]);
+                const float max_h = std::max(min[1], max[1]);
+                const bool wide = w > max_w;
+                const bool narrow = w < min[0];
+                const bool tall = h > max_h;
+                const bool low = h < min[1];
+                if (wide && tall) {
+                    return max_w / w <= max_h / h ? std::array{max_w, std::max(min[1], height_of(max_w))}
+                                                  : std::array{std::max(min[0], width_of(max_h)), max_h};
+                }
+                if (narrow && low) {
+                    return min[0] / w <= min[1] / h ? std::array{std::min(max_w, width_of(min[1])), min[1]}
+                                                    : std::array{min[0], std::min(max_h, height_of(min[0]))};
+                }
+                if (narrow && tall) {
+                    return {min[0], max_h};
+                }
+                if (wide && low) {
+                    return {max_w, min[1]};
+                }
+                if (wide) {
+                    return {max_w, std::max(height_of(max_w), min[1])};
+                }
+                if (narrow) {
+                    return {min[0], std::min(height_of(min[0]), max_h)};
+                }
+                if (tall) {
+                    return {std::max(width_of(max_h), min[0]), max_h};
+                }
+                if (low) {
+                    return {std::min(width_of(min[1]), max_w), min[1]};
+                }
+                return {w, h};
+            }
+        };
+
+        // An edge's px: a length, or a percentage of basis (none: 0).
+        float edge_px(const Style& s, PropertyId key, PropertyId shorthand, std::optional<float> basis) {
+            const auto* v = s.find(key);
+            if (!v) {
+                v = s.find(shorthand);
+            }
+            const auto l = length(v);
+            if (l.automatic) {
+                return 0;
+            }
+            return l.percent ? (basis ? *basis * l.value / constants::percent_scale : 0) : l.value;
+        }
+
+        // The padding and borders of a box across and down, its percentages of basis (none: 0).
+        std::array<float, 2> image_edges(const Style& s, std::optional<float> basis) {
+            return {edge_px(s, P::PaddingLeft, P::Padding, basis) + edge_px(s, P::PaddingRight, P::Padding, basis) +
+                        edge_px(s, P::BorderLeftWidth, P::BorderWidth, basis) +
+                        edge_px(s, P::BorderRightWidth, P::BorderWidth, basis),
+                    edge_px(s, P::PaddingTop, P::Padding, basis) + edge_px(s, P::PaddingBottom, P::Padding, basis) +
+                        edge_px(s, P::BorderTopWidth, P::BorderWidth, basis) +
+                        edge_px(s, P::BorderBottomWidth, P::BorderWidth, basis)};
+        }
+
+        // An img's sizing: box its layout box, s its values; basis the width its percentages resolve against (none: a
+        // percentage width is auto, a percentage minimum 0 and maximum none). Heights' percentages resolve against
+        // nothing here.
+        ImageSizing image_sizing(const LayoutBox& box, const Style& s, std::optional<float> basis) {
+            ImageSizing out;
+            out.natural = box.natural.value_or(std::array<float, 2>{});
+            const bool border_box = s.text(P::BoxSizing, "content-box") == "border-box";
+            const auto edges = image_edges(s, basis);
+            const auto words = css::split(css::trim(s.text(P::AspectRatio, "auto")), ' ').parts;
+            bool automatic{};
+            std::string ratio_text;
+            for (const auto& w : words) {
+                if (w == "auto") {
+                    automatic = true;
+                } else {
+                    ratio_text += w;
+                }
+            }
+            float specified{};
+            if (!ratio_text.empty()) {
+                const auto slash = ratio_text.find('/');
+                const float a = number(std::string_view(ratio_text).substr(0, slash));
+                const float b =
+                    slash == std::string::npos ? 1.f : number(std::string_view(ratio_text).substr(slash + 1));
+                if (a > 0 && b > 0) {
+                    specified = a / b;
+                }
+            }
+            if (specified > 0 && (!automatic || box.ratio <= 0)) {
+                out.ratio = specified;
+                if (!automatic && border_box) {
+                    out.add = edges;
+                }
+            } else {
+                out.ratio = box.ratio > 0 ? box.ratio : 0.f;
+            }
+            const auto bound = [&](PropertyId key, std::size_t axis, float fallback) {
+                const auto l = length(s.find(key));
+                if (l.automatic || (l.percent && (axis == 1 || !basis))) {
+                    return fallback;
+                }
+                const float v = l.percent ? *basis * l.value / constants::percent_scale : l.value;
+                return std::max(0.f, v - (border_box ? edges[axis] : 0));
+            };
+            out.min = {bound(P::MinWidth, 0, 0), bound(P::MinHeight, 1, 0)};
+            out.max = {bound(P::MaxWidth, 0, unbounded), bound(P::MaxHeight, 1, unbounded)};
+            return out;
+        }
+
+        // An img's specified content width or height: a length (of the box box-sizing names), a percentage of basis
+        // (a width's; none: auto), or auto.
+        std::optional<float> image_specified(const Style& s, std::size_t axis, std::optional<float> basis) {
+            const auto l = length(s.find(axis ? P::Height : P::Width));
+            if (l.automatic || (l.percent && (axis == 1 || !basis))) {
+                return std::nullopt;
+            }
+            const float v = l.percent ? *basis * l.value / constants::percent_scale : l.value;
+            const bool border_box = s.text(P::BoxSizing, "content-box") == "border-box";
+            return std::max(0.f, v - (border_box ? image_edges(s, basis)[axis] : 0));
+        }
+
         bool row_direction(const Style& style) {
             return style.text(P::FlexDirection, "row").starts_with("row");
         }
@@ -445,6 +610,9 @@ namespace weft {
             std::string unknown_width;
             std::string unknown_height;
             std::size_t measure_calls{};
+            // The width an img's percentages resolve against, where the adapter knows it before Yoga measures the img
+            // (its grid area's, its parent's px content width); else measure_image takes it from what Yoga gives.
+            std::optional<float> containing_width;
         };
 
         struct Engine {
@@ -956,6 +1124,23 @@ namespace weft {
                         YGNodeStyleSetMargin(y, edge, base + shift);
                     }
                 }
+                // direction (CSS Writing Modes 4 §2.1): Yoga lays the box's rows and the cross axis of its columns
+                // out from that side; physical edges (margins, padding, insets) stay where they are, and an
+                // absolutely positioned box over-constrained by left and right keeps its start inset, as CSS 2 §10.3.7
+                // keeps right in a right-to-left containing block.
+                YGNodeStyleSetDirection(y, s.text(P::Direction, "ltr") == "rtl" ? YGDirectionRTL : YGDirectionLTR);
+                // An absolutely positioned box over-constrained across (left, width and right, neither margin auto):
+                // CSS 2 §10.3.7 ignores right in a left-to-right containing block and left in a right-to-left one.
+                // Yoga keeps the start inset of the box's parent's direction, which is another box when the containing
+                // block is further up. An auto margin takes the space instead, between both insets (Yoga patch 0007).
+                const auto automatic_margin = [&](PropertyId side) {
+                    return s.text(side, s.text(P::Margin, "0")) == "auto";
+                };
+                if (s.text(P::Position, "static") == "absolute" && s.text(P::Left, "auto") != "auto" &&
+                    s.text(P::Right, "auto") != "auto" && !length(s.find(P::Width)).automatic &&
+                    !automatic_margin(P::MarginLeft) && !automatic_margin(P::MarginRight)) {
+                    YGNodeStyleSetPositionAuto(y, containing_rtl(n) ? YGEdgeLeft : YGEdgeRight);
+                }
                 if (!css()) {
                     return;
                 }
@@ -972,11 +1157,29 @@ namespace weft {
                 }
             }
 
+            // Whether an absolutely positioned box's containing block is right to left: its nearest ancestor that
+            // contains absolute boxes (positioned or transformed), else the layout's root.
+            bool containing_rtl(const Node& n) const {
+                auto parent = n.box->parent;
+                while (parent != LayoutBox::root) {
+                    const auto& a = nodes[parent];
+                    if (contains_absolute(*a.style) || a.box->parent == LayoutBox::root) {
+                        return a.style->text(P::Direction, "ltr") == "rtl";
+                    }
+                    parent = a.box->parent;
+                }
+                return n.style->text(P::Direction, "ltr") == "rtl";
+            }
+
             // An svg's width and height attributes stand in for absent properties. With an intrinsic ratio and an
             // auto or percentage height in a parent of indefinite height, the height follows the width.
             void replace(Node& n) {
                 const auto& box = *n.box;
                 const auto& s = *n.style;
+                if (box.image) {
+                    replace_image(n);
+                    return;
+                }
                 for (const bool width : {true, false}) {
                     if (s.contains(width ? P::Width : P::Height)) {
                         continue;
@@ -1008,6 +1211,120 @@ namespace weft {
                 YGNodeStyleSetAspectRatio(n.yoga, box.ratio);
             }
 
+            // An img: its content size as CSS sizes a replaced box (ImageSizing), from the constraints Yoga gives
+            // (measure_image). The root of a run shrunk to fit (an inline img) keeps the size it has in its
+            // containing block, whose width its percentages resolve against; an absolutely positioned one keeps its
+            // own size between insets on both sides, instead of stretching. A block-level one is not stretched.
+            void replace_image(Node& n) {
+                const auto& s = *n.style;
+                const bool absolute = s.text(P::Position, "static") == "absolute";
+                const auto both = [&](PropertyId a, PropertyId b) {
+                    return s.text(a, "auto") != "auto" && s.text(b, "auto") != "auto";
+                };
+                const bool root = !n.index && options.fit_width;
+                if (root || (absolute && (both(P::Left, P::Right) || both(P::Top, P::Bottom)))) {
+                    const auto basis = root ? options.fit_width : std::nullopt;
+                    const auto size =
+                        image_sizing(*n.box, s, basis).size(image_specified(s, 0, basis), image_specified(s, 1, basis));
+                    const auto edges = image_edges(s, basis);
+                    const bool border_box = s.text(P::BoxSizing, "content-box") == "border-box";
+                    if (root || both(P::Left, P::Right) || !length(s.find(P::Width)).automatic) {
+                        YGNodeStyleSetWidth(n.yoga, size[0] + (border_box ? edges[0] : 0));
+                    }
+                    if (root || both(P::Top, P::Bottom) || !length(s.find(P::Height)).automatic) {
+                        YGNodeStyleSetHeight(n.yoga, size[1] + (border_box ? edges[1] : 0));
+                    }
+                    if (root) {
+                        return;
+                    }
+                }
+                YGNodeSetMeasureFunc(n.yoga, measure_image);
+                if (!n.index || absolute) {
+                    return;
+                }
+                const auto& parent = nodes[n.box->parent];
+                n.containing_width = definite_content_width(parent);
+                if (parent.formatting == Formatting::Block) {
+                    YGNodeStyleSetAlignSelf(n.yoga, YGAlignFlexStart);
+                }
+                // A flex item of a row, of auto basis and width: its flex base size is its width at its definite
+                // height (CSS Flexbox 1 §9.2 3B), else its content width (§9.2 3E). Yoga's would follow the height
+                // its line gives it in a container whose height is not definite.
+                if (parent.formatting == Formatting::Flex && row_direction(*parent.style) && automatic_basis(s) &&
+                    length(s.find(P::Width)).automatic) {
+                    const float width = image_sizing(*n.box, s, std::nullopt).size(std::nullopt, row_item_height(n))[0];
+                    const bool border_box = s.text(P::BoxSizing, "content-box") == "border-box";
+                    YGNodeStyleSetFlexBasis(n.yoga, width + (border_box ? image_edges(s, std::nullopt)[0] : 0));
+                }
+            }
+
+            // A box's content width where it is known before layout: its px width less its padding and borders
+            // (box-sizing border-box), or, for an in-flow block-level box of auto width in a block, its parent's less
+            // its px margins, padding and borders; the root's from the viewport or the width it is fit to. None
+            // otherwise (a percentage, a shrink-to-fit or flex-sized box).
+            std::optional<float> definite_content_width(const Node& n) const {
+                const auto& s = *n.style;
+                const auto edges = [&] {
+                    return image_edges(s, std::nullopt)[0];
+                };
+                if (const auto w = length(s.find(P::Width)); !w.automatic) {
+                    if (w.percent) {
+                        return std::nullopt;
+                    }
+                    return std::max(0.f, w.value - (s.text(P::BoxSizing, "content-box") == "border-box" ? edges() : 0));
+                }
+                if (!n.index) {
+                    if (options.viewport) {
+                        return std::max(0.f, (*options.viewport)[0] - edges());
+                    }
+                    return std::nullopt;
+                }
+                const auto& parent = nodes[n.box->parent];
+                const auto display = s.text(P::Display, "block");
+                if (parent.formatting != Formatting::Block || s.text(P::Position, "static") == "absolute" ||
+                    (display != "block" && display != "flex" && display != "grid")) {
+                    return std::nullopt;
+                }
+                const auto inner = definite_content_width(parent);
+                if (!inner) {
+                    return std::nullopt;
+                }
+                const auto margin = [&](PropertyId side) {
+                    const auto l = length(s.find(side) ? s.find(side) : s.find(P::Margin));
+                    return l.automatic || l.percent ? 0.f : l.value;
+                };
+                return std::max(0.f, *inner - margin(P::MarginLeft) - margin(P::MarginRight) - edges());
+            }
+
+            // An img flex item's definite content height in a row: its own (px), or the one stretching gives it in a
+            // single-line container of definite (px) height (CSS Flexbox 1 §9.8); none otherwise.
+            std::optional<float> row_item_height(const Node& n) const {
+                const auto& s = *n.style;
+                if (auto height = image_specified(s, 1, std::nullopt)) {
+                    return height;
+                }
+                const auto& parent = nodes[n.box->parent];
+                const auto& ps = *parent.style;
+                const auto own = css::trim(s.text(P::AlignSelf, "auto"));
+                const auto align = own == "auto" ? css::trim(ps.text(P::AlignItems, "normal")) : own;
+                const auto automatic_margin = [&](PropertyId side) {
+                    return s.text(side, s.text(P::Margin, "0")) == "auto";
+                };
+                const auto parent_height = length(ps.find(P::Height));
+                if ((align != "stretch" && align != "normal") || !length(s.find(P::Height)).automatic ||
+                    automatic_margin(P::MarginTop) || automatic_margin(P::MarginBottom) ||
+                    ps.text(P::FlexWrap, "nowrap") != "nowrap" || parent_height.automatic || parent_height.percent) {
+                    return std::nullopt;
+                }
+                const float inner =
+                    parent_height.value -
+                    (ps.text(P::BoxSizing, "content-box") == "border-box" ? image_edges(ps, std::nullopt)[1] : 0);
+                const float margins = edge_px(s, P::MarginTop, P::Margin, std::nullopt) +
+                                      edge_px(s, P::MarginBottom, P::Margin, std::nullopt);
+                return image_sizing(*n.box, s, std::nullopt)
+                    .clamp(1, std::max(0.f, inner - margins - image_edges(s, std::nullopt)[1]));
+            }
+
             void create() {
                 for (auto& n : nodes) {
                     n.yoga = YGNodeNewWithConfig(config);
@@ -1032,6 +1349,22 @@ namespace weft {
                             n.order = *value;
                         }
                         if (parent.formatting == Formatting::Flex) {
+                            // An item with an auto margin across is not stretched (CSS Flexbox 1 §8.1): it keeps its
+                            // fit-content size there, where the margins place it. Yoga would stretch it to size its
+                            // basis.
+                            const auto& s = *n.style;
+                            const auto automatic = [&](PropertyId side) {
+                                return s.text(side, s.text(P::Margin, "0")) == "auto";
+                            };
+                            if (row_direction(*parent.style) ? automatic(P::MarginTop) || automatic(P::MarginBottom)
+                                                             : automatic(P::MarginLeft) || automatic(P::MarginRight)) {
+                                const auto own = css::trim(s.text(P::AlignSelf, "auto"));
+                                const auto aligned =
+                                    own == "auto" ? css::trim(parent.style->text(P::AlignItems, "normal")) : own;
+                                if (aligned == "stretch" || aligned == "normal") {
+                                    YGNodeStyleSetAlignSelf(n.yoga, YGAlignFlexStart);
+                                }
+                            }
                             // Flex items in order-modified document order (CSS Flexbox 1 §5.4): after the items
                             // before them of no greater order.
                             const auto order_at = [&](std::size_t k) {
@@ -1182,6 +1515,20 @@ namespace weft {
                     n.max_width = natural.width + edges;
                     n.intrinsic_height = natural.height + edges_v;
                     n.min_width = text.min_content(n.index) + edges;
+                } else if (n.box->image) {
+                    // Its size with percentages unresolved: its min-content width is its padding and borders alone
+                    // when a percentage sizes its width (a compressible replaced box, CSS Sizing 3 §5.2.2).
+                    unknown_w.clear();
+                    unknown_h.clear();
+                    const auto edges_image = image_edges(s, std::nullopt);
+                    const auto size =
+                        image_sizing(*n.box, s, std::nullopt)
+                            .size(image_specified(s, 0, std::nullopt), image_specified(s, 1, std::nullopt));
+                    n.max_width = size[0] + edges_image[0];
+                    n.intrinsic_height = size[1] + edges_image[1];
+                    n.min_width = length(s.find(P::Width)).percent || length(s.find(P::MaxWidth)).percent
+                                      ? edges_image[0]
+                                      : n.max_width;
                 } else if (n.box->replaced) {
                     const auto size = [&](bool width) {
                         const auto* v = s.find(width ? P::Width : P::Height);
@@ -1393,6 +1740,70 @@ namespace weft {
                 }
                 const bool main_row = row_direction(*parent.style);
                 if (s.text(main_row ? P::MinWidth : P::MinHeight, "auto") != "auto") {
+                    return;
+                }
+                // An img in a row: its content size suggestion is its width without its own width property (natural,
+                // or from its definite height through its ratio) within a px max-width; a px width (the specified
+                // size suggestion) caps it (CSS Flexbox 1 §4.5). Percentages resolve against the container's px
+                // width; of another, a percentage width or max-width caps it by a width known only in layout: then it
+                // has none.
+                if (n.box->image && main_row) {
+                    // The container's content width, where it is known and not flexed itself (a row's item).
+                    auto basis = definite_content_width(parent);
+                    if (parent.index && nodes[parent.box->parent].formatting == Formatting::Flex &&
+                        row_direction(*nodes[parent.box->parent].style)) {
+                        basis.reset();
+                    }
+                    // The content size suggestion within px bounds, a px width capping it; then a percentage width or
+                    // max-width of that width. Without it, a percentage width leaves no minimum (the img is that
+                    // wide), a percentage max-width is taken as not capping (it would widen a narrower img).
+                    auto sizing = image_sizing(*n.box, s, std::nullopt);
+                    sizing.min[0] = 0;
+                    float minimum = sizing.size(std::nullopt, row_item_height(n))[0];
+                    if (const auto width = image_specified(s, 0, std::nullopt)) {
+                        minimum = std::min(minimum, *width);
+                    }
+                    const bool border_box = s.text(P::BoxSizing, "content-box") == "border-box";
+                    const float edges = image_edges(s, basis)[0];
+                    for (const auto key : {P::Width, P::MaxWidth}) {
+                        if (const auto l = length(s.find(key)); l.percent) {
+                            if (basis) {
+                                minimum = std::min(minimum, std::max(0.f, l.value / constants::percent_scale * *basis -
+                                                                              (border_box ? edges : 0)));
+                            } else if (key == P::Width) {
+                                minimum = 0;
+                            }
+                        }
+                    }
+                    YGNodeStyleSetMinWidth(n.yoga, minimum + (border_box ? edges : 0));
+                    return;
+                }
+                // An img in a column of auto basis and height takes its content height as its basis, which it does not
+                // shrink below (as a box does, below). With a height, its content size suggestion is its height
+                // without its own height property (natural, or from its definite width through its ratio) within a
+                // px max-height; the px height caps it.
+                if (n.box->image && !(automatic_basis(s) && length(s.find(P::Height)).automatic)) {
+                    const auto basis = definite_content_width(parent);
+                    auto sizing = image_sizing(*n.box, s, basis);
+                    sizing.min[1] = 0;
+                    auto width = image_specified(s, 0, basis);
+                    const auto own = css::trim(s.text(P::AlignSelf, "auto"));
+                    const auto align = own == "auto" ? css::trim(parent.style->text(P::AlignItems, "normal")) : own;
+                    const auto automatic_margin = [&](PropertyId side) {
+                        return s.text(side, s.text(P::Margin, "0")) == "auto";
+                    };
+                    if (!width && basis && (align == "stretch" || align == "normal") &&
+                        !automatic_margin(P::MarginLeft) && !automatic_margin(P::MarginRight)) {
+                        const float margins =
+                            edge_px(s, P::MarginLeft, P::Margin, basis) + edge_px(s, P::MarginRight, P::Margin, basis);
+                        width = sizing.clamp(0, std::max(0.f, *basis - margins - image_edges(s, basis)[0]));
+                    }
+                    float minimum = sizing.size(width, std::nullopt)[1];
+                    if (const auto height = image_specified(s, 1, basis)) {
+                        minimum = std::min(minimum, *height);
+                    }
+                    const bool border_box = s.text(P::BoxSizing, "content-box") == "border-box";
+                    YGNodeStyleSetMinHeight(n.yoga, minimum + (border_box ? image_edges(s, basis)[1] : 0));
                     return;
                 }
                 const auto& unknown = main_row ? n.unknown_width : n.unknown_height;
@@ -1757,12 +2168,15 @@ namespace weft {
             // Lays out a grid item in its area box (Node::area), a column flex box `width` wide: across, stretched or
             // placed as it justifies itself; down, at its content height when `height` is indefinite (NaN), else in
             // that height, stretched (with an auto height and no auto margin) or placed as it aligns itself.
-            static void lay_out_item(Node& c, float width, float height, grid::Align justify, grid::Align align) {
+            // rtl: the grid's direction, from whose side the item justifies itself.
+            static void lay_out_item(Node& c, float width, float height, grid::Align justify, grid::Align align,
+                                     bool rtl) {
                 const auto a = c.area;
                 const auto y = c.yoga;
                 const auto& s = *c.style;
                 const bool definite = std::isfinite(height);
                 width = std::max(0.f, width);
+                c.containing_width = width;
                 YGNodeStyleSetWidth(a, width);
                 if (definite) {
                     YGNodeStyleSetHeight(a, std::max(0.f, height));
@@ -1785,7 +2199,8 @@ namespace weft {
                                            : justify == grid::Align::Center ? YGAlignCenter
                                            : justify == grid::Align::End    ? YGAlignFlexEnd
                                                                             : YGAlignFlexStart);
-                YGNodeCalculateLayout(a, width, definite ? std::max(0.f, height) : YGUndefined, YGDirectionLTR);
+                YGNodeCalculateLayout(a, width, definite ? std::max(0.f, height) : YGUndefined,
+                                      rtl ? YGDirectionRTL : YGDirectionLTR);
             }
 
             // The distance from a laid-out box's border-box top to its first baseline (CSS Box Alignment 3 §9): its
@@ -1864,6 +2279,12 @@ namespace weft {
                     }
                 }
                 const float content_width = definite_width ? width : grid::extent(columns, column_gap);
+                // direction: a right-to-left grid lays its columns out from the right (CSS Grid 1 §7.1 with CSS
+                // Writing Modes 4): an x of the left-to-right layout, mirrored in the content box.
+                const bool rtl = s.text(P::Direction, "ltr") == "rtl";
+                const auto mirror = [left = edges[0], content_width](float x) {
+                    return 2 * left + content_width - x;
+                };
                 const auto column_lines =
                     track_lines(columns, column_gap,
                                 grid::distribute(justify_content, content_width - grid::extent(columns, column_gap),
@@ -1885,7 +2306,7 @@ namespace weft {
                     justify[i] = item_alignment(c, s, false);
                     align[i] = item_alignment(c, s, true);
                     lay_out_item(c, span_size(column_lines, columns, area.column, area.column_span), indefinite,
-                                 justify[i], align[i]);
+                                 justify[i], align[i], rtl);
                     const float outer = YGNodeLayoutGetHeight(c.area);
                     down.push_back({area.row, area.row_span, outer, outer, row_minimum(c, area, rows, outer)});
                     if (align[i] == grid::Align::Baseline && area.row_span == 1) {
@@ -1924,14 +2345,18 @@ namespace weft {
                     for (std::size_t i = 0; i < count; ++i) {
                         auto& c = *state.items[i].node;
                         const auto& area = placed.areas[i];
-                        lay_out_item(c, span_size(column_lines, columns, area.column, area.column_span),
-                                     span_size(row_lines, rows, area.row, area.row_span), justify[i], align[i]);
-                        g.positions[state.items[i].ordinal] = {column_lines[area.column] + YGNodeLayoutGetLeft(c.yoga),
+                        const float span = span_size(column_lines, columns, area.column, area.column_span);
+                        lay_out_item(c, span, span_size(row_lines, rows, area.row, area.row_span), justify[i], align[i],
+                                     rtl);
+                        // A right-to-left grid's columns run from its content box's right edge.
+                        const float start = rtl ? mirror(column_lines[area.column] + span) : column_lines[area.column];
+                        g.positions[state.items[i].ordinal] = {start + YGNodeLayoutGetLeft(c.yoga),
                                                                row_lines[area.row] + YGNodeLayoutGetTop(c.yoga) +
                                                                    shims[i]};
                     }
                     place_absolute(g, {column_lines, columns, placed.columns_before, explicit_columns.size()},
-                                   {row_lines, rows, placed.rows_before, explicit_rows.size()});
+                                   {row_lines, rows, placed.rows_before, explicit_rows.size()}, rtl, edges[0],
+                                   content_width);
                 }
                 return {content_width, content_height};
             }
@@ -1964,7 +2389,10 @@ namespace weft {
             // Places a grid's absolutely positioned children (§9.1): each in its containing block, the grid's padding
             // box or, when the grid is their containing block, the area between the line numbers it names (auto at
             // the padding edges). Insets against a containing block outside the grid are outside the profile.
-            void place_absolute(Node& g, const GridAxis& across, const GridAxis& down) {
+            // rtl: a right-to-left grid, whose left-to-right track lines mirror in its content box (from content_left,
+            // content_width wide).
+            void place_absolute(Node& g, const GridAxis& across, const GridAxis& down, bool rtl, float content_left,
+                                float content_width) {
                 auto& state = *g.grid;
                 if (state.absolute.empty()) {
                     return;
@@ -1987,16 +2415,30 @@ namespace weft {
                         }
                     }
                     const auto& p = child.placement;
-                    const float x0 = contains ? across.edge(p.column_start, false, left) : left;
-                    const float x1 = contains ? across.edge(p.column_end, true, right) : right;
+                    float x0 = contains ? across.edge(p.column_start, false, left) : left;
+                    float x1 = contains ? across.edge(p.column_end, true, right) : right;
+                    if (contains && rtl) {
+                        const auto mirror = [&](float x) {
+                            return 2 * content_left + content_width - x;
+                        };
+                        // Right to left: the start line on the right, the end line on the left; auto at the padding
+                        // edges on those sides.
+                        const float none = std::numeric_limits<float>::quiet_NaN();
+                        const float start = across.edge(p.column_start, false, none);
+                        const float end = across.edge(p.column_end, true, none);
+                        x0 = std::isnan(end) ? left : mirror(end);
+                        x1 = std::isnan(start) ? right : mirror(start);
+                    }
                     const float y0 = contains ? down.edge(p.row_start, false, top) : top;
                     const float y1 = contains ? down.edge(p.row_end, true, bottom) : bottom;
                     const auto a = c.area;
+                    c.containing_width = std::max(0.f, x1 - x0);
                     YGNodeStyleSetWidth(a, std::max(0.f, x1 - x0));
                     YGNodeStyleSetHeight(a, std::max(0.f, y1 - y0));
                     YGNodeStyleSetJustifyContent(a, YGJustifyFlexStart);
                     YGNodeStyleSetAlignItems(a, YGAlignFlexStart);
-                    YGNodeCalculateLayout(a, std::max(0.f, x1 - x0), std::max(0.f, y1 - y0), YGDirectionLTR);
+                    YGNodeCalculateLayout(a, std::max(0.f, x1 - x0), std::max(0.f, y1 - y0),
+                                          rtl ? YGDirectionRTL : YGDirectionLTR);
                     g.positions[child.ordinal] = {x0 + YGNodeLayoutGetLeft(c.yoga), y0 + YGNodeLayoutGetTop(c.yoga)};
                 }
             }
@@ -2024,6 +2466,33 @@ namespace weft {
                             : wm == YGMeasureModeAtMost ? std::min(width, natural_width)
                                                         : measured.width,
                             hm == YGMeasureModeExactly ? height : measured.height};
+                } catch (...) {
+                    n.engine->callback_error = std::current_exception();
+                    return {};
+                }
+            }
+
+            // An img's content size under Yoga's constraints: an exact width or height is its own (Yoga resolved
+            // the property, or stretches it), the other follows (ImageSizing::size). An available width is no
+            // constraint (a replaced box overflows it) but gives its containing block's width: the width its
+            // percentage minimum and maximum resolve against.
+            static YGSize measure_image(YGNodeConstRef y, float width, YGMeasureMode wm, float height,
+                                        YGMeasureMode hm) noexcept {
+                auto& n = *static_cast<Node*>(YGNodeGetContext(y));
+                try {
+                    ++n.measure_calls;
+                    const auto& s = *n.style;
+                    std::optional<float> basis = n.containing_width;
+                    if (!basis && wm == YGMeasureModeAtMost && std::isfinite(width)) {
+                        const float margins = edge_px(s, P::MarginLeft, P::Margin, std::nullopt) +
+                                              edge_px(s, P::MarginRight, P::Margin, std::nullopt);
+                        basis = width + margins + image_edges(s, std::nullopt)[0];
+                    }
+                    const auto size =
+                        image_sizing(*n.box, s, basis)
+                            .size(wm == YGMeasureModeExactly ? std::optional<float>(width) : std::nullopt,
+                                  hm == YGMeasureModeExactly ? std::optional<float>(height) : std::nullopt);
+                    return {size[0], size[1]};
                 } catch (...) {
                     n.engine->callback_error = std::current_exception();
                     return {};

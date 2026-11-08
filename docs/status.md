@@ -1,6 +1,6 @@
 # Weft 当前状态
 
-更新日期：2026 年 11 月 1 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG 与移动尚未实现（键盘与焦点、文本框与输入法、手柄与空间导航已在 `input` 分支），仍未达到 M0 全部退出条件。
+更新日期：2026 年 11 月 8 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG 与移动尚未实现（键盘与焦点、文本框与输入法、手柄与空间导航已在 `input` 分支），仍未达到 M0 全部退出条件。
 
 ## 待办
 
@@ -16,6 +16,311 @@
 - **Android 示例应用与模拟器、真机运行**（2026-10-12）：需要下载 Android SDK 命令行工具、模拟器与系统镜像；NDK r30 已安装，交叉编译已验证。
 
 ## 本次已实现
+
+组的开销（2026-11-08，`weft-ingame` 分支；iPad 测试后用户要求去掉）。做法与证据见[视觉效果](visual-effects.md)的“组的开销”。
+- **问题**：
+  - 遮罩、半透明、混合等元素成为组，每个组都要切换父目标的渲染通道，并用一张整屏大小的组目标。
+  - 在苹果的分块渲染 GPU 上，每次切换都要把整个目标写出、读回。
+  - Mac 上量得每个组多 0.5 到 0.8 ms。
+- **实现**：
+  - **先画组**（Metal）：不读背景的组，在父目标开始之前先画进一张只有它合成范围大小的图片，父目标里只画一次合成；图片总面积不超过一个 pass 的面积。
+  - **常量块**：着色器的 View 常量加入目标原点和组图片的位置（16 → 48 字节）。
+  - **混合组**：苹果 GPU 上直接读目标里的颜色（framebuffer fetch，新的着色器变体 `WEFT_BLEND_FETCH`，MSL 2.3），不再复制背景；建不出这条管线时（iOS 模拟器）退回复制。
+  - **其他后端**：D3D11、D3D12、Vulkan 的行为不变，只把常量写满 48 字节。
+- **验证**（macOS 26.6，Apple M5，Debug）：
+  - `scene_schedule_contract`：新加逐条命令的用例和 2000 个先画组模式的随机 pass；对调度做的三种变异都被抓到。
+  - Metal 的 Chrome 像素对照全部通过；对着色器做的两种变异让遮罩、clip-path、混合测试失败，说明测试确实走了新路径。
+  - effects 页的离屏渲染逐像素不变。
+  - Mac 上 120 Hz 的 GPU 时间：7 个遮罩 7.81 → 3.19 ms（不加遮罩时 2.34 ms）；7 个混合 6.05 → 2.57 ms（与不混合相同）；effects 整页 7.19 → 5.82 ms。
+  - 全量 `ctest -j8`：87/95，失败的仍是原来那 8 项 fixture 检查。
+  - iOS 模拟器：effects 页正常显示，混合组走复制的退路。
+  - iPad 真机（Metal System Trace，GPU 被 Xcode 的设备状态固定在最低档）：effects 页每帧的渲染通道从 36 个降到 15 个，背景复制从 7 次降到 0；GPU 执行合计 7.40 → 6.21 ms，省下的主要是复制。片元执行几乎不变（6.10 → 5.99 ms），通道切换在 iPad 上不贵。剩下的主要是页面本身的着色，img 页也约 5 ms。
+- **未验证**：
+  - iPad 在正常 GPU 性能状态下的时间。
+  - Windows 三个后端的常量改动：没有编译、没有运行。
+  - Intel Mac。
+- **示例**：iOS 与 macOS 示例宿主在准备帧失败时会打印渲染器给出的原因。
+
+iPad 真机测试（2026-11-08，`weft-ingame` 分支；用户连上 iPad，要求把已做的放上去测）。对照与修正见[视觉效果](visual-effects.md)的“iPad 真机”与 [Web Animations](web-animations.md) 的“证据”。
+- **设备与做法**：
+  - iPad Pro 13 英寸（M4），iPadOS 26.6.2。后来的 trace 显示 GPU 一直被 Xcode 的设备状态固定在最低性能档，下面的时间都是这个档位下的。
+  - Release 构建，由 Xcode 生成器签名，`devicectl` 安装、启动并截屏，横屏 2752 × 2064 px，120 Hz。
+- **新示例页**（iOS 与 macOS 宿主都能打开）：
+  - `examples/effects`：clip-path、mask-image、mix-blend-mode 与图片缩放。
+  - `examples/animate`：先把 Web Animations 的那组步骤与 Chrome 的日志比较，再播放可点按控制的动画。
+- **结果**：
+  - effects 页的效果区域与 macOS 的离屏渲染逐像素相同；只有 4 行 13 px 文字的基线高 1 到 2 个设备像素，是 iOS 系统字体的度量不同。
+  - img 页的图片逐像素相同；第二行起整体低 1 个逻辑像素，原因同上。
+  - animate 页在真实 120 Hz 帧上 91/91 与 Chrome 一致。
+  - bidi、touch 页正常显示。
+  - 所有页面都是 120 fps。
+- **修正**：
+  - effects 页起初只有 61 fps，GPU 每帧 24.5 ms：每个遮罩组都在整个目标上逐像素算遮罩。
+  - 改成所有隔离组只在子树的绘制范围内合成（原来只有混合组这样做）。
+  - 之后 iPad 上是 120 fps，GPU 每帧 6.8 ms；macOS 上输出逐像素不变。
+  - `mask_image_browser_contract` 加了检查，退回修正时报错。
+  - 全量 `ctest -j8`：87/95，失败的仍是原来那 8 项 fixture 检查。
+- **没测**：
+  - 点按与拖动等交互，要人手在设备上做。
+  - 文本框的剪贴板、撤销与重做：iOS 宿主没有接键盘输入。
+- **仍有的开销**：每个组仍要切换整屏的渲染通道。随后已在 Metal 上去掉，见下一条“组的开销”。
+
+Web Animations，第一阶段：`element.animate()`（2026-11-08，`weft-ingame` 分支；用户在列出的缺口里选了这一项）。范围、做法与证据见 [Web Animations](web-animations.md)。
+- **实现**：
+  - `element.animate()`、`getAnimations()`、`document.timeline`、`Animation`、`KeyframeEffect` 及其控制、计时、关键帧、Promise、事件与被替换动画的移除，计时模型在 JS 里按规范实现（`scene_platform_bootstrap.js`）。
+  - 帧回调宿主每帧先更新动画（待定任务、完成状态、替换），事件在本帧回调前派发。
+  - 效果的值由场景按规范 §4 每帧求出，叠在 CSS 动画之上（`src/dom/animation.hpp`、`scene.cpp` 的 `script_progress`）；播放中不需要 JS 每帧给值。
+  - 原生缓动补上 `step-start` 与 `steps()` 的各种跳变位置；`getComputedStyle` 把插值得到的颜色按 Chrome 的写法输出。
+- **验证**（macOS 26.6，Apple M5，Debug，Chrome 156）：
+  - 新测试 `web_animations_browser_contract`（可移植；`tools/browser_web_animations_reference.mjs` 录制）：91 条日志与 Chrome 逐条一致；播放中每帧的值与当前时间一致。把合成顺序反过来时 4 条不一致。
+  - 全量 `ctest -j8`（`build/macos-img2`）：87/95，失败的仍是原来那 8 项 fixture 检查。
+- **未验证**：Windows、Android、iOS（改动不涉及渲染后端）。
+- **没做**：`composite` 的 `add`/`accumulate`、`iterationComposite`、文档以外的时间线、伪元素、`getAnimations()` 里的 CSS 动画与过渡。
+
+视觉效果，第三阶段：`mix-blend-mode`（2026-11-08，`weft-ingame` 分支，用户确认接着做）。做法、证据与差别见 [视觉效果](visual-effects.md#第三阶段mix-blend-mode)。
+- **实现**：
+  - 16 种模式与 `plus-lighter`；`isolation` 进入 scene 的属性表。
+  - 混合的元素成为组，组结束时复制目标在其绘制范围内的内容，合成的着色器用混合函数算出“混合后的源色”，再照常 source-over，不需要新的混合管线。
+  - 含有混合后代的层叠上下文成为隔离组（按 Chrome 判断层叠上下文的规则）；帧的根不隔离。
+  - 后端：复制的背景绑在效果纹理的第二个槽（t4），Metal、D3D12、Vulkan 经调度的 `Draw::backdrop`，D3D11 用已有的复制函数。
+  - 含混合元素的部分不做增量补丁，整页重建；D2D 参考光栅遇到它整帧失败。
+- **验证**（macOS 26.6，Apple M5，Debug，Chrome 156）：
+  - 新测试 `mix_blend_mode_browser_reference_metal`（只在 Apple 平台；`tools/browser_mix_blend_mode_reference.mjs` 录制）：29 格全部通过，多数逐像素差不超过 1 到 4 级；混合元素内部改动后的重画与全新渲染逐字节相同。去掉隔离组时 3 格失败，交换 `multiply` 与 `screen` 时 4 格失败。
+  - 全量 `ctest -j8`（`build/macos-img2`）：86/94，失败的仍是原来那 8 项 fixture 检查。
+- **未验证**：Windows（D3D11、D3D12、Vulkan 的复制与绑定未编译、未运行，fxc 未编译着色器），Android、iOS。
+- **没做**：`background-blend-mode`；跨行的行内元素不混合；锚点元素里的混合未测。
+- **缺口清单的这一项（视觉效果）三个阶段都已完成**。
+
+视觉效果，第二阶段补充：`url()` 图片遮罩（2026-11-08，`weft-ingame` 分支，用户确认做这一项）。做法与证据见 [视觉效果](visual-effects.md#第二阶段mask-image)。
+- **实现**：
+  - `mask-image` 的一层 `url()` 图片（PNG、JPEG、WebP、`data:` URL），与渐变层混用；自然尺寸、单边尺寸、`contain`、`cover`；alpha 或亮度；读不到的图片是透明层。
+  - 场景节点的 `mask_image`；遮罩条目记下图片的资源序号，准备阶段做成页面图片（带 mip），调度里这类绘制带 `Extra::Mask`，后端把它绑到效果纹理的第一个槽（t3），场景着色器的 `maskImage` 按页面图片的采样规则取值。
+  - 不重复的轴上图块对齐设备像素，与 Chrome 一致。
+  - 后端：Metal、D3D12、Vulkan 照抄精灵的绑定，D3D11 在组合成和图像项前绑定，Vulkan 每个描述符集都写效果槽。
+- **验证**（macOS 26.6，Apple M5，Debug，Chrome 156）：
+  - 夹具扩到 48 个用例（新增 18 个图片遮罩）。`mask_image_browser_contract`：2352 次按压中 2350 次一致，另 2 次列为已知差别（旋转盒子边外 1 像素内，Chrome 对不带遮罩的旋转盒子也算命中）。
+  - `mask_image_browser_reference_metal`：48 格全部通过，图片各格最大差多为 1 级；图片遮罩不用 mip 时细条纹一格 1200 个像素超差。
+  - 全量 `ctest -j8`（`build/macos-img2`）：85/93，失败的仍是原来那 8 项 fixture 检查。
+- **未验证**：Windows（D3D11、D3D12、Vulkan 的绑定改动未编译、未运行，fxc 未编译着色器），Android、iOS。
+- **没做**：一个元素两层以上图片遮罩（诊断）、SVG 遮罩、`mask-border`。
+- **下一步**：第三阶段 `mix-blend-mode`。
+
+视觉效果，第二阶段：`mask-image`（渐变遮罩；2026-11-08，`weft-ingame` 分支，用户确认接着做）。做法、证据与差别见 [视觉效果](visual-effects.md#第二阶段mask-image)。
+- **实现**：
+  - `mask-image` 的渐变层（`linear`、`radial`、`conic`、`repeating-*`，最多 8 层）与 `mask-size`、`-position`、`-repeat`、`-origin`、`-clip`、`-mode`、`-composite`；`mask`、`-webkit-mask` 简写在样式模块里展开成各层列表，`-webkit-mask-*` 是别名（`src/scene/scene_mask.cpp`、`src/style/style.cpp`）。
+  - 有遮罩的元素成为隔离组，组的合成那一项的裁剪链里加遮罩条目，着色器逐像素算各层的值并按运算合成，作用于整组；各后端原样上传，后端代码未改。
+  - 亮度按 Rec. 709 权重作用在编码后的 sRGB 值上（拟合 Chrome 得出）。
+  - 命中：遮罩值不影响命中，但被裁到边框盒（有 `no-clip` 时不裁），与 Chrome 一致。
+- **验证**（macOS 26.6，Apple M5，Debug，Chrome 156）：
+  - 新测试 `mask_image_browser_contract`（可移植）：30 个用例 1470 次按压与 Chrome 全部一致。
+  - 新测试 `mask_image_browser_reference_metal`（只在 Apple 平台；`tools/browser_mask_image_reference.mjs` 录制）：30 格全部通过，28 格逐像素差不超过 1 级；增量补丁与全新渲染逐字节相同。交换 `subtract` 与 `intersect` 时 2 格失败。
+  - 全量 `ctest -j8`（`build/macos-img2`）：85/93，失败的仍是原来那 8 项 fixture 检查。
+- **未验证**：Windows（fxc 未编译着色器改动，D3D11、D3D12、Vulkan 未运行）、Android、iOS。
+- **没做**：`url()` 图片遮罩（要给组的合成多绑定一张纹理，需改各后端）、`mask-repeat` 的 `space`/`round`、`mask-border`、锚点元素内的遮罩；这些报诊断并不加遮罩地画（锚点元素内的除外）。
+- **下一步**：`url()` 图片遮罩，或第三阶段 `mix-blend-mode`。
+
+视觉效果，第一阶段：`clip-path`（2026-11-08，`weft-ingame` 分支；用户在列出的缺口里选了"视觉效果"，分 `clip-path`、`mask-image`、`mix-blend-mode` 三个阶段）。做法、证据与差别见 [视觉效果](visual-effects.md)。
+- **实现**：
+  - `clip-path`、`-webkit-clip-path`：`inset()`、`rect()`、`xywh()`、`circle()`、`ellipse()`、`polygon()`、`path()` 与四种参考盒，只写参考盒时按其圆角形状（`src/scene/scene_clip_path.cpp`）。
+  - 圆角矩形类的形状用已有的圆角裁剪链；`polygon()`、`path()` 在裁剪链里新增多边形条目，顶点放在随后的条目里，着色器按环绕数判内外、按到分隔内外的边的距离做抗锯齿。各后端原样上传裁剪数组，后端代码未改。
+  - 裁剪元素自身（阴影、轮廓、`filter` 之后的图像）与后代；命中测试同样裁剪；无面积的形状什么也不画。
+  - 此前 `clip-path` 在宽松模式下报诊断并不裁剪地画；现在只有 `url()` 等不支持的值如此。D2D 参考光栅遇到 `clip-path` 整帧失败。
+- **验证**（macOS 26.6，Apple M5，Debug，Chrome 156）：
+  - 新测试 `clip_path_browser_contract`（可移植）：34 个用例 1666 次按压到达的元素与 Chrome 全部一致；另有 `inset()` 过渡的中点检查（按规范计算）。
+  - 新测试 `clip_path_browser_reference_metal`（只在 Apple 平台；`tools/browser_clip_path_reference.mjs` 录制）：34 格全部通过，每格超过 48 级的像素不超过 0.2%；增量补丁的结果与全新渲染逐字节相同。把 `evenodd` 当 `nonzero` 时 2 格失败。
+  - 全量 `ctest -j8`（`build/macos-img2`）：83/91，失败的仍是原来那 8 项 fixture 检查。
+- **未验证**：Windows（共用着色器与上传未运行，fxc 未编译；`view_css_profile_contract` 的期望改为 `url(#c)`，未运行）、Android、iOS。
+- **下一步**：第二阶段，`mask-image`；第三阶段，`mix-blend-mode`。
+
+图片元素，第三阶段：缩放质量（2026-11-08，`weft-ingame` 分支，用户确认接着做）。Chrome 的画法、做法、证据与差别见 [图片元素](img.md#第三阶段缩放质量mip-与-image-rendering)。
+- **Chrome 的画法**（Chrome 156 截图逐像素拟合得出）：
+  - 在预乘的编码 sRGB 值上过滤。
+  - mip 每级是上一级 2 × 2 的四舍五入平均，奇数边用 1-2-1 权重。
+  - 三线性选级，级别比导数给出的低 0.5；放大用双线性。
+  - `pixelated`、`crisp-edges` 在原图上取最近纹素。
+  - 图块重复铺开的背景图不用 mip。
+- **实现**：
+  - 页面图片（`<img>`、`url()` 背景、`border-image`）改为带各级 mip 的预乘编码 sRGB 纹理；此前在线性光里过滤，细条纹缩小后偏亮。
+  - 着色器按上面的规则采样；纹理坐标的导数改用记录里的矩阵计算（Metal 上图片边缘的 `ddx`/`ddy` 没有定义，有 mip 后边缘一列会选错级）。
+  - `image-rendering` 生效且可继承；此前在宽松模式里被忽略。
+  - Metal、D3D11 上传全部级别；D3D12、Vulkan 只上传第 0 级。
+- **验证**（macOS 26.6，Apple M5，Debug，Chrome 156）：
+  - 新测试 `image_scale_browser_reference_metal`（只在 Apple 平台；`tools/browser_image_scale_reference.mjs` 录制）：38 个用例全部通过，每个通道相差不超过 4 级。pixelated 图里恰好落在两纹素正中的 174 个平局像素单独计数，不算失败。去掉 -0.5 偏移后有 7 个用例失败。
+  - 新测试 `scene_image_mips_contract`（可移植）。
+  - 全量 `ctest -j8`（`build/macos-img2`）：81/89，失败的仍是原来那 8 项 fixture 检查。
+- **未验证**：Windows（D3D11 的多级上传与共用着色器的改动没有用 fxc 编译，也没有运行；DXC 在本机编译通过）、Android、iOS。
+- **与 Chrome 不同**：
+  - pixelated 平局像素取哪个纹素：Chrome 由浮点舍入决定，没有规律。
+  - 只对照了无头 Chrome，开 GPU 光栅的 Chrome 没有对照。
+  - D3D12、Vulkan 缩小时仍会闪烁。
+
+文本框的剪贴板、撤销与重做（2026-11-08，`weft-ingame` 分支；用户在列出的缺口里选了这一项）。做法与证据见 [与引擎通信](engine-communication.md) 的"文本框的剪贴板、撤销与重做"。
+- **实现**：
+  - 复制、剪切、粘贴：`ClipboardEvent` 与 `DataTransfer`，阻止与自带数据，密码框、只读框，粘贴进单行框时换行变空格、`maxlength` 截断。
+  - 撤销、重做：文档级的历史，连续打字和连续删除各合成一步，撤销时焦点移到那一步的框，`historyUndo`、`historyRedo` 事件（含 Chrome 删除步骤没有 beforeinput 的怪癖）。
+  - 平台的快捷键（Apple 用 Command，其他用 Control）。
+  - `navigator.clipboard.writeText/readText`、`document.execCommand`。
+  - C 接口 `weft_view_set_clipboard`；没有宿主剪贴板时用 View 自己的。
+- **验证**（macOS 26.6，Apple M5，Debug，Chrome 156）：
+  - 新测试 `field_editing_browser_contract`（可移植）：136 步、184 条事件与状态日志与 Chrome 逐条相同；关掉步骤合并会失败。
+  - `c_api_view_contract` 加了剪贴板一段。
+  - 全量 `ctest -j8`（`build/macos-img2`）：79/87，失败的仍是原来那 8 项 fixture 检查。
+- **未验证**：Windows（Control 快捷键在那里生效，只在 Windows 上跑的 `text_field_contract` 只用到 Ctrl+A，行为未变；没有在 Windows 上运行）、Android、iOS。示例宿主没有接系统剪贴板（它们不把键盘交给页面）。
+- **没做**：拖放文字、右键菜单、文本框以外的页面选区复制；Apple 平台上按词移动、删除等其余键仍是 Windows 的习惯。
+
+通用布局修正：弹性长度、绝对定位的 `auto` 外边距（2026-11-08，`weft-ingame` 分支，`<img>` 第一阶段里列为已知的差别；所有页面受影响）。原因与证据见 [图片元素](img.md#顺带修的通用布局问题)。
+- **Yoga 补丁 0006**（`CalculateLayout.cpp`）：弹性长度按 CSS Flexbox 1 §9.7 的冻结循环解析，剩余空间按未夹过 min/max 的基准算。修了 `flex: 1` 从 0 增长（两张自然宽 40、16 的图片在 400px 行里此前排成 212/188，Chrome 200/200），也修了宽度失控：Yoga 原来的第一遍逐个减掉冻结项的缩小系数，总和剩下符号相反的浮点残差，第二遍除以它，几项一起缩到最小尺寸时宽到 1e8 px 以上（random 113 里 2.8e8）。
+- **Yoga 补丁 0007**（`AbsoluteLayout.cpp`）：两侧都有 inset 的绝对定位盒子，`auto` 外边距分掉剩下的空间（CSS 2 §10.3.7、§10.3.8、§10.6.4、§10.6.5，水平方向为负时起始边取 0）；适配层（`src/layout/flex.cpp`）有 `auto` 外边距时不再去掉结束侧的 inset。
+- 两个补丁的原因、哈希链（接在 0004、0003 之后）与退出条件记入 `third_party/yoga/metadata.json` 与 `third_party/manifest.json`。
+- **验证**（macOS 26.6，Apple M5，Debug，Chrome 156）：
+  - `scene_img_browser_contract` 用 Chrome 重录（`node tools/browser_img_reference.mjs`，随机树、绘制与脚本的记录不变），加了 4 个用例：144 个排版用例中 135 个逐元素一致，最大差 1/64 px；"flex grow from zero"与"absolute centered by auto margins"不再是已知差别，剩 9 棵嵌套 flex/网格的随机树。补丁前的 Yoga 在新用例上都不一致，宽度到 2.6e8 px。
+  - 全量 `ctest -j8`（`build/macos-metal`）：78/86，失败的是原来那 8 项 fixture 检查；`dependency_integrity` 通过。
+- **未验证**：Windows（只在 Windows 上跑的 Chrome flex 与绝对定位对照可能受这两个补丁影响，没有运行）、Android、iOS。
+- **仍是已知差别**：被压缩的 px 宽 flex 项里，子元素的百分比 `width`、`max-width` 和自动最小尺寸按它的 px 宽度而不是最终宽度算（random 113 里 Chrome 15px、weft 66px）；嵌套 flex 容器的自动最小尺寸仍是近似。
+
+图片元素，第二阶段：格式与来源（2026-11-08，`weft-ingame` 分支，用户确认接着做）。做法、证据与差别见 [图片元素](img.md#第二阶段格式与来源)。
+- **依赖**：新增 libjpeg-turbo 3.1.4.1 与 libwebp 1.6.0（Chrome 同款；完整未修改源码，633 与 367 个文件逐个记入 manifest；签名因本机没有 gpg 未验证，只核对 SHA256）。
+- **实现**：
+  - 页面图片按文件头识别 PNG、JPEG、WebP（`view_decode_image`），GIF、SVG 等报出具体格式。
+  - JPEG 照 Blink 的设置解码，应用 Exif 方向，CMYK 按 Blink 的公式转换，不带算术编码；12 位与算术编码的 JPEG 与 Chrome 一样只占尺寸、画成透明。
+  - WebP 有损、无损、透明都解码；动画 WebP 显示第一帧，不播放。
+  - `data:` URL（百分号与 base64），`<img>` 与 CSS `url()` 都可用。
+  - `examples/img` 加了 JPEG、WebP 与 `data:` URL；iOS 示例也打包它们。
+- **验证**（macOS 26.6，Apple M5，Debug，Chrome 156）：
+  - 新测试 `image_decode_browser_contract`（可移植）：31 张夹具（`tools/image_decode_fixtures.mjs` 生成）与 Chrome 尺寸全部一致，不透明像素逐字节相同，半透明像素预乘后差 1 级以内；32 个 `data:` URL 像素与文件相同，8 种错误输入报对应诊断。
+  - 全量 `ctest -j8`（`build/macos-img2`，含并行的 Yoga 修正任务已登记的补丁）：78/86，失败的仍是原来那 8 项 fixture 检查；`dependency_integrity` 通过。
+  - `examples/img` 的 Metal 截图正常；iOS 模拟器编译、打包通过（未运行）。
+- **未验证**：Windows（MSVC 下 libjpeg-turbo 的配置没有编译过）、Android（本机无 NDK）、iOS 真机。
+- **下一步**：第三阶段，mip 与 `image-rendering`；动画 WebP 与 GIF 的播放另议。
+
+图片元素，第一阶段：`<img>`（2026-11-08，`weft-ingame` 分支；用户在列出的缺口里接着选了这一项）。范围、做法、证据与差别见 [图片元素](img.md)。
+- **实现**：
+  - `<img>` 是替换元素：按 CSS 2 §10.3.2、§10.4、§10.6.2 算尺寸，`width`、`height` 属性映射为样式和 `aspect-ratio`，新增 `aspect-ratio`（只作用于 img）、`object-fit`、`object-position`。
+  - 行内、块级、flex 项、网格项、绝对定位都按 Chrome 处理，包括 flex 基准尺寸和自动最小尺寸。
+  - 图片画在内容盒里，按 `object-fit`/`object-position` 放置、按内圆角裁剪，各 GPU pass 用背景图同一套着色器。
+  - 脚本：`HTMLImageElement`、`new Image()`、`complete`、`naturalWidth/Height`、`currentSrc`、`width/height`、`decode()`、`load`/`error` 事件（下一帧定时器之后派发，顺序同 Chrome）。
+  - 示例宿主补上资源回调；`examples/img`（macOS 按键 8，iOS 也打包）。
+- **顺带修的通用布局问题**（所有页面）：
+  - 块级与行内级子元素混排时建匿名块盒，此前行内子元素各自按块排。
+  - Yoga 补丁 0004（测量阶段按夹过 min/max 的基准累加）、0005（min 大于 max 时 min 优先），记入 manifest。
+  - 交叉轴有 `auto` 外边距的 flex 项不拉伸。
+- **验证**（macOS 26.6，Apple M5，Debug，Chrome 156）：
+  - 新测试 `scene_img_browser_contract`（可移植）：140 个排版用例（20 个手写、120 棵随机树）中 129 个逐元素一致，最大差 1/64 px；另 11 个已知差别单独列出（`flex: 1` 从 0 增长、绝对定位的 `auto` 外边距、9 棵嵌套 flex/网格的随机树）。
+  - 35 个 `object-fit` 用例（截图色块）在 1 px 内；脚本 34 步一致（1 步是写明的有意差别：换 `src` 后立即按新图排版）。
+  - 全量 `ctest -j8`：77/85，失败的仍是原来那 8 项 fixture 检查；`examples/img` 的 Metal 截图正常。
+- **未验证**：Windows（D3D、Vulkan pass 未在本机运行；只在 Windows 上跑的 Chrome 行内与 flex 对照可能受匿名块和 Yoga 补丁影响）、Android、iOS。D2D 参考光栅不画 `<img>` 的图片。
+- **下一步**：第二阶段，JPEG、WebP 与 `data:` URL；第三阶段，mip 与 `image-rendering`。
+
+从右到左，第三阶段：跨元素塑形（2026-11-07，`weft-ingame` 分支，用户选了这一项）。范围、做法与证据见 [文字方向与复杂文字](bidi-text.md#第三阶段跨元素塑形)。
+- **实现**：
+  - 同一段落里字体相同、层级相同的相邻文本项一起塑形，中间的行内盒在那一侧有外边距、边框、内边距或非 baseline 的 `vertical-align` 时断开（Blink 的规则）。
+  - 每次塑形带段落里前后各 5 个字符作 HarfBuzz 的上下文（`ShapeContext`）。
+  - 一起塑形的文字，绘制、文本框和原生缓存都用布局时的字形（`SceneLine::run`、`SceneNode::text_run`）。
+  - 塑形不再在空格处切开，只有 CJK 字符单独塑形（同 LayoutNG），空格参与字距调整。
+- **验证**（macOS 26.6，Apple M5，Debug，Chrome 156）：
+  - `scene_bidi_browser_contract` 加了 6 个用例：被 span 切开的阿拉伯词（变色、带内边距、大字号）、跨 span 的拉丁字距、span 里的阿拉伯附加符号、被 span 切开的天城文。241 个用例全部一致，最大水平差 0.029 px。
+  - 反向检查：关掉一起塑形与上下文，新用例出现 103 处失败；恢复按空格切开，跨 span 字距用例出现 4 处失败。
+  - 盒子方向、文本框与字形缓存的对照仍全部一致；全量 `ctest -j8` 为 76/84，失败的仍是原来那 8 项 fixture 检查。
+- **未验证**：Windows（整段塑形改变带空格字距对的字体的文字宽度，只在 Windows 上跑的 Chrome 行内与文本框对照可能受影响）、Android、iOS。
+
+从右到左，第二阶段：盒子、省略号与文本框（2026-11-07，`weft-ingame` 分支，用户确认接着做）。范围、做法与差别见 [文字方向与复杂文字](bidi-text.md#第二阶段盒子省略号与文本框)。
+- **实现**：
+  - Yoga 适配器按每个盒子的 `direction` 设 Yoga 方向（块、flex、绝对定位）；过约束的绝对定位按包含块的方向去掉被忽略的 inset。
+  - 网格区域在从右到左时镜像，网格项按网格的方向在区域里排。
+  - 从右到左的滚动容器向左溢出，`scrollLeft` 为负（`ElementGeometry::scroll_left_min/max`，脚本、滚轮、触摸、键盘、`scrollIntoView`、空间导航都用它）。
+  - 省略号按视觉顺序从行尾截断。
+  - 文本框：输入框的文字铺满内容盒按 `text-align` 放，光标在双向交界处站在较低层级一侧，选区按字符实际位置画，左右方向键按文本框方向，从右到左输入框向左滚动。
+  - UA 表照 Chrome 现在的 html.css：`bdo` 为 `isolate-override`，输入框 `text-align: start`，`textarea[dir=auto]` 为 `plaintext`。
+- **验证**（macOS 26.6，Apple M5，Debug，Chrome 156）：
+  - 新测试 `scene_rtl_box_browser_contract`：16 个手写用例与 150 棵随机树。随机树先比从左到右的孪生树，一致的 101 棵再比从右到左版本，全部一致；共 2,994 个元素盒与 8 个滚动容器，最大差 1/64 px。
+  - 新测试 `scene_rtl_field_browser_contract`（View，可移植）：6 个文本框的 30 个光标、18 个选区（截图取色）与 48 次方向键，全部一致。
+  - `scene_bidi_browser_contract` 加了 6 个省略号用例（截图墨迹范围，2 px 内），共 235 个用例全部一致；把从右到左截断改坏会出现 16 处失败。
+  - 全量 `ctest -j8`：76/84，失败的仍是原来那 8 项 fixture 检查。
+  - `examples/bidi` 加了从右到左的 flex 行、截断标题与输入框，截图正常。
+- **顺带发现的已有差别**（与方向无关，没改）：随机树里有 49 棵的从左到右版本就与 Chrome 不同，原因是外边距折叠未实现、auto 宽度块的 `auto` 外边距、网格项比轨道宽时的对齐与网格项里的 auto 外边距、网格项内的绝对定位后代够不到外层包含块。
+- **未验证**：Windows（Windows 上的 Chrome 行内与文本框对照可能受输入框排版改动影响）、Android、iOS；从右到左输入框溢出时的滚动没有对照 Chrome。
+
+从右到左与复杂文字，第一阶段（2026-11-07，`weft-ingame` 分支；用户在列出的缺口里选了这一项）。范围、做法与差别见 [文字方向与复杂文字](bidi-text.md)。
+- **依赖**：新增 SheenBidi 3.0.0（Apache-2.0，Unicode 17；`third_party/sheenbidi`，224 个文件逐个记入 manifest）。上游测试 16/16 通过，BidiTest 与 BidiCharacterTest 91,707 行 0 错误（macOS，Debug）。
+- **实现**：
+  - `weft::bidi`（`src/text/bidi.*`）：段落层级（按 ICU 的方式调整），L2 重排，文字系统切分。
+  - 塑形接受方向与文字系统（`ShapeSegment`）。`SceneText::shape` 先按层级、再按单词与文字系统切段；后备字体按文字系统挑。
+  - 行内布局插入双向控制字符，按层级拆分文字项，每行按视觉顺序放置并拆分行内盒，`text-align: start/end` 按方向。
+  - `direction`、`unicode-bidi`、`dir`（含 auto，层叠里作为表现属性）、`bdi`、`bdo`。
+  - 平台的按文字系统后备字体：macOS 用 CoreText，Windows 用固定表，Android 读 fonts.xml 的语言标签。
+  - 示例页 `examples/bidi`（macOS 示例按键 7，iOS 示例也打包了）。
+- **照 Chrome 修正的换行**（从左到右的页面同样受影响）：空格串之后总可换行；原子内联前后的换行机会；`<br>` 之后的闭标签留在原行；行尾空格之后的结束边缘不计入能否放下。
+- **验证**（macOS 26.6，Apple M5，Debug）：
+  - 新测试 `scene_bidi_browser_contract`（可移植，仓库字体）：与 Chrome 156 的 229 个用例（29 个手写、200 个随机）逐元素片段、逐文字片段、逐字符一致：859 个矩形、1,294 个片段、6,042 个字符，最大水平差 0.029 px。
+  - 另两个种子各 200 个随机用例中有 4 个仍有差别，属于原子内联与控制字符相邻时的断行、带 `<br>` 的从右到左盒子片段，以及 UAX #14 LB25 的实现差别。
+  - 全量 `ctest -j8`：74/82，失败的仍是原来那 8 项 fixture 检查。
+  - macOS 系统字体下的截图正常（阿拉伯文连写、希伯来文、`bdi`、`dir=auto`、泰文、天城文合体字）。
+- **未验证**：Windows（包括只在 Windows 上跑的 Chrome 行内对照，新的换行规则可能影响它）、Android、iOS；Windows 与 Android 的按文字系统后备字体只写了代码。
+- **下一步**：第二阶段已在同日完成（见上一条）。剩下跨元素塑形；泰文等按词典断行需要先定词典依赖（ICU 数据或 libthai）。
+
+触摸与多点触控（2026-11-07，`weft-ingame` 分支；用户在列出的缺口里选了这一项：移动端要能触摸操作，行为照 Chrome）。设计与差别见 [与引擎通信](engine-communication.md#8-对外-view133)“触摸与多点触控”。
+- **参照**：
+  - 新工具 `tools/browser_touch_reference.mjs` 用 CDP 的触摸模拟在 Chrome 156（macOS）上跑 `tests/fixtures/touch` 的 16 个场景，记录每步的事件与状态。
+  - 另外两个一次性实验确认了 Chrome 的边界事件规则与指针捕获的事件顺序。
+- **实现**：
+  - C 接口 `weft_view_touch`（`include/weft/weft.h`、`src/core/runtime.cpp`）。
+  - `View::touch`（`src/view/view.cpp`）：触点、阈值、点按、平移锁定、松手速度（二次最小二乘）与 Chrome 的惯性曲线（`View::advance` 推进）。
+  - `ScriptDom`（`src/script/script_dom.*`）：触摸指针字段、`dispatch_touch`（Touch/TouchList/TouchEvent）、`pan_scroller` 与 `scroll_by`、点按后的 `:active`、指针捕获表与 `setPointerCapture` 等三个方法。
+  - `touch-action` 改为不继承。
+  - iOS 示例改用 `weft_view_touch` 并开启多点触控（只验证了真机目标的编译与链接，没有运行）。
+- **顺带修正鼠标**：悬停变化时先发全部指针边界事件再发鼠标的（Chrome 的顺序，此前交错）；enter/leave 不可取消；鼠标也支持指针捕获。
+- **验证**（macOS 26.6，Apple M5，Debug）：
+  - 新测试 `touch_contract`（可移植）：16 个场景 84 步与 Chrome 逐事件一致，每步的滚动位置、`:hover`、`:active` 也一致；惯性比较松手后滚的距离。
+  - 同一测试另外检查：新触点停下惯性且不算点按，惯性停在容器尽头，鼠标捕获与触点释放捕获的序列和 Chrome 逐个相同，不合法的触点被拒绝。
+  - 全量 `ctest -j8`：73/81，失败的仍是原来那 8 项 fixture 检查。
+- **与 Chrome 的差别**：
+  - Chrome 快速平移时重采样并预测约 8 ms，内容领先手指（2.5 px/ms 时约 20 px），weft 严格跟手。
+  - 平移期间 weft 每次移动都发不可取消的 touchmove。
+  - enter/leave 不到 document、html、body。
+- **输入设备**（同日，用户确认接着做）：新接口 `weft_view_set_input_devices` 让宿主声明主要指针（鼠标、触屏或没有）、全部设备和触点数。
+  - 页面随之看到的，与 Chrome 156 在桌面和触摸模拟下的结果逐项一致（一次性实验核对）：`@media` 与 `matchMedia` 的 `pointer`、`any-pointer`、`hover`、`any-hover`，`navigator.maxTouchPoints`，以及有触屏时才有的 `ontouchstart` 等处理器属性。
+  - 宽松样式表的 `@media` 条件变成按设备求值（`style.cpp` 的 `MediaCondition::Kind::Device`），结果变了就重新层叠。
+  - `matchMedia` 改为实时结果，结果变化时发 `change` 事件（尺寸变化后也检查）。
+  - 不设置时仍是鼠标；iOS 示例声明为触屏。
+  - `touch_contract` 新增四种设备的检查。全量仍是 73/81，失败的是原来那 8 项 fixture 检查。
+- **未做 / 未验证**：
+  - 双指缩放、长按菜单、滚动链与回弹、触摸选字。
+  - iOS 与 Android 真机运行。
+  - Windows 编译。
+
+游戏内 UI：导出纹理扩展（2026-11-06，`weft-ingame` 分支；用户提出：weft 不支持 in-game UI，要把 UI 绘制结果交给宿主，做外部纹理导入的反向）。设计与取舍见 [游戏内 UI](ingame-ui.md)。
+- **接口**：新的可选扩展 [render_export_texture.h](../include/weft/render_export_texture.h)，v1 核心布局不变。`weft_renderer_create_export` 一次建好 1–8 张图像的环（尺寸、格式、mip 链）；`weft_renderer_encode_export` 把 View 帧画进一张空闲图像，返回普通 use 和一张图像 lease（版本号、原生纹理）；`weft_renderer_release_export_image` 带上宿主最后一次采样它的提交序号，完成后图像回到环里；没有空闲图像时 `BUSY`、什么都不录。公共层在安装时分配全部容量，提交/完成路径不分配。
+- **Metal**：`weft_render_metal_export`。场景 pass 照常在 sRGB 编码预乘空间画到按 use 归属的 BGRA8 暂存纹理（浏览器观感不变），再由 [export_resolve.hlsl](../src/render/shaders/export_resolve.hlsl)（DXC → SPIR-V → MSL）转成线性预乘写进图像 0 级，blit 生成低级 mip。格式：`SRGB_RGBA8`、`SRGB_BGRA8`、`LINEAR_RGBA16F`；最多 32 张图像、256 MiB。
+- **验证**（macOS 26.6，Apple M5，Debug，`build/macos-metal`）：`render_backend_contract` 新增三项：校验与环/租约（容量、字节预算、创建失败回滚、部分录制失败、导出销毁后的延迟回收、过期 lease）、设备 abandon、4000 步随机 encode/release/complete/discard 对照模型（只画空闲图像、选最久未画的、`BUSY` 当且仅当无空闲、每张图像恰好销毁一次、回调路径禁止分配）；四个注入的公共层 bug（忽略采样序号、忽略写入 use、选最新、丢释放序号）都被抓到。`render_backend_concept`（C++ 概念与生成表）、`render_backend_c_abi`（C 编译、64 位布局、空渲染器）、`render_metal_shader_contract`（resolve 的入口、绑定、阶段接口）。新增 `render_export_metal`（真 GPU，完整 C ABI：运行时 → View → Metal 渲染器 → 导出 → 读回）：不透明橙色 16F 读回 (1, 0.2158, 0, 1)，半透明灰 0.1074（线性预乘；直接解码预乘值会得到 0.051），透明为 0；1×1 mip 与整页均值相差 < 0.0002；sRGB8 图像解码后一致；两张环、`BUSY`、等待采样序号、再次复用同一张图像。全量 `ctest -j8`：69/77，失败的 8 项与此前相同（fixture 完整性，与本次无关）。
+- **macOS 3D 示例**（同日，`samples/macos-ingame`，[说明与数据](ingame-ui.md#macos-3d-示例)）：
+  - 三块世界空间面板：可点击的控制终端、每秒更新的状态板、远处的招牌，加上随终端输出变色、变速的核心。
+  - 只在 View 的 `revision` 变化时重画页面。鼠标位置换成相机射线，求交得到面板和页面坐标，再交给 `weft_view_pointer`。
+  - 4×MSAA、sRGB 目标、三线性加各向异性采样。
+  - `--shot build/ingame-shot.png`：射线点击 +10 后游戏收到 40 → 50，页面诊断为 0，退出码 0。这一项注册成了 ctest `ingame_sample_shot`；加上它后全量 `ctest -j8` 是 70/78，失败的仍是原来那 8 项 fixture 检查。截图里预乘 alpha 叠加无黑边。关掉 mip 后远处招牌的细纹和小字明显走样。
+  - 窗口模式 `--capture` 与离屏一致。
+  - `--bench 10`（2560×1440 px，Debug）：
+    - UI 静止时 CPU p50 0.044 ms/帧，GPU 世界 p50 0.14 ms，10 s 只重画 14 次。
+    - 状态板每帧都动时 CPU p50 0.16 ms，页面 GPU p50 0.15 / p99 0.68 ms。
+    - 首帧三块页面 GPU 约 29 ms。
+  - 鼠标悬停、拖动和滚轮在真窗口里没有人工试过；点击路径只在 `--shot` 里自动验证过。
+- **未做 / 未验证**：
+  - iOS 只验证了真机目标的编译（`build/ios-device`，`weft_scene_metal`），真机与模拟器都没运行。
+  - Vulkan、D3D12、D3D11 没有导出实现，Windows 上也没编译本次改动。
+  - 图集与脏矩形未做。
+  - 2026-11-06 查了单帧 CPU 尖峰（[细节](ingame-ui.md#cpu-峰值2026-11-06)），没有异常或泄漏：
+    - 尖峰在状态板每秒一次的更新上，Release 约 0.6 ms，最高 1.8 ms，120 s 不增长；Debug 2–4 ms；窗口被压到 60 fps 降频时 5–10 ms。
+    - 同样的更新每帧都做只要 0.12 ms，差的大半是冷启动。
+    - 构成：页面脚本里 16 次 `style.height` 写入走 JS 的 CSSOM Proxy，每次都重解析、重拼整个 style 属性（约占 20%，换成 `cssText` 后 p50 0.119 → 0.094 ms）；布局和文字测量；FreeType 整段重新栅格化变化的文字；Metal 编码器创建。
+  - 2026-11-07 修了第一项：`element.style` 的单个属性写入和读取改成原生实现（`__ceStyleSet`、`__ceStyleGet`），语义与原 JS 实现逐字一致。
+    - 新测试 `inline_style_contract`：以原 JS 实现为参照，做 36000 步随机差分；注入三处错误都能抓到。
+    - Debug 下单次写入从 16.7 µs 降到 3.5 µs。
+    - 示例中状态板每帧更新的 CPU p50 从 0.117 降到 0.094 ms（Release，新旧交替测量）。每秒一次的峰值受 CPU 状态支配，新旧都在约 0.28 ms 和约 0.6 ms 两档，差别在噪声以内。
+    - 全量 `ctest -j8`：71/79，失败的仍是原来那 8 项 fixture 检查。Windows 没有编译这次改动。
+  - 2026-11-07 修了第二项：静止文字的字形缓存（`SceneText::glyph`，`scene_text_image` 带 phase 时使用；按精确的位模式作键，输出逐字节相同；上限 4096 个字形、4 MiB）。
+    - 新测试 `scene_glyph_cache`（可移植）：600 个随机用例与全新栅格化逐字节一致；时钟换一秒只栅格化 1 个字形；移动文字不碰缓存；缓存满了会清空且始终在上限内。
+    - Release 下一行时钟文字图像 24.7 → 13.1 µs。示例中状态板每次更新的 CPU 约降一成（p50 0.104 → 0.093 ms，三轮里两轮），这个页面每次只换一行短文字，上限就是这么多。
+    - 全量 `ctest -j8`：72/80，失败的仍是那 8 项 fixture 检查。Windows 上的文字图像测试（`scene_text_image`、`text_phase_reference`）没有运行，Windows 也没编译。
+- **下一步**：iOS 运行验证（示例移植到 `samples/ios-host` 或单独的 iOS 目标），然后 Vulkan 导出。
 
 静止的文字落到设备像素，照 Chrome 的规则（2026-11-01，`katex` 分支，接着 KaTeX 那一条；用户定：只对齐静止上下文里的文字）。
 - **起因**：weft 把一行文字画进位图，再按节点的小数位置双线性采样，小数位置上的字比 Chrome 软（KaTeX 的上下标、居中在半像素上的标签）。Chrome 156 实测：横排字形的基线取整到设备像素，笔位量化到 1/4 设备像素，都是 0.5 进位，1 倍与 2 倍相同。

@@ -1,0 +1,6 @@
+{
+  "scripts": ["chrome-log.js", "../../tests/fixtures/web_animations/animations.js", "animate-demo.js"],
+  "stylesheet": "animate-demo.css",
+  "forgivingCss": true,
+  "webPlatform": true
+}

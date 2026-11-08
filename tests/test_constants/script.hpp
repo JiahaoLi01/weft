@@ -24,6 +24,9 @@ namespace weft::test_constants::script {
     inline constexpr int scheduler_gc_period = 17;
     inline constexpr int mutation_differential_steps = 512;
     inline constexpr int mutation_gc_period = 16;
+    // Inline style declarations against the JS reference (inline_style_tests): random runs and their steps.
+    inline constexpr unsigned inline_style_seeds = 24;
+    inline constexpr int inline_style_steps = 1500;
 
     // Owner executor differential: inputs, publication wait period and owner GC period.
     inline constexpr int owner_differential_inputs = 512;

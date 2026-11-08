@@ -38,6 +38,22 @@ namespace weft {
         bool missing_glyph{};
     };
 
+    // A run of text of one direction and one script, as shaping takes it: HarfBuzz shapes it in that direction (a
+    // right-to-left run's glyphs come in visual order, left to right) with that script's shaper. script is an ISO
+    // 15924 tag (script_runs); 0 lets HarfBuzz guess the script and direction from the text.
+    struct ShapeSegment {
+        bool rtl{};
+        std::uint32_t script{};
+    };
+
+    // The text around what is shaped, as HarfBuzz's pre- and post-context (UTF-8): an Arabic letter joins, and a
+    // contextual substitution looks, across the boundary without the context being shaped (Blink passes its paragraph's
+    // text). HarfBuzz reads up to five characters of each.
+    struct ShapeContext {
+        std::string_view before;
+        std::string_view after;
+    };
+
     struct FontMetrics {
         float ascent{};
         float descent{};
@@ -207,9 +223,12 @@ namespace weft {
         bool has_color_glyphs() const;
         // Glyph of a Unicode code point, 0 when the face has none.
         std::uint32_t glyph_index(char32_t codepoint) const;
-        // HarfBuzz's default features, and `features` over the whole text.
+        // HarfBuzz's default features, and `features` over the whole text; as segment says when given, otherwise in
+        // the direction and script HarfBuzz guesses.
         ShapedText shape(std::string_view utf8, float pixels, ShapePrecision precision = ShapePrecision::Fixed26_6,
-                         std::span<const FontFeature> features = {}) const;
+                         std::span<const FontFeature> features = {},
+                         const std::optional<ShapeSegment>& segment = std::nullopt,
+                         const ShapeContext& context = {}) const;
         GlyphBitmap rasterize(std::uint32_t glyph_id, float pixels);
         // Coverage of the outline with its origin offset_x right of and offset_y below a whole pixel origin
         // (subpixel positioning, y down); left/top stay relative to that whole pixel origin. skew slants the outline
@@ -263,8 +282,10 @@ namespace weft {
 
     // Shapes text with the first font and moves every cluster it cannot render to the first later font
     // that covers it; adjacent clusters of one font are shaped together. Glyph font_id is the index in
-    // fonts. Bounded profile of left-to-right scripts that shape without script itemization: Latin, Greek, Cyrillic,
-    // Han, Hiragana, Katakana, Hangul, Bopomofo, Common and Inherited (no bidi).
+    // fonts. With a segment, the text is one run of its direction and script (the caller itemized it: SceneText), and
+    // a right-to-left run's glyphs come in visual order. Without one, a bounded profile of left-to-right scripts that
+    // shape without script itemization: Latin, Greek, Cyrillic, Han, Hiragana, Katakana, Hangul, Bopomofo, Common and
+    // Inherited (no bidi; other text is WEFT_TEXT_SCRIPT).
     // With roles (one per font), the listed fonts are tried in order first; then, as Chrome's system fallback
     // chooses, an emoji shown as text (by default, or with VS15) prefers a monochrome fallback font and one shown as
     // emoji (by default, or with VS16) a color one. With ranges (one list per font, an empty one for every code
@@ -272,7 +293,9 @@ namespace weft {
     FallbackText shape_with_fallback(const std::vector<Font*>& fonts, std::string_view utf8, float pixels,
                                      ShapePrecision precision = ShapePrecision::Fixed26_6,
                                      std::span<const FontFeature> features = {}, std::span<const FontRole> roles = {},
-                                     std::span<const std::vector<UnicodeRange>> ranges = {});
+                                     std::span<const std::vector<UnicodeRange>> ranges = {},
+                                     const std::optional<ShapeSegment>& segment = std::nullopt,
+                                     const ShapeContext& context = {});
 
     // The fonts of a fallback list as shaping asks for them, so that a font no cluster reaches need not be opened:
     // `count` fonts, font(i) the i-th, and role(i) its role when roles is set (one per font as above).
@@ -289,7 +312,9 @@ namespace weft {
     FallbackText shape_with_fallback(const FallbackFonts& fonts, std::string_view utf8, float pixels,
                                      ShapePrecision precision = ShapePrecision::Fixed26_6,
                                      std::span<const FontFeature> features = {},
-                                     std::span<const std::vector<UnicodeRange>> ranges = {});
+                                     std::span<const std::vector<UnicodeRange>> ranges = {},
+                                     const std::optional<ShapeSegment>& segment = std::nullopt,
+                                     const ShapeContext& context = {});
 
     // Whether a code point lies in a unicode-range (an empty one is every code point).
     bool in_unicode_range(std::span<const UnicodeRange> ranges, char32_t codepoint);

@@ -1,0 +1,116 @@
+/* A page of visual effects (docs/visual-effects.md, docs/img.md): clip-path shapes and a clip-path transition,
+   mask-image gradients and image masks, mix-blend-mode discs over a picture, and images drawn smaller (mipmaps) and
+   larger (smooth and pixelated). The pictures are this folder's photo.png; a tap on a clipped or masked shape says
+   which, and taps outside a clip-path shape do not reach it. */
+#root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 18px 22px;
+  background-color: #10151c;
+  color: #e6edf3;
+  font-family: system-ui;
+  font-size: 15px;
+  line-height: 22px;
+  overflow: hidden;
+}
+
+.title {
+  font-size: 22px;
+  line-height: 30px;
+  font-weight: 700;
+}
+
+.status {
+  font-size: 13px;
+  line-height: 20px;
+  color: #9fd39f;
+  margin-bottom: 4px;
+}
+
+.section {
+  font-size: 13px;
+  line-height: 22px;
+  font-weight: 700;
+  color: #f0c040;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.card {
+  padding: 6px 8px 8px;
+  border-radius: 8px;
+  background-color: #1b2430;
+}
+
+.label {
+  font-size: 12px;
+  line-height: 18px;
+  color: #8b98a5;
+}
+
+.shape {
+  width: 140px;
+  height: 110px;
+  background-image: linear-gradient(135deg, #f0c040, #e0508a 55%, #6a5cff);
+}
+
+.opening {
+  clip-path: inset(36px 46px round 16px);
+  transition: clip-path 0.5s ease;
+}
+
+.opening.open {
+  clip-path: inset(0px 0px round 16px);
+}
+
+.picture {
+  position: relative;
+  width: 140px;
+  height: 110px;
+  background-image: url(photo.png);
+  background-size: cover;
+}
+
+.disc {
+  position: absolute;
+  left: 30px;
+  top: 15px;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background-image: linear-gradient(135deg, #ff5a36, #3b82f6);
+}
+
+.quarter {
+  display: block;
+  width: 64px;
+  height: 64px;
+}
+
+.eighth {
+  display: block;
+  width: 32px;
+  height: 32px;
+}
+
+.photo-quarter {
+  display: block;
+  width: 60px;
+  height: 40px;
+}
+
+.big {
+  display: block;
+  width: 96px;
+  height: 96px;
+}
+
+.pixelated {
+  image-rendering: pixelated;
+}

@@ -17,6 +17,14 @@ namespace weft::constants::text {
 #endif
     // Largest UTF-8 input of single-font shaping.
     inline constexpr int max_shape_input_bytes = constants::bytes_per_mib;
+    // The ISO 15924 tags of the scripts that are no script of their own (SheenBidi's script runs give them to text
+    // no script claims): Common (Zyyy), Inherited (Zinh) and Unknown (Zzzz). HarfBuzz guesses such text's script.
+    inline constexpr std::uint32_t script_common = 0x5A797979;
+    inline constexpr std::uint32_t script_inherited = 0x5A696E68;
+    inline constexpr std::uint32_t script_unknown = 0x5A7A7A7A;
+    // The characters of context on each side that shaping passes HarfBuzz (HB_BUFFER_CONTEXT_LENGTH: it reads no
+    // more).
+    inline constexpr int shape_context_characters = 5;
     // Ordered fonts of one fallback set and their total file bytes.
     inline constexpr int max_fallback_fonts = 8;
     inline constexpr int max_font_set_bytes = 64 * constants::bytes_per_mib;

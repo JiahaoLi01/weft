@@ -95,4 +95,8 @@ namespace weft::test_constants::scene {
     inline constexpr int transition_list_cases = 300;
     inline constexpr std::uint32_t transition_list_seed = 0xce7a2610u;
     inline constexpr double transition_model_tolerance = 1e-4;
+    // The glyph cache of still text (scene_glyph_cache): random lines against a fresh raster, and sizes that overfill it.
+    inline constexpr std::uint32_t glyph_cache_seed = 0xce1b1107u;
+    inline constexpr int glyph_cache_cases = 600;
+    inline constexpr int glyph_cache_sizes = 160;
 } // namespace weft::test_constants::scene

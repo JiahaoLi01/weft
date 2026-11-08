@@ -75,6 +75,25 @@ namespace weft {
     using ConsoleHost = std::function<void(ConsoleLevel, std::string_view text)>;
     using MediaHost = std::function<bool(std::string_view query)>;
 
+    // The system clipboard as the host has it (plain text): what is on it (none: no text), and text to put on it.
+    struct ClipboardHost {
+        std::function<std::optional<std::string>()> read;
+        std::function<void(std::string_view text)> write;
+    };
+
+    enum class ClipboardCommand : std::uint8_t {
+        Copy,
+        Cut,
+        Paste
+    };
+
+    // An img's image as the host has it: the URL a src names, resolved against the page (img.src, currentSrc), and
+    // the natural size of the image a src names (none: no such image, or bytes that are none: the img's error).
+    struct ImageHost {
+        std::function<std::string(std::string_view src)> resolve;
+        std::function<std::optional<std::array<std::uint32_t, 2>>(std::string_view src)> load;
+    };
+
     // A message weft.engine sent the engine (docs/engine-communication.md, 6.3): a send (call 0) or a call (its id),
     // with its name and its value as a bridge value (bridge/bridge_value.hpp).
     struct EngineMessage {
@@ -143,7 +162,11 @@ namespace weft {
         PointerEnter,
         PointerLeave,
         PointerCancel,
-        DblClick
+        DblClick,
+        // A pointer's capture (a touch's is implicit, to the element it went down on): the event that follows it
+        // goes there.
+        GotPointerCapture,
+        LostPointerCapture
     };
 
     struct MouseEvent {
@@ -164,6 +187,50 @@ namespace weft {
         // A click the keyboard or script asked for (Blink's simulated click): a PointerEvent with pointerId -1, an empty
         // pointerType, detail 0 and no position.
         bool simulated{};
+        // A touch's pointer event, or the click its tap makes: pointerType "touch", its pointerId, whether it is the
+        // primary touch, its contact's width, height and pressure, and the button that changed (-1: none). Positions
+        // are as given (a tap's click is at the whole px it went down at).
+        bool touch{};
+        int pointer_id{};
+        bool primary{true};
+        double width{1};
+        double height{1};
+        double pressure{};
+        int button{};
+        // A tap's mouseup leaves :active (release_active ends it): Chrome keeps a tapped element active a moment.
+        bool keep_active{};
+    };
+
+    // A touch of a TouchEvent (Touch): its identifier, the element it started on, where it is and its contact.
+    struct TouchPoint {
+        std::uint32_t identifier{};
+        NodeIdentity target{};
+        double client_x{};
+        double client_y{};
+        double radius_x{};
+        double radius_y{};
+        double force{};
+    };
+
+    enum class TouchType {
+        Start,
+        Move,
+        End,
+        Cancel
+    };
+
+    // A TouchEvent: the touches on the surface after it (touches; targetTouches are those that started on its
+    // target), the ones it is about (changedTouches), whether a listener may cancel it, its time and modifiers.
+    struct DomTouchEvent {
+        TouchType type{};
+        bool cancelable{true};
+        std::vector<TouchPoint> touches;
+        std::vector<TouchPoint> changed;
+        double time_ms{};
+        bool ctrl{};
+        bool shift{};
+        bool alt{};
+        bool meta{};
     };
 
     // KeyboardEvent.getModifierState's modifiers, as bits (the C ABI's WEFT_MODIFIER_*).
@@ -339,6 +406,24 @@ namespace weft {
         DomChanges changes_since(std::uint64_t revision) const;
         // Owner-only host event. Weak identity is revalidated; detached targets are rejected.
         DispatchResult dispatch_mouse(NodeIdentity target, const MouseEvent& event);
+        // A TouchEvent at its target (the element the touch started on, connected or not while it lives).
+        DispatchResult dispatch_touch(NodeIdentity target, const DomTouchEvent& event);
+        // Ends the :active state a tap's mouseup left (MouseEvent::keep_active).
+        void release_active();
+        // Pointer capture (element.setPointerCapture, releasePointerCapture, hasPointerCapture): the host's View says
+        // which pointers are active (the mouse always, a touch while it is on the surface), whether each can be
+        // captured now (the mouse while a button is down; a touch) and sets a touch's implicit capture to the element
+        // it went down on; the page's calls change a pointer's pending capture target, which the View reads before
+        // each of its events (gotpointercapture and lostpointercapture as it changes). An inactive pointer's calls
+        // throw NotFoundError.
+        void set_pointer(int pointer_id, bool active, bool capturable, NodeIdentity capture = {});
+        NodeIdentity pointer_capture(int pointer_id) const;
+        // A touch pan's scroller (Chrome latches a pan to one): the nearest scroll container from target up that can
+        // still scroll by (dx, dy) on an axis it moves; none when none can.
+        NodeIdentity pan_scroller(NodeIdentity target, double dx, double dy);
+        // Scrolls a scroll container by (dx, dy), each axis that scrolls clamped to its range, queuing its scroll
+        // event; what it moved.
+        std::array<double, 2> scroll_by(NodeIdentity scroller, double dx, double dy);
         // Fresh layout on every geometry read. The host cannot enter JS or mutate
         // this owner while measuring; only owned snapshots/weak identities cross it.
         void install_layout_host(LayoutHost);
@@ -354,6 +439,26 @@ namespace weft {
         void install_console_host(ConsoleHost);
         void install_storage(std::shared_ptr<WebStorage> local, std::shared_ptr<WebStorage> session);
         void install_media_host(MediaHost);
+        // The images of img elements (HTMLImageElement): a src set asks for its image, which loads at the next
+        // deliver_images, after the timers of the frame it was asked in, firing the img's load or error event. Without
+        // a host, a src resolves to itself and loads no image.
+        void install_image_host(ImageHost);
+        // Loads the images asked for before the call and fires their events; images asked for meanwhile wait for the
+        // next call. The messages of what handlers threw.
+        std::vector<std::string> deliver_images();
+        // The clipboard that copy, cut and paste use, and navigator.clipboard. Without a host there is none: copy and
+        // cut put nothing anywhere, paste finds nothing.
+        void install_clipboard_host(ClipboardHost);
+        // A clipboard command at a text field, as Chrome's Editor runs one from its shortcut: copy and cut fire their
+        // ClipboardEvent (none at a password field) and, unless a listener prevented it, put the selection onto the
+        // clipboard, cut deleting it (beforeinput and input of deleteByCut); a prevented one puts the text/plain its
+        // listener gave instead. Paste fires paste with the clipboard's text and, unless prevented, replaces the
+        // selection with it (insertFromPaste; a line break is a space in an input). Nothing for another element.
+        void clipboard_command(NodeIdentity field, ClipboardCommand command);
+        // Undo (redo) the document's last edit, as Chrome's Editor does: the history is the document's, not a field's;
+        // typing and deleting by keys merge into one step while the caret goes on; the step's field takes the focus.
+        // Whether there was a step to undo (redo).
+        bool history_command(bool redo);
         // The element that has the focus; none when it has none or left the document.
         std::optional<NodeIdentity> focused() const;
         // Moves the focus to target (none: no element has it) with blur, focusout, focus and focusin as Blink orders

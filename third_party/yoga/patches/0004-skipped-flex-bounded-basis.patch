@@ -1,0 +1,19 @@
+diff --git a/yoga/algorithm/CalculateLayout.cpp b/yoga/algorithm/CalculateLayout.cpp
+--- a/yoga/algorithm/CalculateLayout.cpp
++++ b/yoga/algorithm/CalculateLayout.cpp
+@@ -1110,7 +1110,14 @@
+       // dimensionWithMargin.
+       flexLine.layout.mainDim +=
+           child->style().computeMarginForAxis(mainAxis, availableInnerWidth) +
+-          childLayout.computedFlexBasis.unwrap();
++          boundAxisWithinMinAndMax(
++              child,
++              direction,
++              mainAxis,
++              childLayout.computedFlexBasis,
++              mainAxisOwnerSize,
++              ownerWidth)
++              .unwrap();
+       flexLine.layout.crossDim = availableInnerCrossDim;
+     } else {
+       // The main dimension is the sum of all the elements dimension plus

@@ -16,12 +16,13 @@ target_include_directories(weft_ios_demo PRIVATE "${PROJECT_SOURCE_DIR}/samples/
 target_link_libraries(weft_ios_demo PRIVATE weft::core weft::view weft::scene_metal
     "-framework UIKit" "-framework Metal" "-framework QuartzCore" "-framework CoreGraphics" "-framework Foundation")
 
-# The pages, at examples/<folder> in the bundle, as the source tree has them (the logo variants' page.json name the
+# The pages (the HUD, the logo variants and the touch page), at examples/<folder> in the bundle, as the source tree has them (the logo variants' page.json name the
 # shared script and stylesheets one folder up).
-foreach(folder engine-host logo)
+foreach(folder engine-host logo touch bidi img effects animate)
     file(GLOB_RECURSE pages CONFIGURE_DEPENDS RELATIVE "${PROJECT_SOURCE_DIR}/examples"
         "${PROJECT_SOURCE_DIR}/examples/${folder}/*.js" "${PROJECT_SOURCE_DIR}/examples/${folder}/*.css"
-        "${PROJECT_SOURCE_DIR}/examples/${folder}/*.json")
+        "${PROJECT_SOURCE_DIR}/examples/${folder}/*.json" "${PROJECT_SOURCE_DIR}/examples/${folder}/*.png"
+        "${PROJECT_SOURCE_DIR}/examples/${folder}/*.jpg" "${PROJECT_SOURCE_DIR}/examples/${folder}/*.webp")
     foreach(page ${pages})
         get_filename_component(directory "${page}" DIRECTORY)
         target_sources(weft_ios_demo PRIVATE "${PROJECT_SOURCE_DIR}/examples/${page}")
@@ -29,6 +30,12 @@ foreach(folder engine-host logo)
             MACOSX_PACKAGE_LOCATION "examples/${directory}")
     endforeach()
 endforeach()
+
+# The animate page checks Web Animations against Chrome with the steps of the test's fixture, which its page.json names
+# two folders up: the same place in the bundle as in the source tree.
+target_sources(weft_ios_demo PRIVATE "${PROJECT_SOURCE_DIR}/tests/fixtures/web_animations/animations.js")
+set_source_files_properties("${PROJECT_SOURCE_DIR}/tests/fixtures/web_animations/animations.js" PROPERTIES
+    MACOSX_PACKAGE_LOCATION "tests/fixtures/web_animations")
 
 set_target_properties(weft_ios_demo PROPERTIES
     MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"

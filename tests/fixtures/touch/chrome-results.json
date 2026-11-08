@@ -1,0 +1,8827 @@
+{
+ "chrome": "Chrome/156.0.8078.80",
+ "scenarios": {
+  "tap": [
+   {
+    "step": {
+     "start": [
+      {
+       "id": 1,
+       "at": "tap"
+      }
+     ]
+    },
+    "events": [
+     {
+      "type": "pointerover",
+      "target": "tap",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerdown",
+      "target": "tap",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchstart",
+      "target": "tap",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 1,
+        "target": "tap",
+        "x": 120,
+        "y": 70
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "tap",
+        "x": 120,
+        "y": 70
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "end": [
+      1
+     ],
+     "dt": 60
+    },
+    "events": [
+     {
+      "type": "gotpointercapture",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerup",
+      "target": "tap",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "lostpointercapture",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerout",
+      "target": "tap",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "touchend",
+      "target": "tap",
+      "cancelable": true,
+      "touches": [],
+      "targetTouches": 0,
+      "changed": [
+       {
+        "id": 1,
+        "target": "tap",
+        "x": 120,
+        "y": 70
+       }
+      ]
+     },
+     {
+      "type": "mouseover",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mouseenter",
+      "target": "document",
+      "cancelable": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mouseenter",
+      "target": "html",
+      "cancelable": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mouseenter",
+      "target": "body",
+      "cancelable": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mouseenter",
+      "target": "root",
+      "cancelable": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mouseenter",
+      "target": "tap",
+      "cancelable": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mousemove",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mousedown",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "detail": 1,
+      "pointerType": null
+     },
+     {
+      "type": "mouseup",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 1,
+      "pointerType": null
+     },
+     {
+      "type": "click",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 1,
+      "pointerType": "touch"
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [
+      "tap"
+     ],
+     "active": [
+      "tap"
+     ]
+    }
+   },
+   {
+    "step": {
+     "wait": 400
+    },
+    "events": [],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [
+      "tap"
+     ],
+     "active": []
+    }
+   }
+  ],
+  "tap_nostart": [
+   {
+    "step": {
+     "start": [
+      {
+       "id": 1,
+       "at": "nostart"
+      }
+     ]
+    },
+    "events": [
+     {
+      "type": "pointerover",
+      "target": "nostart",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 300,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 300,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 300,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 300,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 300,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "nostart",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 300,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerdown",
+      "target": "nostart",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 300,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchstart",
+      "target": "nostart",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 1,
+        "target": "nostart",
+        "x": 300,
+        "y": 70
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "nostart",
+        "x": 300,
+        "y": 70
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "end": [
+      1
+     ],
+     "dt": 60
+    },
+    "events": [
+     {
+      "type": "gotpointercapture",
+      "target": "nostart",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 300,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerup",
+      "target": "nostart",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 300,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "lostpointercapture",
+      "target": "nostart",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 300,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerout",
+      "target": "nostart",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 300,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "nostart",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 300,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 300,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 300,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 300,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 300,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "touchend",
+      "target": "nostart",
+      "cancelable": true,
+      "touches": [],
+      "targetTouches": 0,
+      "changed": [
+       {
+        "id": 1,
+        "target": "nostart",
+        "x": 300,
+        "y": 70
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "wait": 400
+    },
+    "events": [],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   }
+  ],
+  "tap_noend": [
+   {
+    "step": {
+     "start": [
+      {
+       "id": 1,
+       "at": "noend"
+      }
+     ]
+    },
+    "events": [
+     {
+      "type": "pointerover",
+      "target": "noend",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "noend",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerdown",
+      "target": "noend",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchstart",
+      "target": "noend",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 1,
+        "target": "noend",
+        "x": 480,
+        "y": 70
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "noend",
+        "x": 480,
+        "y": 70
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "end": [
+      1
+     ],
+     "dt": 60
+    },
+    "events": [
+     {
+      "type": "gotpointercapture",
+      "target": "noend",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerup",
+      "target": "noend",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "lostpointercapture",
+      "target": "noend",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerout",
+      "target": "noend",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "noend",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "touchend",
+      "target": "noend",
+      "cancelable": true,
+      "touches": [],
+      "targetTouches": 0,
+      "changed": [
+       {
+        "id": 1,
+        "target": "noend",
+        "x": 480,
+        "y": 70
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "wait": 400
+    },
+    "events": [],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   }
+  ],
+  "tap_twice_elsewhere": [
+   {
+    "step": {
+     "start": [
+      {
+       "id": 1,
+       "at": "tap"
+      }
+     ]
+    },
+    "events": [
+     {
+      "type": "pointerover",
+      "target": "tap",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerdown",
+      "target": "tap",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchstart",
+      "target": "tap",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 1,
+        "target": "tap",
+        "x": 120,
+        "y": 70
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "tap",
+        "x": 120,
+        "y": 70
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "end": [
+      1
+     ],
+     "dt": 60
+    },
+    "events": [
+     {
+      "type": "gotpointercapture",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerup",
+      "target": "tap",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "lostpointercapture",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerout",
+      "target": "tap",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "touchend",
+      "target": "tap",
+      "cancelable": true,
+      "touches": [],
+      "targetTouches": 0,
+      "changed": [
+       {
+        "id": 1,
+        "target": "tap",
+        "x": 120,
+        "y": 70
+       }
+      ]
+     },
+     {
+      "type": "mouseover",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mouseenter",
+      "target": "document",
+      "cancelable": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mouseenter",
+      "target": "html",
+      "cancelable": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mouseenter",
+      "target": "body",
+      "cancelable": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mouseenter",
+      "target": "root",
+      "cancelable": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mouseenter",
+      "target": "tap",
+      "cancelable": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mousemove",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mousedown",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "detail": 1,
+      "pointerType": null
+     },
+     {
+      "type": "mouseup",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 1,
+      "pointerType": null
+     },
+     {
+      "type": "click",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 1,
+      "pointerType": "touch"
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [
+      "tap"
+     ],
+     "active": [
+      "tap"
+     ]
+    }
+   },
+   {
+    "step": {
+     "wait": 600
+    },
+    "events": [],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [
+      "tap"
+     ],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "start": [
+      {
+       "id": 2,
+       "at": "noend"
+      }
+     ]
+    },
+    "events": [
+     {
+      "type": "pointerover",
+      "target": "noend",
+      "cancelable": true,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "document",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "html",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "body",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "root",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "noend",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerdown",
+      "target": "noend",
+      "cancelable": true,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchstart",
+      "target": "noend",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 2,
+        "target": "noend",
+        "x": 480,
+        "y": 70
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 2,
+        "target": "noend",
+        "x": 480,
+        "y": 70
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [
+      "tap"
+     ],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "end": [
+      2
+     ],
+     "dt": 60
+    },
+    "events": [
+     {
+      "type": "gotpointercapture",
+      "target": "noend",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerup",
+      "target": "noend",
+      "cancelable": true,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "lostpointercapture",
+      "target": "noend",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerout",
+      "target": "noend",
+      "cancelable": true,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "noend",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "root",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "body",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "html",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "document",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 480,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "touchend",
+      "target": "noend",
+      "cancelable": true,
+      "touches": [],
+      "targetTouches": 0,
+      "changed": [
+       {
+        "id": 2,
+        "target": "noend",
+        "x": 480,
+        "y": 70
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [
+      "tap"
+     ],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "wait": 400
+    },
+    "events": [],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [
+      "tap"
+     ],
+     "active": []
+    }
+   }
+  ],
+  "tap_small_move": [
+   {
+    "step": {
+     "start": [
+      {
+       "id": 1,
+       "at": "tap"
+      }
+     ]
+    },
+    "events": [
+     {
+      "type": "pointerover",
+      "target": "tap",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerdown",
+      "target": "tap",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchstart",
+      "target": "tap",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 1,
+        "target": "tap",
+        "x": 120,
+        "y": 70
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "tap",
+        "x": 120,
+        "y": 70
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "move": [
+      {
+       "id": 1,
+       "by": [
+        3,
+        2
+       ]
+      }
+     ],
+     "dt": 30
+    },
+    "events": [
+     {
+      "type": "gotpointercapture",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 123,
+      "y": 72,
+      "button": -1,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointermove",
+      "target": "tap",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 123,
+      "y": 72,
+      "button": -1,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "end": [
+      1
+     ],
+     "dt": 30
+    },
+    "events": [
+     {
+      "type": "pointerup",
+      "target": "tap",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 123,
+      "y": 72,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "lostpointercapture",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 123,
+      "y": 72,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerout",
+      "target": "tap",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 123,
+      "y": 72,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 123,
+      "y": 72,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 123,
+      "y": 72,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 123,
+      "y": 72,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 123,
+      "y": 72,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 123,
+      "y": 72,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "touchend",
+      "target": "tap",
+      "cancelable": true,
+      "touches": [],
+      "targetTouches": 0,
+      "changed": [
+       {
+        "id": 1,
+        "target": "tap",
+        "x": 123,
+        "y": 72
+       }
+      ]
+     },
+     {
+      "type": "mouseover",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mouseenter",
+      "target": "document",
+      "cancelable": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mouseenter",
+      "target": "html",
+      "cancelable": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mouseenter",
+      "target": "body",
+      "cancelable": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mouseenter",
+      "target": "root",
+      "cancelable": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mouseenter",
+      "target": "tap",
+      "cancelable": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mousemove",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mousedown",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "detail": 1,
+      "pointerType": null
+     },
+     {
+      "type": "mouseup",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 1,
+      "pointerType": null
+     },
+     {
+      "type": "click",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 1,
+      "pointerType": "touch"
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [
+      "tap"
+     ],
+     "active": [
+      "tap"
+     ]
+    }
+   },
+   {
+    "step": {
+     "wait": 400
+    },
+    "events": [],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [
+      "tap"
+     ],
+     "active": []
+    }
+   }
+  ],
+  "drag_off_tap": [
+   {
+    "step": {
+     "start": [
+      {
+       "id": 1,
+       "at": "tap"
+      }
+     ]
+    },
+    "events": [
+     {
+      "type": "pointerover",
+      "target": "tap",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerdown",
+      "target": "tap",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchstart",
+      "target": "tap",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 1,
+        "target": "tap",
+        "x": 120,
+        "y": 70
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "tap",
+        "x": 120,
+        "y": 70
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "move": [
+      {
+       "id": 1,
+       "by": [
+        0,
+        20
+       ]
+      }
+     ],
+     "dt": 30
+    },
+    "events": [
+     {
+      "type": "gotpointercapture",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 90,
+      "button": -1,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointermove",
+      "target": "tap",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 90,
+      "button": -1,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchmove",
+      "target": "tap",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 1,
+        "target": "tap",
+        "x": 120,
+        "y": 90
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "tap",
+        "x": 120,
+        "y": 90
+       }
+      ]
+     },
+     {
+      "type": "pointercancel",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "lostpointercapture",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerout",
+      "target": "tap",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "move": [
+      {
+       "id": 1,
+       "by": [
+        0,
+        30
+       ]
+      }
+     ],
+     "dt": 30
+    },
+    "events": [
+     {
+      "type": "touchmove",
+      "target": "tap",
+      "cancelable": false,
+      "touches": [
+       {
+        "id": 1,
+        "target": "tap",
+        "x": 120,
+        "y": 120
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "tap",
+        "x": 120,
+        "y": 120
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "move": [
+      {
+       "id": 1,
+       "by": [
+        0,
+        30
+       ]
+      }
+     ],
+     "dt": 30
+    },
+    "events": [
+     {
+      "type": "touchmove",
+      "target": "tap",
+      "cancelable": false,
+      "touches": [
+       {
+        "id": 1,
+        "target": "tap",
+        "x": 120,
+        "y": 150
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "tap",
+        "x": 120,
+        "y": 150
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "end": [
+      1
+     ],
+     "dt": 30
+    },
+    "events": [
+     {
+      "type": "touchend",
+      "target": "tap",
+      "cancelable": false,
+      "touches": [],
+      "targetTouches": 0,
+      "changed": [
+       {
+        "id": 1,
+        "target": "tap",
+        "x": 120,
+        "y": 150
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "wait": 400
+    },
+    "events": [],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   }
+  ],
+  "pad_drag": [
+   {
+    "step": {
+     "start": [
+      {
+       "id": 1,
+       "at": "pad",
+       "dx": 60,
+       "dy": 60
+      }
+     ]
+    },
+    "events": [
+     {
+      "type": "pointerover",
+      "target": "pad",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 100,
+      "y": 200,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 100,
+      "y": 200,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 100,
+      "y": 200,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 100,
+      "y": 200,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 100,
+      "y": 200,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "pad",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 100,
+      "y": 200,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerdown",
+      "target": "pad",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 100,
+      "y": 200,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchstart",
+      "target": "pad",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 1,
+        "target": "pad",
+        "x": 100,
+        "y": 200
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "pad",
+        "x": 100,
+        "y": 200
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "move": [
+      {
+       "id": 1,
+       "by": [
+        20,
+        10
+       ]
+      }
+     ],
+     "dt": 30
+    },
+    "events": [
+     {
+      "type": "gotpointercapture",
+      "target": "pad",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 210,
+      "button": -1,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointermove",
+      "target": "pad",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 210,
+      "button": -1,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchmove",
+      "target": "pad",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 1,
+        "target": "pad",
+        "x": 120,
+        "y": 210
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "pad",
+        "x": 120,
+        "y": 210
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "move": [
+      {
+       "id": 1,
+       "by": [
+        20,
+        10
+       ]
+      }
+     ],
+     "dt": 30
+    },
+    "events": [
+     {
+      "type": "pointermove",
+      "target": "pad",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 140,
+      "y": 220,
+      "button": -1,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchmove",
+      "target": "pad",
+      "cancelable": false,
+      "touches": [
+       {
+        "id": 1,
+        "target": "pad",
+        "x": 140,
+        "y": 220
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "pad",
+        "x": 140,
+        "y": 220
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "move": [
+      {
+       "id": 1,
+       "by": [
+        20,
+        10
+       ]
+      }
+     ],
+     "dt": 30
+    },
+    "events": [
+     {
+      "type": "pointermove",
+      "target": "pad",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 160,
+      "y": 230,
+      "button": -1,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchmove",
+      "target": "pad",
+      "cancelable": false,
+      "touches": [
+       {
+        "id": 1,
+        "target": "pad",
+        "x": 160,
+        "y": 230
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "pad",
+        "x": 160,
+        "y": 230
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "move": [
+      {
+       "id": 1,
+       "by": [
+        20,
+        10
+       ]
+      }
+     ],
+     "dt": 30
+    },
+    "events": [
+     {
+      "type": "pointermove",
+      "target": "pad",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 180,
+      "y": 240,
+      "button": -1,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchmove",
+      "target": "pad",
+      "cancelable": false,
+      "touches": [
+       {
+        "id": 1,
+        "target": "pad",
+        "x": 180,
+        "y": 240
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "pad",
+        "x": 180,
+        "y": 240
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "end": [
+      1
+     ],
+     "dt": 30
+    },
+    "events": [
+     {
+      "type": "pointerup",
+      "target": "pad",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 180,
+      "y": 240,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "lostpointercapture",
+      "target": "pad",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 180,
+      "y": 240,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerout",
+      "target": "pad",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 180,
+      "y": 240,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "pad",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 180,
+      "y": 240,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 180,
+      "y": 240,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 180,
+      "y": 240,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 180,
+      "y": 240,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 180,
+      "y": 240,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "touchend",
+      "target": "pad",
+      "cancelable": false,
+      "touches": [],
+      "targetTouches": 0,
+      "changed": [
+       {
+        "id": 1,
+        "target": "pad",
+        "x": 180,
+        "y": 240
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "wait": 400
+    },
+    "events": [],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   }
+  ],
+  "grab_drag": [
+   {
+    "step": {
+     "start": [
+      {
+       "id": 1,
+       "at": "grab"
+      }
+     ]
+    },
+    "events": [
+     {
+      "type": "pointerover",
+      "target": "grab",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 660,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 660,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 660,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 660,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 660,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "grab",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 660,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerdown",
+      "target": "grab",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 660,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchstart",
+      "target": "grab",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 1,
+        "target": "grab",
+        "x": 660,
+        "y": 70
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "grab",
+        "x": 660,
+        "y": 70
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "move": [
+      {
+       "id": 1,
+       "by": [
+        0,
+        20
+       ]
+      }
+     ],
+     "dt": 30
+    },
+    "events": [
+     {
+      "type": "gotpointercapture",
+      "target": "grab",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 660,
+      "y": 90,
+      "button": -1,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointermove",
+      "target": "grab",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 660,
+      "y": 90,
+      "button": -1,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchmove",
+      "target": "grab",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 1,
+        "target": "grab",
+        "x": 660,
+        "y": 90
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "grab",
+        "x": 660,
+        "y": 90
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "move": [
+      {
+       "id": 1,
+       "by": [
+        0,
+        20
+       ]
+      }
+     ],
+     "dt": 30
+    },
+    "events": [
+     {
+      "type": "pointermove",
+      "target": "grab",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 660,
+      "y": 110,
+      "button": -1,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchmove",
+      "target": "grab",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 1,
+        "target": "grab",
+        "x": 660,
+        "y": 110
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "grab",
+        "x": 660,
+        "y": 110
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "move": [
+      {
+       "id": 1,
+       "by": [
+        0,
+        20
+       ]
+      }
+     ],
+     "dt": 30
+    },
+    "events": [
+     {
+      "type": "pointermove",
+      "target": "grab",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 660,
+      "y": 130,
+      "button": -1,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchmove",
+      "target": "grab",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 1,
+        "target": "grab",
+        "x": 660,
+        "y": 130
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "grab",
+        "x": 660,
+        "y": 130
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "end": [
+      1
+     ],
+     "dt": 30
+    },
+    "events": [
+     {
+      "type": "pointerup",
+      "target": "grab",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 660,
+      "y": 130,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "lostpointercapture",
+      "target": "grab",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 660,
+      "y": 130,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerout",
+      "target": "grab",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 660,
+      "y": 130,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "grab",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 660,
+      "y": 130,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 660,
+      "y": 130,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 660,
+      "y": 130,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 660,
+      "y": 130,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 660,
+      "y": 130,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "touchend",
+      "target": "grab",
+      "cancelable": true,
+      "touches": [],
+      "targetTouches": 0,
+      "changed": [
+       {
+        "id": 1,
+        "target": "grab",
+        "x": 660,
+        "y": 130
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "wait": 400
+    },
+    "events": [],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   }
+  ],
+  "list_pan_slow": [
+   {
+    "step": {
+     "start": [
+      {
+       "id": 1,
+       "at": "list",
+       "dx": 150,
+       "dy": 200
+      }
+     ]
+    },
+    "events": [
+     {
+      "type": "pointerover",
+      "target": "row3",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 550,
+      "y": 340,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 550,
+      "y": 340,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 550,
+      "y": 340,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 550,
+      "y": 340,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 550,
+      "y": 340,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "list",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 550,
+      "y": 340,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "row3",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 550,
+      "y": 340,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerdown",
+      "target": "row3",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 550,
+      "y": 340,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchstart",
+      "target": "row3",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 1,
+        "target": "row3",
+        "x": 550,
+        "y": 340
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "row3",
+        "x": 550,
+        "y": 340
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "move": [
+      {
+       "id": 1,
+       "by": [
+        0,
+        -30
+       ]
+      }
+     ],
+     "dt": 60
+    },
+    "events": [
+     {
+      "type": "gotpointercapture",
+      "target": "row3",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 550,
+      "y": 310,
+      "button": -1,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointermove",
+      "target": "row3",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 550,
+      "y": 310,
+      "button": -1,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchmove",
+      "target": "row3",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 1,
+        "target": "row3",
+        "x": 550,
+        "y": 310
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "row3",
+        "x": 550,
+        "y": 310
+       }
+      ]
+     },
+     {
+      "type": "pointercancel",
+      "target": "row3",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "lostpointercapture",
+      "target": "row3",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerout",
+      "target": "row3",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "row3",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "list",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 15,
+      "left": 0,
+      "t": 49
+     }
+    ],
+    "state": {
+     "list": 15,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "move": [
+      {
+       "id": 1,
+       "by": [
+        0,
+        -30
+       ]
+      }
+     ],
+     "dt": 60
+    },
+    "events": [
+     {
+      "type": "touchmove",
+      "target": "row3",
+      "cancelable": false,
+      "touches": [
+       {
+        "id": 1,
+        "target": "row3",
+        "x": 550,
+        "y": 280
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "row3",
+        "x": 550,
+        "y": 280
+       }
+      ]
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 45,
+      "left": 0,
+      "t": 18
+     }
+    ],
+    "state": {
+     "list": 45,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "move": [
+      {
+       "id": 1,
+       "by": [
+        0,
+        -30
+       ]
+      }
+     ],
+     "dt": 60
+    },
+    "events": [
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 75,
+      "left": 0,
+      "t": 19
+     }
+    ],
+    "state": {
+     "list": 75,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "move": [
+      {
+       "id": 1,
+       "by": [
+        0,
+        -30
+       ]
+      }
+     ],
+     "dt": 60
+    },
+    "events": [
+     {
+      "type": "touchmove",
+      "target": "row3",
+      "cancelable": false,
+      "touches": [
+       {
+        "id": 1,
+        "target": "row3",
+        "x": 550,
+        "y": 250
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "row3",
+        "x": 550,
+        "y": 250
+       }
+      ]
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 105,
+      "left": 0,
+      "t": 19
+     }
+    ],
+    "state": {
+     "list": 105,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "move": [
+      {
+       "id": 1,
+       "by": [
+        0,
+        0
+       ]
+      }
+     ],
+     "dt": 200
+    },
+    "events": [
+     {
+      "type": "touchmove",
+      "target": "row3",
+      "cancelable": false,
+      "touches": [
+       {
+        "id": 1,
+        "target": "row3",
+        "x": 550,
+        "y": 220
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "row3",
+        "x": 550,
+        "y": 220
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 105,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "end": [
+      1
+     ],
+     "dt": 60
+    },
+    "events": [
+     {
+      "type": "touchend",
+      "target": "row3",
+      "cancelable": false,
+      "touches": [],
+      "targetTouches": 0,
+      "changed": [
+       {
+        "id": 1,
+        "target": "row3",
+        "x": 550,
+        "y": 220
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 105,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "wait": 800
+    },
+    "events": [],
+    "state": {
+     "list": 105,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   }
+  ],
+  "list_fling": [
+   {
+    "step": {
+     "start": [
+      {
+       "id": 1,
+       "at": "list",
+       "dx": 150,
+       "dy": 210
+      }
+     ]
+    },
+    "events": [
+     {
+      "type": "pointerover",
+      "target": "row3",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 550,
+      "y": 350,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 550,
+      "y": 350,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 550,
+      "y": 350,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 550,
+      "y": 350,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 550,
+      "y": 350,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "list",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 550,
+      "y": 350,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "row3",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 550,
+      "y": 350,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerdown",
+      "target": "row3",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 550,
+      "y": 350,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchstart",
+      "target": "row3",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 1,
+        "target": "row3",
+        "x": 550,
+        "y": 350
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "row3",
+        "x": 550,
+        "y": 350
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "move": [
+      {
+       "id": 1,
+       "by": [
+        0,
+        -20
+       ]
+      }
+     ],
+     "dt": 16
+    },
+    "events": [
+     {
+      "type": "gotpointercapture",
+      "target": "row3",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 550,
+      "y": 330,
+      "button": -1,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointermove",
+      "target": "row3",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 550,
+      "y": 330,
+      "button": -1,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchmove",
+      "target": "row3",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 1,
+        "target": "row3",
+        "x": 550,
+        "y": 330
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "row3",
+        "x": 550,
+        "y": 330
+       }
+      ]
+     },
+     {
+      "type": "pointercancel",
+      "target": "row3",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "lostpointercapture",
+      "target": "row3",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerout",
+      "target": "row3",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "row3",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "list",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 5,
+      "left": 0,
+      "t": 41
+     }
+    ],
+    "state": {
+     "list": 5,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "move": [
+      {
+       "id": 1,
+       "by": [
+        0,
+        -40
+       ]
+      }
+     ],
+     "dt": 16
+    },
+    "events": [
+     {
+      "type": "touchmove",
+      "target": "row3",
+      "cancelable": false,
+      "touches": [
+       {
+        "id": 1,
+        "target": "row3",
+        "x": 550,
+        "y": 290
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "row3",
+        "x": 550,
+        "y": 290
+       }
+      ]
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 65,
+      "left": 0,
+      "t": 12
+     }
+    ],
+    "state": {
+     "list": 65,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "move": [
+      {
+       "id": 1,
+       "by": [
+        0,
+        -40
+       ]
+      }
+     ],
+     "dt": 16
+    },
+    "events": [
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 105,
+      "left": 0,
+      "t": 13
+     }
+    ],
+    "state": {
+     "list": 105,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "move": [
+      {
+       "id": 1,
+       "by": [
+        0,
+        -40
+       ]
+      }
+     ],
+     "dt": 16
+    },
+    "events": [
+     {
+      "type": "touchmove",
+      "target": "row3",
+      "cancelable": false,
+      "touches": [
+       {
+        "id": 1,
+        "target": "row3",
+        "x": 550,
+        "y": 250
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "row3",
+        "x": 550,
+        "y": 250
+       }
+      ]
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 145,
+      "left": 0,
+      "t": 13
+     }
+    ],
+    "state": {
+     "list": 145,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "end": [
+      1
+     ],
+     "dt": 16
+    },
+    "events": [
+     {
+      "type": "touchmove",
+      "target": "row3",
+      "cancelable": false,
+      "touches": [
+       {
+        "id": 1,
+        "target": "row3",
+        "x": 550,
+        "y": 210
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "row3",
+        "x": 550,
+        "y": 210
+       }
+      ]
+     },
+     {
+      "type": "touchend",
+      "target": "row3",
+      "cancelable": false,
+      "touches": [],
+      "targetTouches": 0,
+      "changed": [
+       {
+        "id": 1,
+        "target": "row3",
+        "x": 550,
+        "y": 210
+       }
+      ]
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 193,
+      "left": 0,
+      "t": 13
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 231,
+      "left": 0,
+      "t": 29
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 273,
+      "left": 0,
+      "t": 46
+     }
+    ],
+    "state": {
+     "list": 273,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "wait": 2000
+    },
+    "events": [
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 313,
+      "left": 0,
+      "t": 62
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 350,
+      "left": 0,
+      "t": 79
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 385,
+      "left": 0,
+      "t": 96
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 417,
+      "left": 0,
+      "t": 114
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 448,
+      "left": 0,
+      "t": 129
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 476,
+      "left": 0,
+      "t": 146
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 503,
+      "left": 0,
+      "t": 163
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 527,
+      "left": 0,
+      "t": 179
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 550,
+      "left": 0,
+      "t": 196
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 572,
+      "left": 0,
+      "t": 213
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 592,
+      "left": 0,
+      "t": 229
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 611,
+      "left": 0,
+      "t": 246
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 628,
+      "left": 0,
+      "t": 263
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 644,
+      "left": 0,
+      "t": 279
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 660,
+      "left": 0,
+      "t": 296
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 674,
+      "left": 0,
+      "t": 313
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 687,
+      "left": 0,
+      "t": 329
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 699,
+      "left": 0,
+      "t": 346
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 710,
+      "left": 0,
+      "t": 363
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 720,
+      "left": 0,
+      "t": 379
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 730,
+      "left": 0,
+      "t": 396
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 738,
+      "left": 0,
+      "t": 413
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 746,
+      "left": 0,
+      "t": 429
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 754,
+      "left": 0,
+      "t": 446
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 761,
+      "left": 0,
+      "t": 463
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 767,
+      "left": 0,
+      "t": 479
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 773,
+      "left": 0,
+      "t": 496
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 778,
+      "left": 0,
+      "t": 513
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 782,
+      "left": 0,
+      "t": 528
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 787,
+      "left": 0,
+      "t": 547
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 791,
+      "left": 0,
+      "t": 562
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 794,
+      "left": 0,
+      "t": 579
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 797,
+      "left": 0,
+      "t": 596
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 800,
+      "left": 0,
+      "t": 613
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 802,
+      "left": 0,
+      "t": 629
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 804,
+      "left": 0,
+      "t": 646
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 806,
+      "left": 0,
+      "t": 663
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 807,
+      "left": 0,
+      "t": 679
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 809,
+      "left": 0,
+      "t": 696
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 810,
+      "left": 0,
+      "t": 729
+     },
+     {
+      "type": "scroll",
+      "target": "list",
+      "cancelable": false,
+      "top": 811,
+      "left": 0,
+      "t": 746
+     }
+    ],
+    "state": {
+     "list": 811,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   }
+  ],
+  "xlist_across": [
+   {
+    "step": {
+     "start": [
+      {
+       "id": 1,
+       "at": "xlist",
+       "dx": 250,
+       "dy": 60
+      }
+     ]
+    },
+    "events": [
+     {
+      "type": "pointerover",
+      "target": "wide",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 290,
+      "y": 460,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 290,
+      "y": 460,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 290,
+      "y": 460,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 290,
+      "y": 460,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 290,
+      "y": 460,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "xlist",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 290,
+      "y": 460,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "wide",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 290,
+      "y": 460,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerdown",
+      "target": "wide",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 290,
+      "y": 460,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchstart",
+      "target": "wide",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 1,
+        "target": "wide",
+        "x": 290,
+        "y": 460
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "wide",
+        "x": 290,
+        "y": 460
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "move": [
+      {
+       "id": 1,
+       "by": [
+        -30,
+        0
+       ]
+      }
+     ],
+     "dt": 30
+    },
+    "events": [
+     {
+      "type": "gotpointercapture",
+      "target": "wide",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 260,
+      "y": 460,
+      "button": -1,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointermove",
+      "target": "wide",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 260,
+      "y": 460,
+      "button": -1,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchmove",
+      "target": "wide",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 1,
+        "target": "wide",
+        "x": 260,
+        "y": 460
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "wide",
+        "x": 260,
+        "y": 460
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "move": [
+      {
+       "id": 1,
+       "by": [
+        -30,
+        0
+       ]
+      }
+     ],
+     "dt": 30
+    },
+    "events": [
+     {
+      "type": "pointermove",
+      "target": "wide",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 230,
+      "y": 460,
+      "button": -1,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchmove",
+      "target": "wide",
+      "cancelable": false,
+      "touches": [
+       {
+        "id": 1,
+        "target": "wide",
+        "x": 230,
+        "y": 460
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "wide",
+        "x": 230,
+        "y": 460
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "move": [
+      {
+       "id": 1,
+       "by": [
+        -30,
+        0
+       ]
+      }
+     ],
+     "dt": 30
+    },
+    "events": [
+     {
+      "type": "pointermove",
+      "target": "wide",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 200,
+      "y": 460,
+      "button": -1,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchmove",
+      "target": "wide",
+      "cancelable": false,
+      "touches": [
+       {
+        "id": 1,
+        "target": "wide",
+        "x": 200,
+        "y": 460
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "wide",
+        "x": 200,
+        "y": 460
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "end": [
+      1
+     ],
+     "dt": 30
+    },
+    "events": [
+     {
+      "type": "pointerup",
+      "target": "wide",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 200,
+      "y": 460,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "lostpointercapture",
+      "target": "wide",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 200,
+      "y": 460,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerout",
+      "target": "wide",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 200,
+      "y": 460,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "wide",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 200,
+      "y": 460,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "xlist",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 200,
+      "y": 460,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 200,
+      "y": 460,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 200,
+      "y": 460,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 200,
+      "y": 460,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 200,
+      "y": 460,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "touchend",
+      "target": "wide",
+      "cancelable": false,
+      "touches": [],
+      "targetTouches": 0,
+      "changed": [
+       {
+        "id": 1,
+        "target": "wide",
+        "x": 200,
+        "y": 460
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "wait": 400
+    },
+    "events": [],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   }
+  ],
+  "xlist_down": [
+   {
+    "step": {
+     "start": [
+      {
+       "id": 1,
+       "at": "xlist",
+       "dx": 150,
+       "dy": 20
+      }
+     ]
+    },
+    "events": [
+     {
+      "type": "pointerover",
+      "target": "wide",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 190,
+      "y": 420,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 190,
+      "y": 420,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 190,
+      "y": 420,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 190,
+      "y": 420,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 190,
+      "y": 420,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "xlist",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 190,
+      "y": 420,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "wide",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 190,
+      "y": 420,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerdown",
+      "target": "wide",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 190,
+      "y": 420,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchstart",
+      "target": "wide",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 1,
+        "target": "wide",
+        "x": 190,
+        "y": 420
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "wide",
+        "x": 190,
+        "y": 420
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "move": [
+      {
+       "id": 1,
+       "by": [
+        0,
+        30
+       ]
+      }
+     ],
+     "dt": 30
+    },
+    "events": [
+     {
+      "type": "gotpointercapture",
+      "target": "wide",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 190,
+      "y": 450,
+      "button": -1,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointermove",
+      "target": "wide",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 190,
+      "y": 450,
+      "button": -1,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchmove",
+      "target": "wide",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 1,
+        "target": "wide",
+        "x": 190,
+        "y": 450
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "wide",
+        "x": 190,
+        "y": 450
+       }
+      ]
+     },
+     {
+      "type": "pointercancel",
+      "target": "wide",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "lostpointercapture",
+      "target": "wide",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerout",
+      "target": "wide",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "wide",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "xlist",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 0,
+      "y": 0,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "move": [
+      {
+       "id": 1,
+       "by": [
+        0,
+        30
+       ]
+      }
+     ],
+     "dt": 30
+    },
+    "events": [
+     {
+      "type": "touchmove",
+      "target": "wide",
+      "cancelable": false,
+      "touches": [
+       {
+        "id": 1,
+        "target": "wide",
+        "x": 190,
+        "y": 480
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "wide",
+        "x": 190,
+        "y": 480
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "move": [
+      {
+       "id": 1,
+       "by": [
+        0,
+        30
+       ]
+      }
+     ],
+     "dt": 30
+    },
+    "events": [
+     {
+      "type": "touchmove",
+      "target": "wide",
+      "cancelable": false,
+      "touches": [
+       {
+        "id": 1,
+        "target": "wide",
+        "x": 190,
+        "y": 510
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "wide",
+        "x": 190,
+        "y": 510
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "end": [
+      1
+     ],
+     "dt": 30
+    },
+    "events": [
+     {
+      "type": "touchend",
+      "target": "wide",
+      "cancelable": false,
+      "touches": [],
+      "targetTouches": 0,
+      "changed": [
+       {
+        "id": 1,
+        "target": "wide",
+        "x": 190,
+        "y": 510
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "wait": 400
+    },
+    "events": [],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   }
+  ],
+  "two_fingers": [
+   {
+    "step": {
+     "start": [
+      {
+       "id": 1,
+       "at": "pad",
+       "dx": 50,
+       "dy": 50
+      }
+     ]
+    },
+    "events": [
+     {
+      "type": "pointerover",
+      "target": "pad",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 90,
+      "y": 190,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 90,
+      "y": 190,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 90,
+      "y": 190,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 90,
+      "y": 190,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 90,
+      "y": 190,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "pad",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 90,
+      "y": 190,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerdown",
+      "target": "pad",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 90,
+      "y": 190,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchstart",
+      "target": "pad",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 1,
+        "target": "pad",
+        "x": 90,
+        "y": 190
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "pad",
+        "x": 90,
+        "y": 190
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "start": [
+      {
+       "id": 2,
+       "at": "tap"
+      }
+     ],
+     "dt": 40
+    },
+    "events": [
+     {
+      "type": "pointerover",
+      "target": "tap",
+      "cancelable": true,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "document",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "html",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "body",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "root",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "tap",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerdown",
+      "target": "tap",
+      "cancelable": true,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchstart",
+      "target": "tap",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 1,
+        "target": "pad",
+        "x": 90,
+        "y": 190
+       },
+       {
+        "id": 2,
+        "target": "tap",
+        "x": 120,
+        "y": 70
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 2,
+        "target": "tap",
+        "x": 120,
+        "y": 70
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "move": [
+      {
+       "id": 1,
+       "by": [
+        10,
+        0
+       ]
+      },
+      {
+       "id": 2,
+       "by": [
+        0,
+        0
+       ]
+      }
+     ],
+     "dt": 30
+    },
+    "events": [
+     {
+      "type": "gotpointercapture",
+      "target": "pad",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 100,
+      "y": 190,
+      "button": -1,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointermove",
+      "target": "pad",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 100,
+      "y": 190,
+      "button": -1,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchmove",
+      "target": "pad",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 1,
+        "target": "pad",
+        "x": 100,
+        "y": 190
+       },
+       {
+        "id": 2,
+        "target": "tap",
+        "x": 120,
+        "y": 70
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "pad",
+        "x": 100,
+        "y": 190
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "end": [
+      2
+     ],
+     "dt": 40
+    },
+    "events": [
+     {
+      "type": "gotpointercapture",
+      "target": "tap",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerup",
+      "target": "tap",
+      "cancelable": true,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "lostpointercapture",
+      "target": "tap",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerout",
+      "target": "tap",
+      "cancelable": true,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "tap",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "root",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "body",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "html",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "document",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "touchend",
+      "target": "tap",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 1,
+        "target": "pad",
+        "x": 100,
+        "y": 190
+       }
+      ],
+      "targetTouches": 0,
+      "changed": [
+       {
+        "id": 2,
+        "target": "tap",
+        "x": 120,
+        "y": 70
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "move": [
+      {
+       "id": 1,
+       "by": [
+        10,
+        0
+       ]
+      }
+     ],
+     "dt": 30
+    },
+    "events": [
+     {
+      "type": "pointermove",
+      "target": "pad",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 110,
+      "y": 190,
+      "button": -1,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchmove",
+      "target": "pad",
+      "cancelable": false,
+      "touches": [
+       {
+        "id": 1,
+        "target": "pad",
+        "x": 110,
+        "y": 190
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "pad",
+        "x": 110,
+        "y": 190
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "end": [
+      1
+     ],
+     "dt": 40
+    },
+    "events": [
+     {
+      "type": "pointerup",
+      "target": "pad",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 110,
+      "y": 190,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "lostpointercapture",
+      "target": "pad",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 110,
+      "y": 190,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerout",
+      "target": "pad",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 110,
+      "y": 190,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "pad",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 110,
+      "y": 190,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 110,
+      "y": 190,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 110,
+      "y": 190,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 110,
+      "y": 190,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 110,
+      "y": 190,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "touchend",
+      "target": "pad",
+      "cancelable": false,
+      "touches": [],
+      "targetTouches": 0,
+      "changed": [
+       {
+        "id": 1,
+        "target": "pad",
+        "x": 110,
+        "y": 190
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "wait": 400
+    },
+    "events": [],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   }
+  ],
+  "long_press": [
+   {
+    "step": {
+     "start": [
+      {
+       "id": 1,
+       "at": "tap"
+      }
+     ]
+    },
+    "events": [
+     {
+      "type": "pointerover",
+      "target": "tap",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerdown",
+      "target": "tap",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchstart",
+      "target": "tap",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 1,
+        "target": "tap",
+        "x": 120,
+        "y": 70
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "tap",
+        "x": 120,
+        "y": 70
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "wait": 1000
+    },
+    "events": [],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "end": [
+      1
+     ],
+     "dt": 16
+    },
+    "events": [
+     {
+      "type": "gotpointercapture",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerup",
+      "target": "tap",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "lostpointercapture",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerout",
+      "target": "tap",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "touchend",
+      "target": "tap",
+      "cancelable": true,
+      "touches": [],
+      "targetTouches": 0,
+      "changed": [
+       {
+        "id": 1,
+        "target": "tap",
+        "x": 120,
+        "y": 70
+       }
+      ]
+     },
+     {
+      "type": "mouseover",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mouseenter",
+      "target": "document",
+      "cancelable": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mouseenter",
+      "target": "html",
+      "cancelable": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mouseenter",
+      "target": "body",
+      "cancelable": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mouseenter",
+      "target": "root",
+      "cancelable": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mouseenter",
+      "target": "tap",
+      "cancelable": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mousemove",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mousedown",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "detail": 1,
+      "pointerType": null
+     },
+     {
+      "type": "mouseup",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 1,
+      "pointerType": null
+     },
+     {
+      "type": "click",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 1,
+      "pointerType": "touch"
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [
+      "tap"
+     ],
+     "active": [
+      "tap"
+     ]
+    }
+   },
+   {
+    "step": {
+     "wait": 400
+    },
+    "events": [],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [
+      "tap"
+     ],
+     "active": []
+    }
+   }
+  ],
+  "double_tap": [
+   {
+    "step": {
+     "start": [
+      {
+       "id": 1,
+       "at": "tap"
+      }
+     ]
+    },
+    "events": [
+     {
+      "type": "pointerover",
+      "target": "tap",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerdown",
+      "target": "tap",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchstart",
+      "target": "tap",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 1,
+        "target": "tap",
+        "x": 120,
+        "y": 70
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "tap",
+        "x": 120,
+        "y": 70
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "end": [
+      1
+     ],
+     "dt": 50
+    },
+    "events": [
+     {
+      "type": "gotpointercapture",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerup",
+      "target": "tap",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "lostpointercapture",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerout",
+      "target": "tap",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "touchend",
+      "target": "tap",
+      "cancelable": true,
+      "touches": [],
+      "targetTouches": 0,
+      "changed": [
+       {
+        "id": 1,
+        "target": "tap",
+        "x": 120,
+        "y": 70
+       }
+      ]
+     },
+     {
+      "type": "mouseover",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mouseenter",
+      "target": "document",
+      "cancelable": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mouseenter",
+      "target": "html",
+      "cancelable": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mouseenter",
+      "target": "body",
+      "cancelable": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mouseenter",
+      "target": "root",
+      "cancelable": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mouseenter",
+      "target": "tap",
+      "cancelable": false,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mousemove",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mousedown",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "detail": 1,
+      "pointerType": null
+     },
+     {
+      "type": "mouseup",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 1,
+      "pointerType": null
+     },
+     {
+      "type": "click",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 1,
+      "pointerType": "touch"
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [
+      "tap"
+     ],
+     "active": [
+      "tap"
+     ]
+    }
+   },
+   {
+    "step": {
+     "start": [
+      {
+       "id": 2,
+       "at": "tap"
+      }
+     ],
+     "dt": 100
+    },
+    "events": [
+     {
+      "type": "pointerover",
+      "target": "tap",
+      "cancelable": true,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "document",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "html",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "body",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "root",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "tap",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerdown",
+      "target": "tap",
+      "cancelable": true,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchstart",
+      "target": "tap",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 2,
+        "target": "tap",
+        "x": 120,
+        "y": 70
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 2,
+        "target": "tap",
+        "x": 120,
+        "y": 70
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [
+      "tap"
+     ],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "end": [
+      2
+     ],
+     "dt": 50
+    },
+    "events": [
+     {
+      "type": "gotpointercapture",
+      "target": "tap",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerup",
+      "target": "tap",
+      "cancelable": true,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "lostpointercapture",
+      "target": "tap",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerout",
+      "target": "tap",
+      "cancelable": true,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "tap",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "root",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "body",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "html",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "document",
+      "cancelable": false,
+      "id": 2,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "width": 1,
+      "height": 1,
+      "pressure": 0
+     },
+     {
+      "type": "touchend",
+      "target": "tap",
+      "cancelable": true,
+      "touches": [],
+      "targetTouches": 0,
+      "changed": [
+       {
+        "id": 2,
+        "target": "tap",
+        "x": 120,
+        "y": 70
+       }
+      ]
+     },
+     {
+      "type": "mousemove",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 0,
+      "pointerType": null
+     },
+     {
+      "type": "mousedown",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "detail": 2,
+      "pointerType": null
+     },
+     {
+      "type": "mouseup",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 2,
+      "pointerType": null
+     },
+     {
+      "type": "click",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 2,
+      "pointerType": "touch"
+     },
+     {
+      "type": "dblclick",
+      "target": "tap",
+      "cancelable": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 0,
+      "detail": 2,
+      "pointerType": null
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [
+      "tap"
+     ],
+     "active": [
+      "tap"
+     ]
+    }
+   },
+   {
+    "step": {
+     "wait": 500
+    },
+    "events": [],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [
+      "tap"
+     ],
+     "active": []
+    }
+   }
+  ],
+  "cancel": [
+   {
+    "step": {
+     "start": [
+      {
+       "id": 1,
+       "at": "tap"
+      }
+     ]
+    },
+    "events": [
+     {
+      "type": "pointerover",
+      "target": "tap",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerenter",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerdown",
+      "target": "tap",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": 0,
+      "buttons": 1,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchstart",
+      "target": "tap",
+      "cancelable": true,
+      "touches": [
+       {
+        "id": 1,
+        "target": "tap",
+        "x": 120,
+        "y": 70
+       }
+      ],
+      "targetTouches": 1,
+      "changed": [
+       {
+        "id": 1,
+        "target": "tap",
+        "x": 120,
+        "y": 70
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "cancel": true,
+     "dt": 60
+    },
+    "events": [
+     {
+      "type": "gotpointercapture",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": -1,
+      "buttons": 0,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointercancel",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": -1,
+      "buttons": 0,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "lostpointercapture",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": -1,
+      "buttons": 0,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerout",
+      "target": "tap",
+      "cancelable": true,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": -1,
+      "buttons": 0,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "tap",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": -1,
+      "buttons": 0,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "root",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": -1,
+      "buttons": 0,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "body",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": -1,
+      "buttons": 0,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "html",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": -1,
+      "buttons": 0,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "pointerleave",
+      "target": "document",
+      "cancelable": false,
+      "id": 1,
+      "pointerType": "touch",
+      "isPrimary": true,
+      "x": 120,
+      "y": 70,
+      "button": -1,
+      "buttons": 0,
+      "width": 10,
+      "height": 10,
+      "pressure": 0
+     },
+     {
+      "type": "touchcancel",
+      "target": "tap",
+      "cancelable": false,
+      "touches": [],
+      "targetTouches": 0,
+      "changed": [
+       {
+        "id": 1,
+        "target": "tap",
+        "x": 120,
+        "y": 70
+       }
+      ]
+     }
+    ],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   },
+   {
+    "step": {
+     "wait": 400
+    },
+    "events": [],
+    "state": {
+     "list": 0,
+     "xlist": 0,
+     "hover": [],
+     "active": []
+    }
+   }
+  ]
+ }
+}

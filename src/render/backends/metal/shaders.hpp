@@ -18,8 +18,14 @@ namespace weft::render::metal {
     // The shared scene shader's encoded pass (src/render/shaders/scene.hlsl), whose vertex stage an effect program's
     // fragment (paint::EffectProgram::msl_encoded) runs after too.
     ShaderSource scene_shader();
+    // Its pixel stage that composites a blending group over what the target holds where it draws (WEFT_BLEND_FETCH:
+    // framebuffer fetch, MSL 2.3), after the scene shader's vertex stage.
+    std::string_view scene_fetch_fragment();
     // Its particle pass (WEFT_PARTICLES).
     ShaderSource particle_shader();
     // A backdrop pass (src/render/shaders/backdrop.hlsl), all over the same fullscreen triangle.
     ShaderSource backdrop_shader(BackdropFilter filter);
+    // The resolve of an export image (src/render/shaders/export_resolve.hlsl): a fullscreen triangle that writes the
+    // scene pass's encoded premultiplied texels linear premultiplied.
+    ShaderSource export_resolve_shader();
 } // namespace weft::render::metal

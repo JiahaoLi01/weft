@@ -1,6 +1,9 @@
 #import "render/backends/metal/view_backend.hpp"
 
+#import "render/backends/metal/scene_internal.hpp"
+
 #include "constants/render.hpp"
+#include "render/backends/metal/shaders.hpp"
 #include "render/srgb.hpp"
 #include "view/view_abi.hpp"
 
@@ -47,14 +50,50 @@ namespace weft::render::metal {
             return MTLPixelFormatInvalid;
         }
 
+        // The pixel format of an export image of a weft_render_target_format the export extension lists: what the
+        // resolve writes linear and sampling returns linear, filtered between levels; Invalid for others.
+        MTLPixelFormat export_format(std::uint32_t format) {
+            switch (format) {
+                case WEFT_RENDER_TARGET_SRGB_RGBA8:
+                    return MTLPixelFormatRGBA8Unorm_sRGB;
+                case WEFT_RENDER_TARGET_SRGB_BGRA8:
+                    return MTLPixelFormatBGRA8Unorm_sRGB;
+                case WEFT_RENDER_TARGET_LINEAR_RGBA16F:
+                    return MTLPixelFormatRGBA16Float;
+                default:
+                    break;
+            }
+            return MTLPixelFormatInvalid;
+        }
+
         template <class T>
         T bridged(void* pointer) {
             return (__bridge T)pointer;
         }
+
+        std::uint64_t pointer_value(id object) {
+            return std::uint64_t(reinterpret_cast<std::uintptr_t>((__bridge void*)object));
+        }
+
+        id<MTLFunction> compile(id<MTLDevice> device, std::string_view source, const char* name) {
+            MTLCompileOptions* options = [MTLCompileOptions new];
+            options.languageVersion = MTLLanguageVersion2_1;
+            NSError* error = nil;
+            NSString* text = [[NSString alloc] initWithBytes:source.data()
+                                                      length:source.size()
+                                                    encoding:NSUTF8StringEncoding];
+            id<MTLLibrary> library = [device newLibraryWithSource:text options:options error:&error];
+            ensure(library != nil, "compiling MSL: " + detail::describe(error));
+            id<MTLFunction> out = [library newFunctionWithName:@(name)];
+            ensure(out != nil, std::string("the MSL function ") + name);
+            return out;
+        }
     } // namespace
 
     ViewBackend::ViewBackend(id<MTLDevice> device, std::uint64_t queue)
-        : device_(device), imports_(std::size_t(constants::render::view_external_textures)) {
+        : device_(device), imports_(std::size_t(constants::render::view_external_textures)),
+          exports_(std::size_t(constants::render::view_export_images)) {
+        spare_scratch_.reserve(std::size_t(constants::render::metal::export_spare_scratch));
         BackendDescription description;
         description.api = WEFT_RENDER_API_METAL;
         description.device_epoch = 1;
@@ -227,18 +266,30 @@ namespace weft::render::metal {
             })) {
             return WEFT_RENDER_INVALID_STATE;
         }
-        const auto& frame = *prepared.frame;
-        auto& index = views_[std::weak_ptr<SceneAnchorChannel>(frame.anchors)];
-        if (!index) {
-            index = ++next_view_;
-        }
-        const auto* anchors = &frame.anchors->take(SceneAnchorChannel::Reader::Render);
         SceneTargetStart start{true, std::nullopt};
         if (p.clear_target) {
             start.clear = encoded(p.clear_linear_premultiplied);
         }
         // A framebufferOnly target cannot be copied from: backdrops at its level draw transparent.
         const SceneRenderer::Target drawn{target, pass.width, pass.height, !target.framebufferOnly};
+        std::unique_ptr<SceneRenderer::Slot> slot;
+        if (const auto v = draw(prepared, command, drawn, start, slot); v != WEFT_RENDER_OK) {
+            return v;
+        }
+        out = next_++;
+        uses_.emplace(out, Use{std::move(slot)});
+        return WEFT_RENDER_OK;
+    }
+
+    weft_render_result ViewBackend::draw(const Prepared& prepared, id<MTLCommandBuffer> command,
+                                         const SceneRenderer::Target& drawn, const SceneTargetStart& start,
+                                         std::unique_ptr<SceneRenderer::Slot>& out) {
+        const auto& frame = *prepared.frame;
+        auto& index = views_[std::weak_ptr<SceneAnchorChannel>(frame.anchors)];
+        if (!index) {
+            index = ++next_view_;
+        }
+        const auto* anchors = &frame.anchors->take(SceneAnchorChannel::Reader::Render);
         std::unique_ptr<SceneRenderer::Slot> slot;
         if (!idle_.empty()) {
             slot = std::move(idle_.back());
@@ -269,8 +320,182 @@ namespace weft::render::metal {
             failure_ = "the native pass cannot draw the frame: " + renderer_->last_failure();
             return WEFT_RENDER_UNSUPPORTED_FEATURE;
         }
+        out = std::move(slot);
+        return WEFT_RENDER_OK;
+    }
+
+    weft_render_export_backend ViewBackend::exporter() {
+        // Formats Apple GPUs render to, filter and fill mips of, whose sampling returns linear values.
+        const std::uint32_t formats = (1u << WEFT_RENDER_TARGET_SRGB_RGBA8) | (1u << WEFT_RENDER_TARGET_SRGB_BGRA8) |
+                                      (1u << WEFT_RENDER_TARGET_LINEAR_RGBA16F);
+        return make_c_export_backend(
+            *this, {formats, std::uint32_t(exports_.size()), constants::render::view_export_image_bytes});
+    }
+
+    id<MTLRenderPipelineState> ViewBackend::resolve_pipeline(MTLPixelFormat format) {
+        if (const auto found = resolve_.find(format); found != resolve_.end()) {
+            return found->second;
+        }
+        if (!resolve_vertex_) {
+            const auto source = export_resolve_shader();
+            resolve_vertex_ = compile(device_, source.vertex, "vs_main");
+            resolve_fragment_ = compile(device_, source.fragment, "ps_main");
+        }
+        // Every texel written as it is: no blending.
+        MTLRenderPipelineDescriptor* d = [MTLRenderPipelineDescriptor new];
+        d.label = @"weft export resolve";
+        d.vertexFunction = resolve_vertex_;
+        d.fragmentFunction = resolve_fragment_;
+        d.colorAttachments[0].pixelFormat = format;
+        NSError* error = nil;
+        id<MTLRenderPipelineState> made = [device_ newRenderPipelineStateWithDescriptor:d error:&error];
+        ensure(made != nil, "the export resolve pipeline: " + detail::describe(error));
+        resolve_.emplace(format, made);
+        return made;
+    }
+
+    id<MTLTexture> ViewBackend::take_scratch(std::uint32_t width, std::uint32_t height) {
+        for (auto it = spare_scratch_.begin(); it != spare_scratch_.end(); ++it) {
+            if ((*it).width == width && (*it).height == height) {
+                id<MTLTexture> spare = *it;
+                spare_scratch_.erase(it);
+                return spare;
+            }
+        }
+        // The scene pass draws it and copies from it (backdrops); the resolve reads it.
+        id<MTLTexture> made = detail::make_texture(device_, detail::target_format, width, height,
+                                                   MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead);
+        made.label = @"weft export scratch";
+        return made;
+    }
+
+    void ViewBackend::give_scratch(id<MTLTexture> scratch) noexcept {
+        if (!scratch) {
+            return;
+        }
+        // The oldest goes first; the capacity stays, so this never allocates.
+        if (spare_scratch_.size() == spare_scratch_.capacity()) {
+            spare_scratch_.erase(spare_scratch_.begin());
+        }
+        spare_scratch_.push_back(scratch);
+    }
+
+    weft_render_result ViewBackend::create_export_image(const weft_render_export_desc& desc, std::uint64_t& out,
+                                                        std::uint64_t& texture) {
+        out = 0;
+        texture = 0;
+        const MTLPixelFormat format = export_format(desc.format);
+        if (format == MTLPixelFormatInvalid) {
+            return WEFT_RENDER_UNSUPPORTED_FEATURE;
+        }
+        if (!desc.width || !desc.height || !desc.mip_levels) {
+            return WEFT_RENDER_INVALID_ARGUMENT;
+        }
+        const auto free = std::find(exports_.begin(), exports_.end(), nil);
+        if (free == exports_.end()) {
+            return WEFT_RENDER_BUSY;
+        }
+        // Compiled now, so the first frame drawn into it does not wait for it.
+        resolve_pipeline(format);
+        MTLTextureDescriptor* d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format
+                                                                                     width:desc.width
+                                                                                    height:desc.height
+                                                                                 mipmapped:NO];
+        d.mipmapLevelCount = desc.mip_levels;
+        d.usage = MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget;
+        d.storageMode = MTLStorageModePrivate;
+        id<MTLTexture> made = [device_ newTextureWithDescriptor:d];
+        if (!made) {
+            return WEFT_RENDER_OUT_OF_MEMORY;
+        }
+        made.label = @"weft export image";
+        *free = made;
+        out = std::uint64_t(free - exports_.begin()) + 1;
+        texture = pointer_value(made);
+        return WEFT_RENDER_OK;
+    }
+
+    void ViewBackend::destroy_export_image(std::uint64_t native) {
+        if (!native || native > exports_.size() || !exports_[native - 1]) {
+            std::terminate();
+        }
+        exports_[native - 1] = nil;
+    }
+
+    weft_render_result ViewBackend::encode_export(std::uint64_t native, std::uint64_t image,
+                                                  const weft_render_pass& pass, std::uint64_t& out) {
+        out = 0;
+        const auto found = prepared_.find(native);
+        if (found == prepared_.end() || !image || image > exports_.size() || !exports_[image - 1] ||
+            !pass.native_pass || pass.native_pass_size < sizeof(weft_render_metal_pass) || pass.sample_count > 1) {
+            return WEFT_RENDER_INVALID_ARGUMENT;
+        }
+        // The image is the target: the pass names only the command buffer.
+        const auto& p = *static_cast<const weft_render_metal_pass*>(pass.native_pass);
+        if (p.struct_size < sizeof(p) || p.abi_version != WEFT_RENDER_ABI_VERSION || p.reserved || p.clear_target ||
+            !p.command_buffer || p.target) {
+            return WEFT_RENDER_INVALID_ARGUMENT;
+        }
+        id<MTLCommandBuffer> command = bridged<id<MTLCommandBuffer>>(p.command_buffer);
+        if (command.device != device_) {
+            return WEFT_RENDER_WRONG_BACKEND;
+        }
+        id<MTLTexture> texture = exports_[image - 1];
+        if (texture.width != pass.width || texture.height != pass.height) {
+            return WEFT_RENDER_INVALID_ARGUMENT;
+        }
+        failure_.clear();
+        const auto& prepared = found->second;
+        // A frame that shows the image (imported from an earlier lease) cannot be drawn into it.
+        const auto view = pointer_value(texture);
+        if (std::any_of(prepared.textures.begin(), prepared.textures.end(), [&](const SceneTexture& t) {
+                return t.view == view;
+            })) {
+            return WEFT_RENDER_INVALID_STATE;
+        }
+        id<MTLRenderPipelineState> resolve = resolve_pipeline(texture.pixelFormat);
+        id<MTLTexture> scratch = take_scratch(pass.width, pass.height);
+        std::unique_ptr<SceneRenderer::Slot> slot;
+        weft_render_result drawn;
+        try {
+            // Over transparent, as a host's pass that clears its target.
+            drawn = draw(prepared, command, {scratch, pass.width, pass.height, true}, {true, paint::Color{}}, slot);
+        } catch (...) {
+            give_scratch(scratch);
+            throw;
+        }
+        if (drawn != WEFT_RENDER_OK) {
+            give_scratch(scratch);
+            return drawn;
+        }
         out = next_++;
-        uses_.emplace(out, Use{std::move(slot)});
+        uses_.emplace(out, Use{std::move(slot), 0, false, scratch});
+        // The scene pass is encoded: from here a failure leaves its commands to the host to cancel (a nonzero use).
+        MTLRenderPassDescriptor* target = [MTLRenderPassDescriptor renderPassDescriptor];
+        target.colorAttachments[0].texture = texture;
+        target.colorAttachments[0].level = 0;
+        target.colorAttachments[0].loadAction = MTLLoadActionDontCare;
+        target.colorAttachments[0].storeAction = MTLStoreActionStore;
+        id<MTLRenderCommandEncoder> encoder = [command renderCommandEncoderWithDescriptor:target];
+        if (!encoder) {
+            failure_ = "no render command encoder for the export resolve";
+            return WEFT_RENDER_BACKEND_ERROR;
+        }
+        encoder.label = @"weft export resolve";
+        [encoder setRenderPipelineState:resolve];
+        [encoder setFragmentTexture:scratch atIndex:constants::render::metal::export_texture_encoded];
+        [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+        [encoder endEncoding];
+        if (texture.mipmapLevelCount > 1) {
+            id<MTLBlitCommandEncoder> blit = [command blitCommandEncoder];
+            if (!blit) {
+                failure_ = "no blit command encoder for the export mips";
+                return WEFT_RENDER_BACKEND_ERROR;
+            }
+            blit.label = @"weft export mips";
+            [blit generateMipmapsForTexture:texture];
+            [blit endEncoding];
+        }
         return WEFT_RENDER_OK;
     }
 
@@ -278,6 +503,7 @@ namespace weft::render::metal {
         if (const auto found = uses_.find(native); found != uses_.end()) {
             renderer_->discard(*found->second.slot);
             idle_.push_back(std::move(found->second.slot));
+            give_scratch(found->second.scratch);
             uses_.erase(found);
         }
     }
@@ -295,6 +521,7 @@ namespace weft::render::metal {
             if (it->second.submitted && it->second.serial <= serial) {
                 renderer_->retire(*it->second.slot);
                 idle_.push_back(std::move(it->second.slot));
+                give_scratch(it->second.scratch);
                 it = uses_.erase(it);
             } else {
                 ++it;
@@ -311,6 +538,7 @@ namespace weft::render::metal {
                 renderer_->discard(*use.slot);
             }
             idle_.push_back(std::move(use.slot));
+            give_scratch(use.scratch);
         }
         uses_.clear();
     }
@@ -321,6 +549,7 @@ namespace weft::render::metal {
         }
         prepared_.clear();
         idle_.clear();
+        spare_scratch_.clear();
         if (renderer_) {
             for (const auto& [channel, index] : views_) {
                 renderer_->forget(index);
@@ -376,6 +605,19 @@ extern "C" weft_render_result weft_render_metal_external(weft_render_metal* back
         return WEFT_RENDER_INVALID_ARGUMENT;
     }
     *out = backend->backend.external();
+    return WEFT_RENDER_OK;
+}
+
+extern "C" weft_render_result weft_render_metal_export(weft_render_metal* backend,
+                                                       weft_render_export_backend* out) noexcept {
+    if (!out) {
+        return WEFT_RENDER_INVALID_ARGUMENT;
+    }
+    *out = {};
+    if (!backend) {
+        return WEFT_RENDER_INVALID_ARGUMENT;
+    }
+    *out = backend->backend.exporter();
     return WEFT_RENDER_OK;
 }
 

@@ -126,6 +126,36 @@ namespace {
         }
     };
 
+    struct ExportBackend : CountingBackend {
+        unsigned creates{};
+        unsigned destroys{};
+        unsigned export_encodes{};
+        bool throw_create{};
+
+        weft_render_result create_export_image(const weft_render_export_desc&, std::uint64_t& out,
+                                               std::uint64_t& texture) {
+            ++creates;
+            if (throw_create) {
+                out = 4;
+                texture = 5;
+                throw std::runtime_error("create failed");
+            }
+            out = creates;
+            texture = 100 + creates;
+            return WEFT_RENDER_OK;
+        }
+
+        void destroy_export_image(std::uint64_t) {
+            ++destroys;
+        }
+
+        weft_render_result encode_export(std::uint64_t frame, std::uint64_t, const weft_render_pass& pass,
+                                         std::uint64_t& out) {
+            ++export_encodes;
+            return encode(frame, pass, out);
+        }
+    };
+
     // Lacks shutdown.
     struct Incomplete {
         weft_render_result prepare(const weft_render_frame&, std::uint64_t&);
@@ -145,6 +175,8 @@ namespace {
     static_assert(weft::render::RenderBackend<CountingBackend>);
     static_assert(!weft::render::ExternalTextureBackend<CountingBackend>);
     static_assert(weft::render::ExternalTextureBackend<ExternalBackend>);
+    static_assert(!weft::render::ExportTextureBackend<ExternalBackend>);
+    static_assert(weft::render::ExportTextureBackend<ExportBackend>);
     static_assert(!weft::render::RenderBackend<Incomplete>);
     static_assert(!weft::render::RenderBackend<WrongResult>);
 
@@ -271,6 +303,64 @@ namespace {
         EXPECT(weft_renderer_install_external_backend(r, &table), OK);
         EXPECT(weft_renderer_destroy(r), OK);
     }
+
+    void ExportTableAndPolicy() {
+        ExportBackend backend;
+        const auto table = weft::render::make_c_export_backend(backend, {1u << WEFT_RENDER_TARGET_SRGB_RGBA8, 4, 4096});
+        CHECK(table.struct_size == sizeof(weft_render_export_backend) &&
+              table.abi_version == WEFT_RENDER_EXPORT_ABI_VERSION);
+        CHECK(table.formats == 1u << WEFT_RENDER_TARGET_SRGB_RGBA8 && table.max_images == 4 &&
+              table.max_image_bytes == 4096 && table.user_data == &backend && table.create_image &&
+              table.destroy_image && table.encode);
+        weft_render_export_desc desc{};
+        std::uint64_t native = 99;
+        std::uint64_t texture = 99;
+        backend.throw_create = true;
+        EXPECT(table.create_image(table.user_data, &desc, &native, &texture), BACKEND_ERROR);
+        CHECK(native == 0 && texture == 0 && backend.creates == 1);
+        backend.throw_create = false;
+        // Through the core: an export of one 32 x 32 image (the 4096 bytes the table allows), drawn, sampled and
+        // destroyed.
+        const auto main = weft::render::make_c_backend(backend, description());
+        weft_renderer* r{};
+        EXPECT(weft_renderer_create(&main, nullptr, &r), OK);
+        EXPECT(weft_renderer_install_export_backend(r, &table), OK);
+        weft_render_info info{};
+        info.struct_size = sizeof(info);
+        EXPECT(weft_renderer_get_info(r, &info), OK);
+        desc = {sizeof(desc),
+                WEFT_RENDER_EXPORT_ABI_VERSION,
+                info.identity,
+                32,
+                32,
+                WEFT_RENDER_TARGET_SRGB_RGBA8,
+                1,
+                1,
+                0};
+        weft_render_handle panel{};
+        EXPECT(weft_renderer_create_export(r, &desc, &panel), OK);
+        Frame frame;
+        weft_render_handle prepared{};
+        EXPECT(weft_renderer_prepare(r, &frame.view, &prepared), OK);
+        int scope{};
+        weft_render_pass p{
+            sizeof(p),    WEFT_RENDER_ABI_VERSION, info.identity, 32, 32, WEFT_RENDER_TARGET_SRGB_RGBA8, 1, &scope,
+            sizeof(scope)};
+        weft_render_handle use{};
+        weft_render_export_image image{};
+        image.struct_size = sizeof(image);
+        EXPECT(weft_renderer_encode_export(r, prepared, panel, &p, &use, &image), OK);
+        CHECK(backend.export_encodes == 1 && image.native_texture == 102 && image.mip_levels == 1);
+        EXPECT(weft_renderer_release_prepared(r, prepared), OK);
+        EXPECT(weft_renderer_notify_submitted(r, use, queue, 1), OK);
+        EXPECT(weft_renderer_release_export_image(r, image.image, queue, 2), OK);
+        EXPECT(weft_renderer_destroy_export(r, panel), OK);
+        EXPECT(weft_renderer_notify_completed(r, epoch, queue, 1), OK);
+        CHECK(!backend.destroys);
+        EXPECT(weft_renderer_notify_completed(r, epoch, queue, 2), OK);
+        CHECK(backend.destroys == 1);
+        EXPECT(weft_renderer_destroy(r), OK);
+    }
 } // namespace
 
 int main() {
@@ -279,7 +369,8 @@ int main() {
         ThunksTurnExceptionsIntoErrors();
         FrameCycleThroughTheCore();
         ExternalTableAndPolicy();
-        std::cout << "PASS render backend concept: tables, thunk error policy, core frame cycle\n";
+        ExportTableAndPolicy();
+        std::cout << "PASS render backend concept: tables, thunk error policy, core frame cycle, export table\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "FAIL: " << error.what() << '\n';

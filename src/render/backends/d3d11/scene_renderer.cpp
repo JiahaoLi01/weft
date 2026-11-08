@@ -8,6 +8,7 @@
 #include <cstring>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
 namespace weft::render::d3d11 {
     namespace {
@@ -223,10 +224,21 @@ namespace weft::render::d3d11 {
                                           UINT((image->width + 2 * border) * texel), 0);
             return textures_.emplace(image->id, Texture{image, on.view}).first->second.view.Get();
         }
+        // With its smaller levels (a page's image), each half the one before.
+        std::vector<D3D11_SUBRESOURCE_DATA> data{{image->pixels.data(), UINT(image->width * texel), 0}};
+        auto level_width = image->width;
+        auto level_height = image->height;
+        for (const auto& mip : image->mips) {
+            level_width = std::max<std::uint32_t>(1, level_width / 2);
+            level_height = std::max<std::uint32_t>(1, level_height / 2);
+            ensure(mip.size() == std::size_t(level_width) * level_height * texel, "scene image level size");
+            data.push_back({mip.data(), UINT(level_width * texel), 0});
+        }
         D3D11_TEXTURE2D_DESC desc{};
         desc.Width = image->width;
         desc.Height = image->height;
-        desc.MipLevels = desc.ArraySize = 1;
+        desc.MipLevels = UINT(data.size());
+        desc.ArraySize = 1;
         desc.Format = image->format == Format::Bgra   ? DXGI_FORMAT_B8G8R8A8_UNORM
                       : image->format == Format::Data ? DXGI_FORMAT_R8_UNORM
                       : image->format == Format::Srgb ? DXGI_FORMAT_R8G8B8A8_UNORM_SRGB
@@ -234,10 +246,9 @@ namespace weft::render::d3d11 {
         desc.SampleDesc.Count = 1;
         desc.Usage = D3D11_USAGE_IMMUTABLE;
         desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-        D3D11_SUBRESOURCE_DATA data{image->pixels.data(), UINT(image->width * texel), 0};
         ComPtr<ID3D11Texture2D> pixels;
         Texture texture{image, {}};
-        throw_if_failed(device_->CreateTexture2D(&desc, &data, &pixels), "native scene image");
+        throw_if_failed(device_->CreateTexture2D(&desc, data.data(), &pixels), "native scene image");
         throw_if_failed(device_->CreateShaderResourceView(pixels.Get(), nullptr, &texture.view),
                         "native scene image view");
         return textures_.emplace(image->id, std::move(texture)).first->second.view.Get();
@@ -539,6 +550,22 @@ namespace weft::render::d3d11 {
                 }
             }
         }
+        // Each item's mask image (a masked group's composite, filter or layer), at t3 where it draws.
+        std::vector<ID3D11ShaderResourceView*> mask_views(prepared.mask_images.size());
+        for (std::size_t i = 0; i < prepared.mask_images.size(); ++i) {
+            if (prepared.mask_images[i]) {
+                mask_views[i] = texture(prepared.mask_images[i]);
+                if (!again) {
+                    slot.leases.push_back(prepared.mask_images[i]);
+                }
+            }
+        }
+        // Binds the mask image of the item a draw draws, if it has one.
+        const auto bind_mask = [&](std::uint32_t i) {
+            if (i < mask_views.size() && mask_views[i]) {
+                ctx->PSSetShaderResources(effect_texture_slot, 1, &mask_views[i]);
+            }
+        };
         const auto& pass = prepared.pass;
         const auto& records = pass.records;
         const auto target_width = prepared.width;
@@ -664,7 +691,10 @@ namespace weft::render::d3d11 {
             }
             anchor_values = no_anchors_view_.Get();
         }
-        Color view{float(target_width), float(target_height), scale, 0};
+        // The View constants (scene.hlsl): the target's size and the scale; its origin and the image a group's
+        // composite samples stay 0 here (the target's own, as this renderer draws groups).
+        std::array<float, constants::render::scene::view_constant_floats> view{float(target_width),
+                                                                                float(target_height), scale, 0};
         ctx->UpdateSubresource(slot.constants.Get(), 0, nullptr, view.data(), 0, 0);
         float blend[4]{};
         // The pass's state: set once, and again after a backdrop's passes replaced it.
@@ -749,8 +779,8 @@ namespace weft::render::d3d11 {
                     ctx->Unmap(slot.draw_constants.Get(), 0);
                 }
                 ensure(starts.at(next_draw) == start, "native draw constants in draw order");
-                const UINT first = at * stride / constants::render::scene::view_constants_bytes;
-                const UINT count_constants = stride / constants::render::scene::view_constants_bytes;
+                const UINT first = at * stride / constants::render::d3d11::shader_constant_bytes;
+                const UINT count_constants = stride / constants::render::d3d11::shader_constant_bytes;
                 auto* constants_buffer = slot.draw_constants.Get();
                 context1_->VSSetConstantBuffers1(0, 1, &constants_buffer, &first, &count_constants);
                 context1_->PSSetConstantBuffers1(0, 1, &constants_buffer, &first, &count_constants);
@@ -787,12 +817,20 @@ namespace weft::render::d3d11 {
                     auto& s = slot.groups.at(--depth);
                     stack.pop_back();
                     target(stack.back());
+                    bind_mask(batch.first);
+                    if (batch.copy) {
+                        // A group that blends: what the target holds under it, copied before it composites, where an
+                        // effect's second texture goes (scene.hlsl, blendBackdrop).
+                        auto* backdrop = copy(pass.copies.at(batch.copy - 1), batch.copy - 1, stack.back());
+                        ctx->PSSetShaderResources(effect_texture_slot + 1, 1, &backdrop);
+                    }
                     instances(batch.first, 1, s.srv.Get());
                     break;
                 }
                 case Step::Image:
                     // A path with nothing inside its clip has no image and draws nothing.
                     if (views[batch.first]) {
+                        bind_mask(batch.first);
                         instances(batch.first, 1, views[batch.first]);
                     }
                     break;

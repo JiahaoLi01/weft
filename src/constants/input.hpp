@@ -37,4 +37,30 @@ namespace weft::constants::input {
     // A held direction of a gamepad repeats its arrow key after this many ms, then every this many.
     inline constexpr double gamepad_repeat_delay_ms = 500;
     inline constexpr double gamepad_repeat_interval_ms = 100;
+
+    // Touch (View::touch), as Chrome's gesture configuration has it: a touch that moves no farther than this from where
+    // it went down (CSS px) is still a tap, and sends no touchmove; a pan starts past it, its first scroll less it.
+    inline constexpr float touch_slop_px = 15;
+    // Taps count on (UIEvent.detail, dblclick) within this time and distance of the last one.
+    inline constexpr double tap_count_ms = 400;
+    inline constexpr float tap_count_px = 20;
+    // A tapped element stays :active this long after its tap (Blink's minimum active interval).
+    inline constexpr double tap_active_ms = 150;
+    // Release velocity (Chrome's VelocityTracker, least squares of degree 2): over the last moves within this window,
+    // at most this many; none when the touch rested longer than stopped_ms before it lifted.
+    inline constexpr double velocity_horizon_ms = 100;
+    inline constexpr std::size_t velocity_samples = 20;
+    inline constexpr double velocity_stopped_ms = 40;
+    // Flings start from this speed (px/s) and no faster than the next.
+    inline constexpr double min_fling_velocity = 30;
+    inline constexpr double max_fling_velocity = 17000;
+    // Chrome's fling curve (ui::FlingCurve): position p(t) = alpha * exp(-gamma t) - beta t - alpha, in px and s,
+    // entered at the release speed and run until its speed is 0.
+    inline constexpr double fling_alpha = -5707.62;
+    inline constexpr double fling_beta = 172;
+    inline constexpr double fling_gamma = 3.7;
+    // Touch pointers' ids start here (the mouse's is 1).
+    inline constexpr int first_touch_pointer_id = 2;
+    // A touch screen's points at most (navigator.maxTouchPoints, View::set_input_devices).
+    inline constexpr unsigned max_touch_points = 32;
 } // namespace weft::constants::input

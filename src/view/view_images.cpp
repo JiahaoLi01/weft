@@ -4,12 +4,15 @@
 #include "constants/common.hpp"
 #include "constants/view.hpp"
 
+#include "view/view_image_codecs.hpp"
+
 #include <lodepng.h>
 
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
 #include <utility>
+#include <variant>
 
 namespace weft {
     namespace {
@@ -146,6 +149,161 @@ namespace weft {
         }
     } // namespace
 
+    namespace {
+        bool starts(std::span<const std::uint8_t> bytes, std::string_view prefix, std::size_t at = 0) {
+            return bytes.size() >= at + prefix.size() &&
+                   std::equal(prefix.begin(), prefix.end(), bytes.begin() + std::ptrdiff_t(at),
+                              [](char a, std::uint8_t b) {
+                                  return static_cast<std::uint8_t>(a) == b;
+                              });
+        }
+
+        std::optional<std::string> within_bounds(const paint::Asset& out);
+
+        // An image file's pixels into out by what its bytes are, as Chrome sniffs an image (its signature, not its
+        // name or declared type): PNG, JPEG or WebP; why not, on failure, naming the formats the scene does not decode.
+        std::optional<std::string> decode_image(std::span<const std::uint8_t> bytes, paint::Asset& out) {
+            std::optional<std::string> why;
+            if (starts(bytes, "\x89PNG\r\n\x1a\n")) {
+                return decode_png(bytes, out);
+            }
+            if (starts(bytes, "\xff\xd8\xff")) {
+                why = view_codecs::decode_jpeg(bytes, constants::view::max_image_side,
+                                               constants::view::max_image_pixels, out);
+            } else if (starts(bytes, "RIFF") && starts(bytes, "WEBP", 8)) {
+                why = view_codecs::decode_webp(bytes, constants::view::max_image_side,
+                                               constants::view::max_image_pixels, out);
+            } else {
+                // What it is, if the scene knows it: one Chrome decodes that the scene does not.
+                std::size_t text = 0;
+                while (text < bytes.size() &&
+                       (bytes[text] == ' ' || bytes[text] == '\t' || bytes[text] == '\n' || bytes[text] == '\r' ||
+                        bytes[text] == 0xef || bytes[text] == 0xbb || bytes[text] == 0xbf)) {
+                    ++text;
+                }
+                const char* kind = starts(bytes, "GIF87a") || starts(bytes, "GIF89a")             ? "a GIF image"
+                                   : starts(bytes, "BM")                                          ? "a BMP image"
+                                   : starts(bytes, std::string_view("\0\0\1\0", 4))               ? "an ICO image"
+                                   : starts(bytes, "ftypavif", 4) || starts(bytes, "ftypavis", 4) ? "an AVIF image"
+                                   : starts(bytes, "<svg", text) || starts(bytes, "<?xml", text)  ? "an SVG image"
+                                                                                                  : "no image";
+                return std::string(kind) + " (the scene decodes PNG, JPEG and WebP)";
+            }
+            if (why) {
+                return why;
+            }
+            return within_bounds(out);
+        }
+
+        // An image within the translucent bound; why not.
+        std::optional<std::string> within_bounds(const paint::Asset& out) {
+            const auto pixels = std::size_t(out.width) * out.height;
+            if (pixels > constants::view::max_translucent_image_pixels) {
+                for (std::size_t p = 3; p < pixels * constants::rgba8_bytes_per_pixel;
+                     p += constants::rgba8_bytes_per_pixel) {
+                    if (out.bytes[p] != constants::color_channel_max) {
+                        return "a translucent image of " + std::to_string(out.width) + " x " +
+                               std::to_string(out.height) + " pixels, past the bounds";
+                    }
+                }
+            }
+            return std::nullopt;
+        }
+
+        // The bytes a data: URL holds (the Fetch standard's data: URL processor): its body after the first comma,
+        // percent-decoded, then base64-decoded (forgiving: ASCII whitespace dropped, padding optional) when its type
+        // ends with ;base64. Its media type is not read: the bytes say what image they are. Why not, on failure.
+        std::variant<std::vector<std::uint8_t>, std::string> data_url(std::string_view url) {
+            const auto comma = url.find(',');
+            if (comma == url.npos) {
+                return std::string("a data: URL without a comma");
+            }
+            auto type = std::string(url.substr(5, comma - 5));
+            while (!type.empty() && (type.back() == ' ' || type.back() == '\t')) {
+                type.pop_back();
+            }
+            std::transform(type.begin(), type.end(), type.begin(), [](unsigned char c) {
+                return char(std::tolower(c));
+            });
+            std::string body;
+            body.reserve(url.size() - comma);
+            for (std::size_t i = comma + 1; i < url.size(); ++i) {
+                const auto hex = [&](std::size_t at) {
+                    return at < url.size() && std::isxdigit(static_cast<unsigned char>(url[at]));
+                };
+                if (url[i] == '%' && hex(i + 1) && hex(i + 2)) {
+                    body += char(std::stoi(std::string(url.substr(i + 1, 2)), nullptr, 16));
+                    i += 2;
+                } else {
+                    body += url[i];
+                }
+            }
+            auto base64 = type.size() >= 7 && type.ends_with("base64");
+            if (base64) {
+                // ";base64", spaces allowed before "base64".
+                auto rest = std::string_view(type).substr(0, type.size() - 6);
+                while (!rest.empty() && rest.back() == ' ') {
+                    rest.remove_suffix(1);
+                }
+                base64 = rest.ends_with(';');
+            }
+            if (!base64) {
+                return std::vector<std::uint8_t>(body.begin(), body.end());
+            }
+            std::string text;
+            for (const char c : body) {
+                if (c != ' ' && c != '\t' && c != '\n' && c != '\f' && c != '\r') {
+                    text += c;
+                }
+            }
+            if (text.size() % 4 == 0 && text.ends_with("==")) {
+                text.resize(text.size() - 2);
+            } else if (text.size() % 4 == 0 && text.ends_with('=')) {
+                text.pop_back();
+            }
+            if (text.size() % 4 == 1) {
+                return std::string("a data: URL whose base64 does not decode");
+            }
+            std::vector<std::uint8_t> out;
+            out.reserve(text.size() * 3 / 4);
+            std::uint32_t buffer{};
+            int bits{};
+            for (const char c : text) {
+                int v = c >= 'A' && c <= 'Z'   ? c - 'A'
+                        : c >= 'a' && c <= 'z' ? c - 'a' + 26
+                        : c >= '0' && c <= '9' ? c - '0' + 52
+                        : c == '+'             ? 62
+                        : c == '/'             ? 63
+                                               : -1;
+                if (v < 0) {
+                    return std::string("a data: URL whose base64 does not decode");
+                }
+                buffer = (buffer << 6) | std::uint32_t(v);
+                bits += 6;
+                if (bits >= 8) {
+                    bits -= 8;
+                    out.push_back(std::uint8_t((buffer >> bits) & 0xff));
+                }
+            }
+            return out;
+        }
+
+        bool data_scheme(std::string_view path) {
+            return path.size() >= 5 && std::tolower(static_cast<unsigned char>(path[0])) == 'd' &&
+                   std::tolower(static_cast<unsigned char>(path[1])) == 'a' &&
+                   std::tolower(static_cast<unsigned char>(path[2])) == 't' &&
+                   std::tolower(static_cast<unsigned char>(path[3])) == 'a' && path[4] == ':';
+        }
+    } // namespace
+
+    Result<paint::Asset> view_decode_image(std::span<const std::uint8_t> bytes) {
+        paint::Asset asset;
+        if (const auto why = decode_image(bytes, asset); why && asset.bytes.empty()) {
+            return make_diagnostic(Diag::SceneProfile, *why);
+        }
+        return asset;
+    }
+
     Result<paint::Asset> view_decode_png(std::span<const std::uint8_t> bytes) {
         paint::Asset asset;
         if (const auto why = decode_png(bytes, asset)) {
@@ -170,26 +328,46 @@ namespace weft {
     }
 
     std::shared_ptr<const paint::Asset> ViewImages::load(const std::string& path) {
+        // A data: URL is named by its start in diagnostics.
+        constexpr std::size_t named = 64;
         const auto fail = [&](const std::string& why) {
-            diagnose_(make_diagnostic(Diag::SceneProfile, "url(" + path + "): " + why).message);
+            const auto name = path.size() > named ? path.substr(0, named) + "..." : path;
+            diagnose_(make_diagnostic(Diag::SceneProfile, "url(" + name + "): " + why).message);
             return nullptr;
         };
         if (images_.size() >= constants::view::max_images) {
             return fail("past the page's " + std::to_string(constants::view::max_images) + " images");
         }
-        if (!reader_) {
-            return fail("no resource reader");
-        }
-        auto file = reader_(path);
-        if (!file) {
-            return fail("no such file");
+        std::optional<std::vector<std::uint8_t>> file;
+        if (data_scheme(path)) {
+            if (path.size() > constants::view::max_resource_bytes * 2) {
+                return fail("a data: URL of more than " + std::to_string(constants::view::max_resource_bytes * 2) +
+                            " characters");
+            }
+            auto bytes = data_url(path);
+            if (const auto* why = std::get_if<std::string>(&bytes)) {
+                return fail(*why);
+            }
+            file = std::move(std::get<std::vector<std::uint8_t>>(bytes));
+        } else {
+            if (!reader_) {
+                return fail("no resource reader");
+            }
+            file = reader_(path);
+            if (!file) {
+                return fail("no such file");
+            }
         }
         if (file->size() > constants::view::max_resource_bytes) {
             return fail("a file of more than " + std::to_string(constants::view::max_resource_bytes) + " bytes");
         }
         paint::Asset decoded;
-        if (const auto why = decode_png(*file, decoded)) {
-            return fail(*why);
+        if (const auto why = decode_image(*file, decoded)) {
+            if (decoded.bytes.empty()) {
+                return fail(*why);
+            }
+            // Its size without its pixels: a diagnostic, and the image drawn as nothing.
+            fail(*why);
         }
         if (bytes_ + decoded.bytes.size() > constants::view::max_image_bytes) {
             return fail("past the page's " + std::to_string(constants::view::max_image_bytes) + " bytes of images");

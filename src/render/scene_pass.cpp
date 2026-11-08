@@ -230,6 +230,21 @@ namespace weft::render {
             return {edge(left, false, w), edge(top, false, h), edge(right, true, w), edge(bottom, true, h)};
         }
 
+        // The device pixels (left, top, right, bottom) a group's composite covers, which a blending group's composite
+        // also reads its backdrop from: its clip's, rounded out, within the target.
+        std::array<std::int32_t, 4> blend_region(const paint::ClipRect& clip, float scale, unsigned w, unsigned h) {
+            const auto edge = [&](float v, bool up, unsigned limit) {
+                const double px = double(v) * scale;
+                return std::int32_t(std::clamp(up ? std::ceil(px) : std::floor(px), 0.0, double(limit)));
+            };
+            std::array<std::int32_t, 4> out{edge(clip[0], false, w), edge(clip[1], false, h), edge(clip[2], true, w),
+                                            edge(clip[3], true, h)};
+            if (out[2] <= out[0] || out[3] <= out[1]) {
+                return {};
+            }
+            return out;
+        }
+
         SceneRecord record(const paint::DisplayList& list, const paint::Item& item, const paint::ClipRect& clip,
                            float scale, unsigned w, unsigned h, Space space, const std::array<std::int32_t, 4>& mask) {
             auto m = item.transform;
@@ -272,15 +287,18 @@ namespace weft::render {
                 r.background = in(space, source.color);
                 r.outline = in(space, source.outline);
                 // A host texture's linear colors, in the pass's encoding, laid out as its fit says (scene.hlsl,
-                // fittedTexture), and a fitted image's as a host texture's (its texture is linear: sRGB texels, or
-                // linear premultiplied ones); external textures are images with their own colors.
+                // fittedTexture), and a fitted image's (a page's image) as a host texture's, its texels premultiplied
+                // encoded sRGB with smaller levels, sampled as Chrome samples an image; either nearest when pixelated.
+                // External textures are images with their own colors.
                 if (source.texture || source.fitted) {
                     const auto& f = source.fit;
                     r.mode[0] = scene_limits::image_mode_texture;
                     r.stops[0] = f.area;
                     r.stops[1] = {f.size[0], f.size[1], float(static_cast<int>(f.scale)), 0};
                     r.stops[2] = {f.fraction[0], f.fraction[1], f.offset[0], f.offset[1]};
-                    r.stops[3] = {float(static_cast<int>(f.repeat[0])), float(static_cast<int>(f.repeat[1])), 0, 0};
+                    r.stops[3] = {float(static_cast<int>(f.repeat[0])), float(static_cast<int>(f.repeat[1])),
+                                  source.fitted ? scene_limits::flag_enabled : scene_limits::flag_disabled,
+                                  source.pixelated ? scene_limits::flag_enabled : scene_limits::flag_disabled};
                 }
                 const auto* asset = !source.texture && !source.fitted && source.asset < list.assets.size()
                                         ? list.assets[source.asset].get()
@@ -374,6 +392,18 @@ namespace weft::render {
                 m = paint::identity;
                 r.size = {float(w) / scale, float(h) / scale, 0, 0};
                 r.extra = {0, item.opacity, scene_limits::flag_enabled, scene_limits::flag_disabled};
+                // The device pixels the composite covers (left, top, width, height): its clip's, rounded out, within
+                // the target; a group drawn into an image of its own covers them (scene_schedule.hpp, hoisted), which
+                // the composite samples where the View places it (scene.hlsl, GroupComposite). A group that blends: its
+                // mode, and the copy of its backdrop, of the same pixels, which a draw binds where an effect's second
+                // texture goes (scene.hlsl, blendComposite).
+                const auto region = blend_region(clip, scale, w, h);
+                r.outline = {float(region[0]), float(region[1]), float(region[2] - region[0]),
+                             float(region[3] - region[1])};
+                r.mode[2] = scene_limits::group_composite;
+                if (item.blend != paint::BlendMode::Normal) {
+                    r.mode[1] = float(static_cast<int>(item.blend));
+                }
             } else if (item.kind == Kind::Text || item.kind == Kind::Layer) {
                 // Scene rasters keep a transparent margin around the node, more where ink leaves it.
                 const float margin = scene_limits::image_margin + list.rasters[item.payload].overhang;
@@ -470,6 +500,55 @@ namespace weft::render {
     }
 
     Result<SceneClip> plan_scene_clip(const RoundedClip& c) {
+        using ClipKind = RoundedClip::Kind;
+        if (c.kind != ClipKind::Rounded) {
+            const auto* points = c.polygon.get();
+            if (!points || points->size() < 2 || points->size() > max_clip_polygon_points ||
+                (c.kind == ClipKind::Points && c.first >= points->size())) {
+                return make_diagnostic(Diag::PaintList, "polygon clip points");
+            }
+            if (c.kind == ClipKind::Points) {
+                // Its points in the order the shader reads them: rect, radius_x, radius_y, inv_x, then inv_y's x, y.
+                std::array<float, 2 * clip_polygon_points_per_entry> v{};
+                for (std::uint32_t k = 0; k < clip_polygon_points_per_entry && c.first + k < points->size(); ++k) {
+                    v[2 * k] = (*points)[c.first + k][0];
+                    v[2 * k + 1] = (*points)[c.first + k][1];
+                }
+                return SceneClip{{v[0], v[1], v[2], v[3]},
+                                 {v[4], v[5], v[6], v[7]},
+                                 {v[8], v[9], v[10], v[11]},
+                                 {v[12], v[13], v[14], v[15]},
+                                 {v[16], v[17], 0, 0}};
+            }
+            const auto& m = c.to_local;
+            const float det = m[0] * m[3] - m[1] * m[2];
+            if (!std::isnormal(det) || !std::all_of(c.rect.begin(), c.rect.end(), [](float v) {
+                    return std::isfinite(v);
+                })) {
+                return make_diagnostic(Diag::PaintList, "polygon clip map or bounds");
+            }
+            if (c.kind == ClipKind::Mask) {
+                // radius_x: the mark (scene.hlsl's ClipMask), the floats' pair count and the layer count.
+                if (!c.layers || c.layers > max_clip_mask_layers ||
+                    points->size() * 2 != std::size_t(c.layers) * clip_mask_layer_floats) {
+                    return make_diagnostic(Diag::PaintList, "mask clip layers");
+                }
+                const float span = 1 / std::sqrt(std::abs(det));
+                return SceneClip{{},
+                                 {scene_limits::clip_mask, float(points->size()), float(c.layers), 0},
+                                 {},
+                                 {m[0], m[2], m[4], span},
+                                 {m[1], m[3], m[5], 0}};
+            }
+            // radius_x: the fill rule (scene.hlsl's ClipPolygonNonzero or ClipPolygonEvenOdd) and the point count.
+            const float span = 1 / std::sqrt(std::abs(det));
+            return SceneClip{c.rect,
+                             {c.evenodd ? scene_limits::clip_polygon_evenodd : scene_limits::clip_polygon_nonzero,
+                              float(points->size()), 0, 0},
+                             {},
+                             {m[0], m[2], m[4], span},
+                             {m[1], m[3], m[5], 0}};
+        }
         try {
             const auto n = normalize_rounded(c);
             const auto& m = n.to_local;
@@ -485,7 +564,12 @@ namespace weft::render {
                                              unsigned height, std::optional<paint::ClipRect> crop, Space space,
                                              std::uint32_t anchors) {
         const auto& item = list.items[i];
-        if (item.clips_count > std::uint32_t(scene_limits::max_rounded_clips)) {
+        // The chain's clips, without the entries that carry a polygon's points.
+        std::uint32_t chained{};
+        for (auto c = item.clips_begin; c < item.clips_begin + item.clips_count && c < list.clips.size(); ++c) {
+            chained += list.clips[c].kind != RoundedClip::Kind::Points;
+        }
+        if (chained > std::uint32_t(scene_limits::max_rounded_clips)) {
             return make_diagnostic(Diag::PaintList, "rounded clip chain bound");
         }
         if (item.anchor > anchors) {
@@ -603,9 +687,21 @@ namespace weft::render {
                 case Kind::BeginGroup:
                     pass.batches.push_back({Step::BeginGroup, i++, 0});
                     break;
-                case Kind::EndGroup:
-                    pass.batches.push_back({Step::EndGroup, i++, 1});
+                case Kind::EndGroup: {
+                    // A group that blends copies its backdrop, the region its record names, before it composites.
+                    ScenePass::Batch end{Step::EndGroup, i, 1};
+                    if (list.items[i].blend != paint::BlendMode::Normal) {
+                        const auto& o = pass.records[i].outline;
+                        if (o[2] > 0 && o[3] > 0) {
+                            pass.copies.push_back({{std::int32_t(o[0]), std::int32_t(o[1]), std::int32_t(o[0] + o[2]),
+                                                    std::int32_t(o[1] + o[3])}});
+                            end.copy = std::uint32_t(pass.copies.size());
+                        }
+                    }
+                    pass.batches.push_back(end);
+                    ++i;
                     break;
+                }
                 case Kind::Text:
                 case Kind::Layer:
                 case Kind::Shadow:

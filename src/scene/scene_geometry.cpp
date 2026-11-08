@@ -1,4 +1,6 @@
 #include "scene/scene_geometry.hpp"
+#include "scene/scene_clip_path.hpp"
+#include "scene/scene_mask.hpp"
 #include "scene/scene_path.hpp"
 #include "scene/scene_values.hpp"
 
@@ -1051,6 +1053,51 @@ namespace weft {
             Plane inverse;
             if (!m.inverse(inverse)) {
                 return;
+            }
+            // clip-path: hits on the element and its descendants fall inside its shape, as painted; a shape of no
+            // area takes none.
+            if (n.fragments.empty() && scene_clip_path_value(n.style) != "none") {
+                std::optional<SceneClipPath> shape;
+                try {
+                    shape = scene_clip_path(n.style, n.box[2], n.box[3], constants::scene::clip_path_hit_flatness);
+                } catch (const std::invalid_argument&) {
+                }
+                if (shape && shape->empty) {
+                    return;
+                }
+                if (shape) {
+                    HitShape clipped;
+                    if (shape->rounded) {
+                        clipped.kind = HitShape::Kind::Rounded;
+                        clipped.rounded = *shape->rounded;
+                    } else {
+                        auto outline = std::make_shared<HitOutline>();
+                        outline->evenodd = shape->evenodd;
+                        outline->figures.emplace_back();
+                        for (const auto& p : *shape->polygon) {
+                            if (p[0] == clip_polygon_break) {
+                                outline->figures.emplace_back();
+                                continue;
+                            }
+                            outline->figures.back().points.push_back({p[0], p[1]});
+                            outline->figures.back().closed = true;
+                        }
+                        clipped.kind = HitShape::Kind::Fill;
+                        clipped.outline = std::move(outline);
+                    }
+                    clip = out.areas.add_clip(inverse, std::move(clipped), clip);
+                }
+            }
+            // A mask: hits fall in the border box (Chrome's mask clips them there unless a layer is no-clip); its
+            // values do not change them.
+            if (n.fragments.empty() && scene_mask_value(n.style) != "none") {
+                try {
+                    if (const auto mask = scene_mask(n.style, n.box[2], n.box[3], n.mask_image.get());
+                        mask && mask->clips_hits) {
+                        clip = out.areas.add_clip(inverse, HitShape::box(0, 0, n.box[2], n.box[3]), clip);
+                    }
+                } catch (const std::invalid_argument&) {
+                }
             }
             // The border box, with its rounded corners as painted.
             const auto box = HitShape::box(0, 0, n.box[2], n.box[3]);

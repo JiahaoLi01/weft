@@ -1,0 +1,43 @@
+[
+ ["focus", "a"], ["type", "hello world"], ["select", 6, 11], ["command", "copy"], ["state", "copied"],
+ ["key", "End"], ["type", " "], ["command", "paste"], ["state", "pasted"],
+ ["select", 0, 5], ["command", "cut"], ["state", "cut"], ["key", "End"], ["command", "paste"], ["state", "cut pasted"],
+ ["command", "undo"], ["state", "undo paste"], ["command", "undo"], ["state", "undo cut"],
+ ["command", "redo"], ["state", "redo cut"], ["command", "redo"], ["state", "redo paste"], ["command", "redo"],
+ ["state", "nothing to redo"],
+
+ ["focus", "b"], ["type", "abc"], ["state", "typed"], ["command", "undo"], ["state", "undo typing"],
+ ["command", "redo"], ["state", "redo typing"],
+ ["key", "ArrowLeft"], ["type", "X"], ["state", "typed after a move"], ["command", "undo"], ["state", "undo X"],
+ ["command", "undo"], ["state", "undo abc"],
+ ["type", "12345"], ["key", "Backspace"], ["key", "Backspace"], ["state", "deleted"], ["command", "undo"],
+ ["state", "undo deleting"], ["command", "redo"], ["state", "redo deleting"], ["command", "undo"],
+ ["command", "undo"], ["state", "undo 12345"],
+ ["type", "q"], ["command", "undo"], ["type", "w"], ["command", "redo"], ["state", "redo after a new edit"],
+ ["command", "selectAll"], ["command", "cut"], ["state", "cut all"], ["command", "undo"], ["state", "undo cut all"],
+ ["key", "End"], ["type", " one"], ["key", "Delete"], ["select", 0, 1], ["type", "Z"], ["state", "replaced"],
+ ["command", "undo"], ["state", "undo replacing"],
+
+ ["focus", "a"], ["script", "document.getElementById('a').value = 'set by script'"], ["command", "undo"],
+ ["state", "undo after a script set the value"],
+ ["type", "!"], ["focus", "b"], ["type", "?"], ["focus", "a"], ["command", "undo"], ["state", "undo in another field"],
+
+ ["focus", "b"], ["script", "document.getElementById('b').value = 'first\\nsecond'"], ["command", "selectAll"],
+ ["command", "copy"], ["focus", "a"], ["command", "selectAll"], ["command", "paste"],
+ ["state", "lines pasted into an input"], ["focus", "b"], ["key", "End"], ["command", "paste"],
+ ["state", "lines pasted into a textarea"],
+ ["focus", "a"], ["script", "document.getElementById('a').value = 'abcdefgh'"], ["command", "selectAll"],
+ ["command", "copy"], ["focus", "c"], ["command", "paste"], ["state", "pasted past maxlength"],
+
+ ["focus", "d"], ["select", 0, 4], ["command", "copy"], ["command", "cut"], ["focus", "a"], ["command", "selectAll"],
+ ["command", "paste"], ["state", "copied from a read-only input"], ["focus", "d"], ["command", "paste"],
+ ["state", "pasted into a read-only input"],
+ ["focus", "e"], ["command", "selectAll"], ["command", "copy"], ["command", "cut"], ["focus", "a"],
+ ["command", "selectAll"], ["command", "paste"], ["state", "copied from a password"],
+ ["focus", "f"], ["command", "selectAll"], ["command", "copy"], ["focus", "a"], ["command", "selectAll"],
+ ["command", "paste"], ["state", "copy given its data"],
+ ["focus", "g"], ["command", "paste"], ["state", "paste prevented"],
+ ["focus", "h"], ["type", "kept"], ["command", "undo"], ["state", "undo prevented"],
+ ["focus", "a"], ["key", "End"], ["command", "copy"], ["command", "cut"], ["command", "paste"],
+ ["state", "copy and cut of nothing"]
+]

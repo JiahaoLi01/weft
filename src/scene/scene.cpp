@@ -2,6 +2,8 @@
 #include "scene/scene_values.hpp"
 #include "constants/style.hpp"
 #include "scene/scene_background.hpp"
+#include "scene/scene_clip_path.hpp"
+#include "scene/scene_mask.hpp"
 #include "scene/scene_border_image.hpp"
 #include "scene/scene_field.hpp"
 #include "base/css_scalar.hpp"
@@ -99,7 +101,8 @@ namespace weft {
                                                     PropertyId::BorderCollapse,
                                                     PropertyId::BorderSpacing,
                                                     PropertyId::EmptyCells,
-                                                    PropertyId::StrokeMiterlimit};
+                                                    PropertyId::StrokeMiterlimit,
+                                                    PropertyId::ImageRendering};
 
         // The text a computed content value gives a generated box (CSS Generated Content 3 §1): its strings (with their
         // escapes) and attr(name), the element's attribute, in order; quotes and images give nothing, and so do counters
@@ -946,14 +949,27 @@ namespace weft {
             if (f == "step-end") {
                 return x >= 1 ? 1 : 0;
             }
+            if (f == "step-start") {
+                return x > 0 ? 1 : 0;
+            }
             if (f.starts_with("steps(")) {
+                // CSS Easing 1 §3.3: n steps, jumping at the end (the default), at the start, at both or at neither.
                 auto a = split(f.substr(6, f.size() - 7), ',');
                 auto n = number(a[0]);
-                if (n < 1 || n != std::floor(n) || a.size() > 2 ||
-                    (a.size() == 2 && a[1] != "end" && a[1] != "jump-end")) {
-                    fail("scene steps requires integer count and end position");
+                const auto at = a.size() == 2 ? trim(a[1]) : std::string("end");
+                const bool start = at == "start" || at == "jump-start";
+                const bool both = at == "jump-both";
+                const bool none = at == "jump-none";
+                if (n < 1 || n != std::floor(n) || a.size() > 2 || (none && n < 2) ||
+                    !(start || both || none || at == "end" || at == "jump-end")) {
+                    fail("steps of a whole count and a step position");
                 }
-                return std::floor(x * n) / n;
+                double step = std::floor(x * n);
+                if (start || both) {
+                    ++step;
+                }
+                const double jumps = both ? n + 1 : none ? n - 1 : n;
+                return std::clamp(step, 0., jumps) / jumps;
             }
             double x1 = constants::scene::ease_x1;
             double y1 = constants::scene::ease_y1;
@@ -1296,6 +1312,69 @@ namespace weft {
             return plans;
         }
 
+        // A script animation's effect at timeline time now (Web Animations 1 §4.6 to §4.9 and §6.6): its transformed
+        // progress, none where it is not in effect (idle, or outside its active interval without a fill there); and
+        // whether its time moves.
+        struct ScriptProgress {
+            std::optional<double> progress;
+            bool advancing{};
+        };
+
+        ScriptProgress script_progress(const DomAnimation& a, double now) {
+            ScriptProgress out;
+            std::optional<double> local;
+            if (a.hold_time) {
+                local = a.hold_time;
+            } else if (a.start_time) {
+                local = (now - *a.start_time) * a.rate;
+                out.advancing = a.rate != 0;
+            }
+            if (!local) {
+                return out;
+            }
+            const double duration = std::max(0., a.duration);
+            const double active = duration == 0 || a.iterations == 0 ? 0 : duration * a.iterations;
+            const double end = std::max(a.delay + active + a.end_delay, 0.);
+            const double before_active = std::max(std::min(a.delay, end), 0.);
+            const double active_after = std::max(std::min(a.delay + active, end), 0.);
+            const bool backwards = a.rate < 0;
+            enum class Phase { Before, Active, After };
+            const auto phase = *local < before_active || (backwards && *local == before_active) ? Phase::Before
+                               : *local > active_after || (!backwards && *local == active_after) ? Phase::After
+                                                                                                 : Phase::Active;
+            const bool fill_backwards = a.fill == "backwards" || a.fill == "both";
+            const bool fill_forwards = a.fill == "forwards" || a.fill == "both";
+            std::optional<double> active_time;
+            if (phase == Phase::Before) {
+                if (fill_backwards) {
+                    active_time = std::max(*local - a.delay, 0.);
+                }
+            } else if (phase == Phase::Active) {
+                active_time = *local - a.delay;
+            } else if (fill_forwards) {
+                active_time = std::max(std::min(*local - a.delay, active), 0.);
+            }
+            if (!active_time) {
+                return out;
+            }
+            double overall = duration == 0 ? (phase == Phase::Before ? 0. : a.iterations) : *active_time / duration;
+            overall += a.iteration_start;
+            double simple = std::isinf(overall) ? std::fmod(a.iteration_start, 1.) : std::fmod(overall, 1.);
+            if (simple == 0 && phase != Phase::Before && *active_time == active && a.iterations != 0) {
+                simple = 1;
+            }
+            const double iteration = phase == Phase::After && std::isinf(a.iterations) ? INFINITY
+                                     : simple == 1                                     ? std::floor(overall) - 1
+                                                                                       : std::floor(overall);
+            bool forwards = a.direction != "reverse";
+            if (a.direction == "alternate" || a.direction == "alternate-reverse") {
+                const double d = a.direction == "alternate" ? iteration : iteration + 1;
+                forwards = std::isinf(d) || std::fmod(d, 2) == 0;
+            }
+            out.progress = easing(a.easing, forwards ? simple : 1 - simple);
+            return out;
+        }
+
         using SceneId = std::array<std::uint64_t, 3>;
 
         struct State {
@@ -1313,6 +1392,10 @@ namespace weft {
             bool plans_valid{};
             double animation_start{};
             std::string animation_value;
+            // The element's script animations (DomSnapshot::animations) as last compiled: each keyframe's values, an
+            // animation at a time, from the list they were compiled from.
+            std::shared_ptr<const DomAnimations> script_source;
+            std::vector<std::vector<Style>> script_keyframes;
 
             struct Transition {
                 std::string from;
@@ -1416,7 +1499,14 @@ namespace weft {
             "figure,figcaption,address,hr{display:block}button{display:inline-block;text-align:center}"
             "span,b,strong{display:inline}"
             "svg{display:inline}*{box-sizing:border-box;border-style:solid;border-width:0}rp{display:none}"
-            "rt{line-height:normal}";
+            "rt{line-height:normal}"
+            // The dir attribute as Chrome maps it (HTMLElement's presentational style: its direction, and an isolate
+            // except on bdi, bdo and output; auto: an isolate, its direction from its text as the cascade gives it,
+            // auto_direction), bdi (dir auto unless it has a direction) and bdo (html.css). Lowercase values only:
+            // the strict profile has no case-insensitive attribute selectors.
+            "[dir=ltr]{direction:ltr;unicode-bidi:isolate}[dir=rtl]{direction:rtl;unicode-bidi:isolate}"
+            "[dir=auto],bdi,output{unicode-bidi:isolate}bdo,bdo[dir]{unicode-bidi:isolate-override}"
+            "textarea[dir=auto]{unicode-bidi:plaintext}";
         for (const auto* k : {"display",
                               "position",
                               "width",
@@ -1561,6 +1651,41 @@ namespace weft {
         p.properties["caret-color"].initial = "auto";
         p.properties["visibility"].initial = "visible";
         p.properties["pointer-events"] = {"auto", true, CssGrammar::Tokens, {}};
+        // Not inherited: an element's effective touch-action is what its value and its ancestors' all allow
+        // (View::touch).
+        p.properties["touch-action"] = {"auto", false, CssGrammar::Tokens, {}};
+        // Text direction (CSS Writing Modes 4 §2): direction inherits; unicode-bidi does not. An inline formatting
+        // context orders its text by them (scene_inline); boxes still lay out left to right.
+        p.properties["direction"] = {"ltr", true, CssGrammar::Tokens, {}};
+        p.properties["unicode-bidi"] = {"normal", false, CssGrammar::Tokens, {}};
+        // An img's sizing and the place of its image in its content box (CSS Sizing 4 §5, CSS Images 3 §5): read by
+        // the replaced box (scene layout) and its painting (scene_display_list); aspect-ratio of another element is a
+        // diagnostic.
+        p.properties["aspect-ratio"] = {"auto", false, CssGrammar::Tokens, {}};
+        p.properties["object-fit"] = {"fill", false, CssGrammar::Tokens, {}};
+        p.properties["object-position"] = {"50% 50%", false, CssGrammar::Tokens, {}};
+        // How an element's group composites over what lies behind it (Compositing and Blending 1 §3; scene_blend), and
+        // whether it isolates its descendants' blending.
+        p.properties["mix-blend-mode"] = {
+            "normal", false, CssGrammar::Keyword,
+            {"normal", "multiply", "screen", "overlay", "darken", "lighten", "color-dodge", "color-burn", "hard-light",
+             "soft-light", "difference", "exclusion", "hue", "saturation", "color", "luminosity", "plus-lighter"}};
+        p.properties["isolation"] = {"auto", false, CssGrammar::Keyword, {"auto", "isolate"}};
+        // The mask layers of an element (CSS Masking 1 §4; scene_mask): lists, a layer a comma apart. The mask and
+        // -webkit-mask shorthands set them all, and -webkit-mask-* are their names (the style module's expansion).
+        p.properties["mask-image"] = {"none", false, CssGrammar::Tokens, {}};
+        p.properties["mask-mode"] = {"match-source", false, CssGrammar::Tokens, {}};
+        p.properties["mask-repeat"] = {"repeat", false, CssGrammar::Tokens, {}};
+        p.properties["mask-position"] = {"0% 0%", false, CssGrammar::Tokens, {}};
+        p.properties["mask-clip"] = {"border-box", false, CssGrammar::Tokens, {}};
+        p.properties["mask-origin"] = {"border-box", false, CssGrammar::Tokens, {}};
+        p.properties["mask-size"] = {"auto", false, CssGrammar::Tokens, {}};
+        p.properties["mask-composite"] = {"add", false, CssGrammar::Tokens, {}};
+        // How an image is scaled (CSS Images 3 §7.3), inherited: pixelated and crisp-edges draw each pixel its nearest
+        // texel (scene_image_pixelated); the others filter, as Chrome's auto does.
+        p.properties["image-rendering"] = {
+            "auto", true, CssGrammar::Keyword,
+            {"auto", "smooth", "high-quality", "pixelated", "crisp-edges", "-webkit-optimize-contrast"}};
         p.properties["font-size"].initial = constants::default_font_size;
         p.properties["color"].initial = constants::default_color;
         p.properties["fill"].initial = constants::default_color;
@@ -1609,7 +1734,7 @@ namespace weft {
                 "input:is(:not([type]),[type=text i],[type=search i],[type=password i],[type=email i],[type=url i],"
                 "[type=tel i],[type=number i]),textarea{display:inline-block;box-sizing:content-box;margin:0;"
                 "font-family:Arial;font-size:13.333333px;font-weight:400;font-style:normal;line-height:normal;"
-                "letter-spacing:normal;text-transform:none;text-shadow:none;text-align:left;color:#000;"
+                "letter-spacing:normal;text-transform:none;text-shadow:none;text-align:start;color:#000;"
                 "background-color:#fff;cursor:text;padding:1px 2px;border:2px inset #767676}"
                 "textarea{padding:2px;border-width:1px;font-family:monospace;white-space:pre-wrap;"
                 "overflow-wrap:break-word;overflow:auto}"
@@ -1631,9 +1756,9 @@ namespace weft {
                 "list-style-position", "list-style-image", "quotes", "hyphens", "-webkit-hyphens", "orphans", "widows",
                 "break-inside", "break-before", "break-after", "page-break-inside", "box-decoration-break",
                 "-webkit-box-decoration-break", "contain", "content-visibility", "contain-intrinsic-size",
-                "-webkit-backdrop-filter", "speak", "text-indent", "-webkit-text-decoration", "unicode-bidi",
-                "direction", "writing-mode", "image-rendering", "shape-rendering", "text-wrap", "text-wrap-mode",
-                "text-wrap-style", "font-display", "src", "unicode-range"};
+                "-webkit-backdrop-filter", "speak", "text-indent", "-webkit-text-decoration", "writing-mode",
+                "shape-rendering", "text-wrap", "text-wrap-mode", "text-wrap-style", "font-display",
+                "src", "unicode-range"};
             p.ignored_prefixes = {"-ms-", "-moz-", "-o-"};
         }
         return p;
@@ -1703,6 +1828,7 @@ namespace weft {
         std::array<float, 2> expanded_viewport{};
         // The viewport's safe area, which env() reads, and the one the computed styles last used.
         SceneSafeArea safe_area{};
+        InputDevices input_devices{};
         SceneSafeArea expanded_safe_area{};
         Keyframes keyframes;
         InterpolationCache interpolation;
@@ -1837,7 +1963,8 @@ namespace weft {
 
         // What an element's build decides of its children: whether it shows (no display: none on it or an
         // ancestor), and whether its text nodes are #text children (mixed content), all of them, spaces too (an inline
-        // formatting context) or those with more than spaces.
+        // formatting context, or a block with inline-level element children among block-level ones) or those with
+        // more than spaces.
         struct Built {
             bool shown{};
             bool inline_context{};
@@ -2335,8 +2462,123 @@ namespace weft {
                     typed(track.property, lo->second, hi->second, eased);
                 }
             }
+            // Script animations (element.animate(); DomSnapshot::animations) over CSS animations, in creation order
+            // (Web Animations 1 §5.4.2): each property its keyframes take, between the two around the progress, eased
+            // by the first of them; a keyframe left out at offset 0 or 1 is the value beneath (Web Animations 1
+            // §5.3.4). Their keyframes compile once per list; a declaration the scene cannot take is a warning.
+            const auto& scripted = showing ? d.animations : nullptr;
+            if (scripted && st.script_source != scripted) {
+                st.script_source = scripted;
+                st.script_keyframes.clear();
+                for (const auto& a : *scripted) {
+                    auto& frames = st.script_keyframes.emplace_back();
+                    for (const auto& k : a.keyframes) {
+                        std::vector<std::string> dropped;
+                        bool viewport_units{};
+                        bool environment{};
+                        try {
+                            frames.push_back(expand(declarations(k.declarations, &dropped), {}, {}, &viewport_units,
+                                                    &environment));
+                        } catch (const std::invalid_argument& e) {
+                            warn(std::string("element.animate() keyframe: ") + e.what());
+                            frames.emplace_back();
+                        }
+                        for (auto& message : dropped) {
+                            warn("element.animate() keyframe: " + message);
+                        }
+                    }
+                }
+            }
+            if (scripted) {
+                for (std::size_t i = 0; i < scripted->size(); ++i) {
+                    const auto& a = (*scripted)[i];
+                    const auto& frames = st.script_keyframes[i];
+                    const auto progress = script_progress(a, now);
+                    animated = animated || progress.advancing;
+                    if (!progress.progress) {
+                        continue;
+                    }
+                    const double p = *progress.progress;
+                    std::set<PropertyId> properties;
+                    for (const auto& s : frames) {
+                        for (const auto& [id, v] : s) {
+                            properties.insert(id);
+                        }
+                    }
+                    for (const auto id : properties) {
+                        const std::string k(property_name(id));
+                        const auto fallback = k.starts_with("border-") && k.ends_with("-color")
+                                                  ? get(out.style, PropertyId::Color, "#000000")
+                                              : k == "background-color" ? std::string("transparent")
+                                              : k == "transform"        ? std::string("none")
+                                              : k == "opacity"          ? std::string("1")
+                                                                        : std::string("0");
+                        const auto underlying = get(out.style, k, fallback.c_str());
+                        struct Frame {
+                            double offset;
+                            std::string easing;
+                            std::string value;
+                        };
+                        std::vector<Frame> track;
+                        for (std::size_t f = 0; f < frames.size(); ++f) {
+                            if (const auto* v = frames[f].find(id)) {
+                                track.push_back({a.keyframes[f].offset, a.keyframes[f].easing, v->text()});
+                            }
+                        }
+                        if (track.front().offset != 0) {
+                            track.insert(track.begin(), {0, "linear", underlying});
+                        }
+                        if (track.back().offset != 1) {
+                            track.push_back({1, "linear", underlying});
+                        }
+                        const auto count_at = [&](double offset) {
+                            return std::count_if(track.begin(), track.end(), [&](const Frame& f) {
+                                return f.offset == offset;
+                            });
+                        };
+                        std::string value;
+                        std::string from;
+                        std::string to;
+                        double amount{};
+                        if (p < 0 && count_at(0) > 1) {
+                            value = from = to = track.front().value;
+                        } else if (p >= 1 && count_at(1) > 1) {
+                            value = from = to = track.back().value;
+                        } else {
+                            std::size_t start{};
+                            bool found{};
+                            for (std::size_t f = 0; f < track.size(); ++f) {
+                                if (track[f].offset <= p && track[f].offset < 1) {
+                                    start = f;
+                                    found = true;
+                                }
+                            }
+                            if (!found) {
+                                for (std::size_t f = 0; f < track.size(); ++f) {
+                                    if (track[f].offset == 0) {
+                                        start = f;
+                                    }
+                                }
+                            }
+                            const auto end = std::min(start + 1, track.size() - 1);
+                            const double span = track[end].offset - track[start].offset;
+                            const double local = span > 0 ? (p - track[start].offset) / span : 0;
+                            amount = easing(track[start].easing, local);
+                            from = track[start].value;
+                            to = track[end].value;
+                            value = lerp_property(k, from, to, amount, incremental ? &interpolation : nullptr);
+                        }
+                        out.style[k] = value;
+                        typed(k, from, to, amount);
+                    }
+                }
+            }
+            if (!scripted) {
+                st.script_source.reset();
+                st.script_keyframes.clear();
+            }
             // A keyframe's em lengths, as the element's own.
-            if (!st.plans.empty()) {
+            if (!st.plans.empty() || scripted) {
                 resolve_font_relative(out.style, parent);
             }
             if (out.paint) {
@@ -2448,15 +2690,70 @@ namespace weft {
                     fail(problem);
                 }
             }
+            // An img: the image its src names (none without a src, or for one the images have no image of: a
+            // replaced box without a natural size then), laid out at its natural size (layout_run) and drawn in its
+            // content box where object-fit and object-position put it (scene_display_list). A srcset is not read:
+            // the src draws. aspect-ratio sizes an img only.
+            if (scene_img(out)) {
+                if (const auto src = out.attributes.find("src"); src != out.attributes.end()) {
+                    if (const auto url = trim(src->second); !url.empty()) {
+                        if (images) {
+                            out.image = images->image(url);
+                        } else {
+                            undrawn("img src " + std::string(url) + " without images");
+                        }
+                    }
+                }
+                if (out.attributes.contains("srcset")) {
+                    warn("img srcset outside scene profile (its src is drawn)");
+                }
+                try {
+                    (void)scene_object_layout(out.style, {}, {});
+                    (void)scene_background_box(out.style, BackgroundBox::Content, 0, 0);
+                } catch (const std::invalid_argument& e) {
+                    undrawn(std::string(e.what()) + " of an img (its image is not drawn)");
+                }
+            } else if (trim(get(out.style, PropertyId::AspectRatio, "auto")) != "auto") {
+                undrawn("aspect-ratio " + get(out.style, PropertyId::AspectRatio) + " of an element other than img");
+            }
             const bool shown = !hidden && get(out.style, PropertyId::Display) != "none";
             emit(out, st, id, c, shown);
-            // clip-path: none (an SVG element's clip-path attribute is its own, scene_display_list); the element of
-            // another draws unclipped. stroke-miterlimit: the stroker's 4 (a miter longer than 4 times the stroke width
-            // is beveled).
-            for (const auto clip : {PropertyId::ClipPath, PropertyId::WebkitClipPath}) {
-                if (const auto v = trim(get(out.style, clip, "none")); v != "none") {
-                    undrawn(std::string(property_name(clip)) + " " + std::string(v) +
-                            " outside scene profile (drawn unclipped)");
+            // clip-path (scene_clip_path; an SVG element's clip-path attribute is its own, scene_display_list): a
+            // value the scene does not take draws the element unclipped. stroke-miterlimit: the stroker's 4 (a miter
+            // longer than 4 times the stroke width is beveled).
+            if (scene_clip_path_value(out.style) != "none") {
+                try {
+                    scene_clip_path(out.style, constants::scene::clip_path_check_size,
+                                    constants::scene::clip_path_check_size, 1);
+                } catch (const std::invalid_argument& e) {
+                    undrawn(std::string(e.what()) + " (drawn unclipped)");
+                }
+            }
+            // A mask: the image of its image layer (url(), read as a background's); one the scene does not take
+            // (scene_mask: more than one image layer, mask-repeat space or round) draws the element unmasked.
+            out.mask_image.reset();
+            if (scene_mask_value(out.style) != "none") {
+                std::string problem;
+                if (const auto url = scene_mask_url(out.style)) {
+                    if (url->empty()) {
+                        problem = "mask-image url() of no URL";
+                    } else if (!images) {
+                        problem = "mask-image url(" + *url + ") without images";
+                    } else {
+                        out.mask_image = images->image(*url);
+                    }
+                }
+                if (problem.empty()) {
+                    try {
+                        scene_mask(out.style, constants::scene::clip_path_check_size,
+                                   constants::scene::clip_path_check_size, out.mask_image.get());
+                    } catch (const std::invalid_argument& e) {
+                        problem = e.what();
+                    }
+                }
+                if (!problem.empty()) {
+                    out.mask_image.reset();
+                    undrawn(problem + " (drawn unmasked)");
                 }
             }
             if (const auto v = trim(get(out.style, PropertyId::StrokeMiterlimit, "4")); v != "4") {
@@ -2477,8 +2774,11 @@ namespace weft {
             }
             // Text beside elements becomes #text children. In an inline formatting context (an element that is not
             // flex or grid, whose in-flow element children are all inline-level) every text node does, spaces too:
-            // they collapse with their neighbours in the lines. Elsewhere spaces-only text between boxes goes.
+            // they collapse with their neighbours in the lines; and so in a block of inline-level and block-level
+            // element children, whose runs of inline-level ones are anonymous blocks' lines (scene_mixed_children).
+            // Elsewhere spaces-only text between boxes goes.
             bool elements{};
+            bool inline_elements{};
             const auto own_display = get(out.style, PropertyId::Display, "inline");
             bool inline_context = own_display != "flex" && own_display != "inline-flex" && own_display != "grid" &&
                                   own_display != "inline-grid";
@@ -2492,11 +2792,14 @@ namespace weft {
                     const auto& values = c.children.at(k++).values;
                     const auto display = values.text(PropertyId::Display, "inline");
                     const auto position = values.text(PropertyId::Position, "static");
-                    if (display != "none" && position != "absolute" && position != "fixed" && display != "inline" &&
-                        display != "inline-block" && display != "inline-flex" && display != "inline-grid" &&
-                        display != "inline-table") {
+                    const bool in_flow = display != "none" && position != "absolute" && position != "fixed";
+                    const bool inline_level = display == "inline" || display == "inline-block" ||
+                                              display == "inline-flex" || display == "inline-grid" ||
+                                              display == "inline-table";
+                    if (in_flow && !inline_level) {
                         inline_context = false;
                     }
+                    inline_elements |= in_flow && inline_level;
                 }
                 // Its ::before and ::after boxes are element children too (a text field's ::placeholder and
                 // ::selection are not boxes).
@@ -2515,7 +2818,10 @@ namespace weft {
                 }
             }
             inline_context = inline_context && elements;
-            const bool mixed = elements && (inline_context || !trim(out.text).empty());
+            const bool mixed_block = !inline_context && inline_elements && own_display != "flex" &&
+                                     own_display != "inline-flex" && own_display != "grid" &&
+                                     own_display != "inline-grid" && own_display != "inline";
+            const bool mixed = elements && (inline_context || mixed_block || !trim(out.text).empty());
             if (mixed) {
                 out.text.clear();
             }
@@ -2532,9 +2838,10 @@ namespace weft {
                 last.style != out.style || bool(last.paint) != bool(out.paint) ||
                 (last.paint && out.paint && last.paint->values != out.paint->values) ||
                 !scene_effect_equal(last.effect, out.effect) || last.background_image != out.background_image ||
-                last.border_image != out.border_image || last.particles != out.particles ||
+                last.border_image != out.border_image || last.image != out.image ||
+                last.mask_image != out.mask_image || last.particles != out.particles ||
                 !same_field(last.field, out.field);
-            return {shown, inline_context, mixed};
+            return {shown, inline_context || mixed_block, mixed};
         }
 
         // Whether an element with mixed content shows text node t as a #text child.
@@ -2649,7 +2956,8 @@ namespace weft {
         static bool same_dom_own(const DomSnapshot& a, const DomSnapshot& b) {
             return a.local_name == b.local_name && a.namespace_uri == b.namespace_uri &&
                    a.scroll_left == b.scroll_left && a.scroll_top == b.scroll_top && a.attributes == b.attributes &&
-                   DomSnapshot::same_field(a.field, b.field) && (!a.field || a.focused == b.focused);
+                   DomSnapshot::same_field(a.field, b.field) && (!a.field || a.focused == b.focused) &&
+                   DomSnapshot::same_animations(a.animations, b.animations);
         }
 
         // Whether two copies of a DOM node have the same children: the same nodes in the same order, and text of the
@@ -2685,6 +2993,11 @@ namespace weft {
         static bool same_layout_own(const SceneNode& a, const SceneNode& b) {
             if (a.identity != b.identity || a.tag != b.tag || a.space != b.space || a.text != b.text ||
                 a.scroll != b.scroll || !same_layout_style(a.style, b.style)) {
+                return false;
+            }
+            // An img's natural size is its image's.
+            if ((a.image ? std::array{a.image->width, a.image->height} : std::array<std::uint32_t, 2>{}) !=
+                (b.image ? std::array{b.image->width, b.image->height} : std::array<std::uint32_t, 2>{})) {
                 return false;
             }
             // A text field's text scrolls with its state.
@@ -3135,7 +3448,7 @@ namespace weft {
                 ++stamp;
                 // A forgiving sheet's @media conditions on the viewport: when their outcomes change, other rules match
                 // and the cascade starts over.
-                const bool media_changed = compiled->set_viewport(w, h);
+                const bool media_changed = compiled->set_viewport(w, h, input_devices);
                 const bool input_changed = compiled->refresh_input(d, style_input) || media_changed;
                 if (input_changed || viewport_moved || !computed) {
                     if (!cascade) {
@@ -3289,6 +3602,10 @@ namespace weft {
                 // The root's storage, where the run reached the root through its parent's children (none for the
                 // run's top): its content and lines are kept for the frames after (kept_contexts).
                 SceneChildren::Handle handle;
+                // The root's children it holds: an anonymous block box's run of inline-level ones among block-level
+                // siblings, [first, last); all of them otherwise.
+                std::size_t first{};
+                std::size_t last{static_cast<std::size_t>(-1)};
                 // The context's own content and lines, or those kept for its root.
                 InlineContext own;
                 InlineContext* state{};
@@ -3488,6 +3805,19 @@ namespace weft {
                 run.targets.push_back(&n);
                 return;
             }
+            // An img: a replaced box of its image's natural size (its pixels at 1 px each), none without an image. Its
+            // children, if script gave it any, are not laid out.
+            if (scene_img(n)) {
+                box.replaced = true;
+                box.image = true;
+                if (n.image && n.image->width && n.image->height) {
+                    box.natural = {float(n.image->width), float(n.image->height)};
+                    box.ratio = float(n.image->width) / float(n.image->height);
+                }
+                run.boxes.push_back(box);
+                run.targets.push_back(&n);
+                return;
+            }
             if (!n.text.empty() && !n.children.empty()) {
                 fail("mixed inline content outside scene formatting profile");
             }
@@ -3498,6 +3828,46 @@ namespace weft {
                 auto& context = run.contexts[index];
                 context.root = &n;
                 context.handle = handle;
+                return;
+            }
+            // A block container of inline-level and block-level children: each run of the inline-level ones in an
+            // anonymous block box of its own (CSS 2 §9.2.1.1), its lines an inline formatting context; positioned
+            // children stay boxes of the element. Their content is not kept between frames.
+            if (scene_mixed_children(n)) {
+                std::size_t start = n.children.size();
+                const auto flush = [&](std::size_t end) {
+                    if (start >= end) {
+                        return;
+                    }
+                    LayoutBox anonymous;
+                    anonymous.style = &anonymous_block();
+                    anonymous.parent = index;
+                    anonymous.text = true;
+                    auto& context = run.contexts[run.boxes.size()];
+                    context.root = &n;
+                    context.anonymous = true;
+                    context.first = start;
+                    context.last = end;
+                    run.boxes.push_back(anonymous);
+                    run.targets.push_back(nullptr);
+                    start = n.children.size();
+                };
+                for (std::size_t k = 0; k < n.children.size(); ++k) {
+                    const auto& c = n.children[k];
+                    if (c.style.text(PropertyId::Display) == "none") {
+                        continue;
+                    }
+                    if (out_of_flow(c)) {
+                        collect_boxes(c, index, run, inner_block, n.children.handle(k));
+                    } else if (scene_inline_level(c)) {
+                        start = std::min(start, k);
+                        clear_layout(c);
+                    } else {
+                        flush(k);
+                        collect_boxes(c, index, run, inner_block, n.children.handle(k));
+                    }
+                }
+                flush(n.children.size());
                 return;
             }
             if (scene_inline_children(n)) {
@@ -3629,7 +3999,8 @@ namespace weft {
         // container's first item's), none for a replaced element, a box that clips its overflow, or a box without
         // lines.
         std::optional<float> baseline_of(const SceneNode& n) const {
-            if (n.space == constants::svg_namespace_uri || n.style.text(PropertyId::Overflow, "visible") != "visible") {
+            if (n.space == constants::svg_namespace_uri || scene_img(n) ||
+                n.style.text(PropertyId::Overflow, "visible") != "visible") {
                 return std::nullopt;
             }
             if (const auto it = context_baselines.find(&n); it != context_baselines.end()) {
@@ -3776,7 +4147,7 @@ namespace weft {
         // The first in-flow line box's baseline in a laid-out box, from its border box top (CSS 2.1 §17.5.3, a table
         // cell's baseline): its own lines' first, else its first in-flow child's that has one; none without lines.
         std::optional<float> first_baseline_of(const SceneNode& n) const {
-            if (n.space == constants::svg_namespace_uri) {
+            if (n.space == constants::svg_namespace_uri || scene_img(n)) {
                 return std::nullopt;
             }
             if (const auto it = context_first_baselines.find(&n); it != context_first_baselines.end()) {
@@ -4247,8 +4618,8 @@ namespace weft {
         // Places a context's lines at its final width: text lines on their owners, inline box fragments, atomic
         // inlines (laid out again at that width), and each node's box around its pieces, relative to its parent.
         // origin is the top left of the content box in root's border box.
-        void place(const SceneNode& root, const SceneInlineLayout& layout, std::array<float, 2> origin,
-                   float available) {
+        void place(const SceneNode& root, const SceneInlineLayout& layout, std::array<float, 2> origin, float available,
+                   std::size_t first = 0, std::size_t last = static_cast<std::size_t>(-1)) {
             struct Bounds {
                 float left = std::numeric_limits<float>::infinity();
                 float top = std::numeric_limits<float>::infinity();
@@ -4269,18 +4640,25 @@ namespace weft {
             for (const auto& p : layout.pieces) {
                 const std::array<float, 4> r{origin[0] + p.rect[0], origin[1] + p.rect[1], p.rect[2], p.rect[3]};
                 switch (p.kind) {
-                    case SceneInlinePiece::Kind::Text:
+                    case SceneInlinePiece::Kind::Text: {
                         // Text that text-overflow hides is a line without text: it draws nothing but keeps its place.
+                        SceneLine line{.text = p.text, .rect = r, .baseline = p.baseline};
+                        line.bidi = p.bidi;
+                        line.rtl = p.rtl;
+                        line.context_before = p.context_before;
+                        line.context_after = p.context_after;
+                        line.run = p.run;
                         if (p.node == &root) {
-                            laid_out(root).lines.push_back({p.text, r, p.baseline});
+                            laid_out(root).lines.push_back(std::move(line));
                         } else {
-                            lines[p.node].push_back({p.text, r, p.baseline});
+                            lines[p.node].push_back(std::move(line));
                             // An inline element's box is its fragments'; a text node's its lines'.
                             if (p.node->tag == "#text") {
                                 bounds[p.node].add(r);
                             }
                         }
                         break;
+                    }
                     case SceneInlinePiece::Kind::Box:
                         fragments[p.node].push_back({r, p.first, p.last});
                         bounds[p.node].add(r);
@@ -4292,8 +4670,10 @@ namespace weft {
                 }
             }
             const auto assign = [&](auto&& self, const SceneNode& parent, float px, float py) -> void {
-                for (const auto& c : parent.children) {
-                    if (c.style.text(PropertyId::Display) == "none" || (&parent == &root && out_of_flow(c))) {
+                for (std::size_t k = 0; k < parent.children.size(); ++k) {
+                    const auto& c = parent.children[k];
+                    if (c.style.text(PropertyId::Display) == "none" ||
+                        (&parent == &root && (out_of_flow(c) || k < first || k >= last))) {
                         continue;
                     }
                     // A node without pieces (an empty inline element) sits at its parent's origin.
@@ -4348,7 +4728,6 @@ namespace weft {
             assign(assign, root, 0, 0);
         }
 
-
         // A text field's lines (SceneLine::start, SceneLine::stops): where each starts in the node's text, and its caret
         // stops, from its text shaped as the node's style shapes it. A field without text has one line of none at the
         // start of its content box (centered in it, an input's), as tall as its font's line box, for its caret.
@@ -4369,8 +4748,10 @@ namespace weft {
                 const auto strut = text->strut(scene_font(s));
                 const float height = strut.above + strut.below;
                 const float width = std::max(0.f, box[2] - left - right);
-                const auto align = s.text(PropertyId::TextAlign, "left");
-                const float x = left + (align == "center" ? width / 2 : align == "right" || align == "end" ? width : 0);
+                const auto align = s.text(PropertyId::TextAlign, "start");
+                const bool rtl = s.text(PropertyId::Direction, "ltr") == "rtl";
+                const bool to_right = align == "right" || (align == "end" && !rtl) || (align == "start" && rtl);
+                const float x = left + (align == "center" ? width / 2 : to_right ? width : 0);
                 const float y = root.field->state->multiline
                                     ? top
                                     : top + (std::max(0.f, box[3] - top - bottom) - height) / 2;
@@ -4390,8 +4771,16 @@ namespace weft {
                 if (at != std::string::npos) {
                     from = at + line.text.size();
                 }
-                const auto run = text->shape(line.text, root.style);
+                // Shaped as the line draws (scene_text_line): in its direction, its run alone when the field's text is
+                // bidirectional.
+                auto style = root.style;
+                style[PropertyId::Direction] = line.rtl ? "rtl" : "ltr";
+                style[PropertyId::UnicodeBidi] = line.bidi ? "bidi-override" : "normal";
+                const auto run = line.run ? line.run
+                                          : text->shape(line.text, scene_font(style),
+                                                        ShapeContext{line.context_before, line.context_after});
                 line.stops = scene_field_stops(*run, line.text, line.start);
+                line.extents = scene_field_extents(*run, line.text, line.start);
             }
         }
 
@@ -4414,7 +4803,7 @@ namespace weft {
                         state = &kept.context;
                     }
                     if (!state->content) {
-                        state->content = std::make_unique<SceneInlineContent>(*text, *c.root);
+                        state->content = std::make_unique<SceneInlineContent>(*text, *c.root, c.first, c.last);
                     }
                     c.state = state;
                 }
@@ -4517,10 +4906,15 @@ namespace weft {
                     origin = {left, over};
                     available = std::max(0.f, root_box[2] - left - right);
                     const auto d = s.text(PropertyId::Display, "block");
+                    // A single-line field's text lies across its content box (Chrome's inner editor), where text-align
+                    // places it: start is the right in a right-to-left field.
+                    const bool line_field = root.field && !root.field->state->multiline;
                     if (d == "flex" || d == "inline-flex") {
                         // The text is an anonymous flex item: as wide as its widest line up to the content box,
                         // placed by justify-content and align-items.
-                        available = std::min(available, at(i, unbounded).width);
+                        if (!line_field) {
+                            available = std::min(available, at(i, unbounded).width);
+                        }
                         const float free_x = std::max(0.f, root_box[2] - left - right) - available;
                         const float free_y = std::max(0.f, root_box[3] - over - bottom) - at(i, available).height;
                         const auto justify = s.text(PropertyId::JustifyContent, "flex-start");
@@ -4538,7 +4932,10 @@ namespace weft {
                         const float content_h = std::max(0.f, root_box[3] - over - bottom);
                         const float reach_x =
                             at(i, state.multiline ? available : unbounded).width + constants::scene::field_caret_px;
-                        shift_x -= std::clamp(state.scroll_x, 0.f, std::max(0.f, reach_x - content_w));
+                        const float over = std::max(0.f, reach_x - content_w);
+                        // A right-to-left input's text overflows to the left: it scrolls from 0 to minus that.
+                        const bool rtl = s.text(PropertyId::Direction, "ltr") == "rtl" && !state.multiline;
+                        shift_x -= rtl ? std::clamp(state.scroll_x, -over, 0.f) : std::clamp(state.scroll_x, 0.f, over);
                         shift_y -= std::clamp(state.scroll_y, 0.f,
                                               std::max(0.f, at(i, available).height - content_h));
                     }
@@ -4546,11 +4943,27 @@ namespace weft {
                 const auto& layout = at(i, available);
                 origin[0] += shift_x;
                 origin[1] += shift_y;
+                // An anonymous block box among block-level siblings gives its root's first baseline when it comes
+                // before them, and its last when it comes after them.
+                const auto in_flow_block = [&](std::size_t from, std::size_t to) {
+                    for (auto k = from; k < std::min(to, root.children.size()); ++k) {
+                        const auto& child = root.children[k];
+                        if (child.style.text(PropertyId::Display) != "none" && !out_of_flow(child) &&
+                            !scene_inline_level(child)) {
+                            return true;
+                        }
+                    }
+                    return false;
+                };
                 if (layout.lines) {
-                    context_baselines[&root] = origin[1] + layout.last_baseline;
-                    context_first_baselines[&root] = origin[1] + layout.baseline;
+                    if (!in_flow_block(c.last, root.children.size())) {
+                        context_baselines[&root] = origin[1] + layout.last_baseline;
+                    }
+                    if (!in_flow_block(0, c.first)) {
+                        context_first_baselines[&root] = origin[1] + layout.baseline;
+                    }
                 }
-                place(root, layout, origin, available);
+                place(root, layout, origin, available, c.first, c.last);
             }
             for (std::size_t i = 0; i < run.boxes.size(); ++i) {
                 if (const auto* n = run.targets[i]) {
@@ -4566,7 +4979,9 @@ namespace weft {
         // its padding box's start edges to the far edges of its children's margin boxes and its end padding (CSS
         // Overflow 3's scrollable overflow, without descendants that overflow their own boxes), and the scroll
         // position its element asks for, clamped to that content, by which its children's boxes move (from where layout
-        // put them: a box layout did not place again moves by the difference). Its own lines stay.
+        // put them: a box layout did not place again moves by the difference). Its own lines stay. A right-to-left
+        // one starts at its right: its content overflows to the left, where its left padding ends it, and its scroll
+        // position runs from 0 to minus the overflow (Chrome's scrollLeft); what overflows its right does not scroll.
         void scroll_content(const SceneNode& n) {
             auto& out = laid_out(n);
             const auto overflow = n.style.text(PropertyId::Overflow, "visible");
@@ -4602,7 +5017,27 @@ namespace weft {
                 right = std::max(right, line.rect[0] + line.rect[2] - left + end_x);
                 bottom = std::max(bottom, line.rect[1] + line.rect[3] - top + end_y);
             }
-            const float x = std::clamp(n.scroll[0], 0.f, std::max(0.f, right - client_w));
+            float x = std::clamp(n.scroll[0], 0.f, std::max(0.f, right - client_w));
+            if (s.text(PropertyId::Direction, "ltr") == "rtl") {
+                // The content's left edge, from the padding box's left: its children's margin boxes, its lines, and its
+                // left padding before them.
+                float start = 0;
+                const float start_x = edge_length(s, PropertyId::PaddingLeft, base);
+                for (const auto& c : n.children) {
+                    if (c.style.text(PropertyId::Display, c.tag == "#text" ? "inline" : "block") == "none") {
+                        continue;
+                    }
+                    const auto& placed = laid_out(c);
+                    const float margin =
+                        c.tag == "#text" ? 0.f : std::max(0.f, edge_length(c.style, PropertyId::MarginLeft, base));
+                    start = std::min(start, placed.box[0] + placed.shift[0] - margin - left - start_x);
+                }
+                for (const auto& line : out.lines) {
+                    start = std::min(start, line.rect[0] - left - start_x);
+                }
+                right = client_w - start;
+                x = std::clamp(n.scroll[0], std::min(0.f, start), 0.f);
+            }
             const float y = std::clamp(n.scroll[1], 0.f, std::max(0.f, bottom - client_h));
             out.scrolled = {x, y, right, bottom};
             for (const auto& c : n.children) {
@@ -4888,6 +5323,16 @@ namespace weft {
             static const auto ignored = [] {
                 std::array<bool, property_count> out{};
                 for (const auto id : {PropertyId::Opacity,
+                                      PropertyId::ClipPath,
+                                      PropertyId::WebkitClipPath,
+                                      PropertyId::MaskClip,
+                                      PropertyId::MaskComposite,
+                                      PropertyId::MaskImage,
+                                      PropertyId::MaskMode,
+                                      PropertyId::MaskOrigin,
+                                      PropertyId::MaskPosition,
+                                      PropertyId::MaskRepeat,
+                                      PropertyId::MaskSize,
                                       PropertyId::TransformOrigin,
                                       PropertyId::TransformStyle,
                                       PropertyId::BackgroundColor,
@@ -5035,6 +5480,11 @@ namespace weft {
             }
         }
         impl_->safe_area = safe_area;
+    }
+
+    void SceneSolver::set_input_devices(const InputDevices& devices) {
+        impl_->owner.require(Diag::SceneOwner);
+        impl_->input_devices = devices;
     }
 
     void SceneSolver::set_images(SceneImages* images) {

@@ -11,6 +11,9 @@ namespace weft::render::metal {
         constexpr unsigned char scene_fragment[] = {
 #include "shaders/scene_encoded.ps.metal.inc"
         };
+        constexpr unsigned char fetch_fragment[] = {
+#include "shaders/scene_fetch_encoded.ps.metal.inc"
+        };
         constexpr unsigned char particle_vertex[] = {
 #include "shaders/scene_particles_encoded.vs.metal.inc"
         };
@@ -30,6 +33,12 @@ namespace weft::render::metal {
         constexpr unsigned char matrix_fragment[] = {
 #include "shaders/backdrop_matrix.ps.metal.inc"
         };
+        constexpr unsigned char resolve_vertex[] = {
+#include "shaders/export_resolve.vs.metal.inc"
+        };
+        constexpr unsigned char resolve_fragment[] = {
+#include "shaders/export_resolve.ps.metal.inc"
+        };
 
         template <std::size_t N>
         std::string_view text(const unsigned char (&bytes)[N]) {
@@ -39,6 +48,10 @@ namespace weft::render::metal {
 
     ShaderSource scene_shader() {
         return {text(scene_vertex), text(scene_fragment)};
+    }
+
+    std::string_view scene_fetch_fragment() {
+        return text(fetch_fragment);
     }
 
     ShaderSource particle_shader() {
@@ -55,5 +68,9 @@ namespace weft::render::metal {
                 break;
         }
         return {text(backdrop_vertex), text(matrix_fragment)};
+    }
+
+    ShaderSource export_resolve_shader() {
+        return {text(resolve_vertex), text(resolve_fragment)};
     }
 } // namespace weft::render::metal

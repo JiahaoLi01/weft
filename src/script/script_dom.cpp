@@ -93,6 +93,142 @@ namespace weft {
             }
             return input;
         }
+
+        // A code point String.prototype.trim removes: ECMAScript's WhiteSpace (tab, vertical tab, form feed, the Zs
+        // spaces and U+FEFF) and LineTerminator.
+        bool js_space(char32_t c) {
+            switch (c) {
+                case 0x09:
+                case 0x0a:
+                case 0x0b:
+                case 0x0c:
+                case 0x0d:
+                case 0x20:
+                case 0xa0:
+                case 0x1680:
+                case 0x2028:
+                case 0x2029:
+                case 0x202f:
+                case 0x205f:
+                case 0x3000:
+                case 0xfeff:
+                    return true;
+                default:
+                    return c >= 0x2000 && c <= 0x200a;
+            }
+        }
+
+        // The code point UTF-8 text starts with and its bytes; a byte of no whole sequence is one of its own (never a
+        // space).
+        std::pair<char32_t, std::size_t> first_code_point(std::string_view s) {
+            const auto b = static_cast<unsigned char>(s[0]);
+            const std::size_t size = b < 0x80           ? 1
+                                     : (b >> 5) == 0x6  ? 2
+                                     : (b >> 4) == 0xe  ? 3
+                                     : (b >> 3) == 0x1e ? 4
+                                                        : 0;
+            if (size == 1 || !size || size > s.size()) {
+                return {size == 1 ? b : 0xfffd, 1};
+            }
+            char32_t c = b & (0xff >> (size + 1));
+            for (std::size_t i = 1; i < size; ++i) {
+                const auto next = static_cast<unsigned char>(s[i]);
+                if ((next & 0xc0) != 0x80) {
+                    return {0xfffd, 1};
+                }
+                c = c << 6 | (next & 0x3f);
+            }
+            return {c, size};
+        }
+
+        // The code point UTF-8 text ends with and its bytes.
+        std::pair<char32_t, std::size_t> last_code_point(std::string_view s) {
+            std::size_t start = s.size() - 1;
+            while (start > 0 && s.size() - start < 4 && (static_cast<unsigned char>(s[start]) & 0xc0) == 0x80) {
+                --start;
+            }
+            const auto [c, size] = first_code_point(s.substr(start));
+            return size == s.size() - start ? std::pair{c, size} : std::pair<char32_t, std::size_t>{0xfffd, 1};
+        }
+
+        // text without the code points String.prototype.trim removes from either end.
+        std::string_view js_trim(std::string_view text) {
+            while (!text.empty() && js_space(first_code_point(text).first)) {
+                text.remove_prefix(first_code_point(text).second);
+            }
+            while (!text.empty() && js_space(last_code_point(text).first)) {
+                text.remove_suffix(last_code_point(text).second);
+            }
+            return text;
+        }
+
+        // An element's inline style declaration as its style attribute holds it (element.style,
+        // src/script/js/web_host_bootstrap.js): the text split at every ';', each part with a ':' after its first
+        // character a declaration of its name and value (each trimmed as String.prototype.trim trims), in order, a
+        // later name updating the earlier in place.
+        using StyleDeclarations = std::vector<std::pair<std::string, std::string>>;
+
+        StyleDeclarations style_declarations(std::string_view text) {
+            StyleDeclarations out;
+            std::size_t start = 0;
+            for (;;) {
+                const auto end = text.find(';', start);
+                const auto part =
+                    text.substr(start, end == std::string_view::npos ? std::string_view::npos : end - start);
+                const auto colon = part.find(':');
+                if (colon != std::string_view::npos && colon > 0) {
+                    std::string name(js_trim(part.substr(0, colon)));
+                    std::string value(js_trim(part.substr(colon + 1)));
+                    const auto found = std::find_if(out.begin(), out.end(), [&](const auto& d) {
+                        return d.first == name;
+                    });
+                    if (found == out.end()) {
+                        out.emplace_back(std::move(name), std::move(value));
+                    } else {
+                        found->second = std::move(value);
+                    }
+                }
+                if (end == std::string_view::npos) {
+                    return out;
+                }
+                start = end + 1;
+            }
+        }
+
+        // Whether a declaration's value can be written: its parentheses balance outside quotes and its quotes close.
+        bool style_value_balanced(std::string_view value) {
+            int depth{};
+            char quote{};
+            for (const char c : value) {
+                if (quote) {
+                    if (c == quote) {
+                        quote = 0;
+                    }
+                } else if (c == '"' || c == '\'') {
+                    quote = c;
+                } else if (c == '(') {
+                    ++depth;
+                } else if (c == ')' && --depth < 0) {
+                    return false;
+                }
+            }
+            return !depth && !quote;
+        }
+
+        // The declarations as the style attribute holds them: "name: value;" joined by spaces.
+        std::string style_text(const StyleDeclarations& declarations) {
+            std::string out;
+            for (const auto& [name, value] : declarations) {
+                if (&name != &declarations.front().first) {
+                    out += ' ';
+                }
+                out += name;
+                out += ": ";
+                out += value;
+                out += ';';
+            }
+            return out;
+        }
     } // namespace
 
     struct ScriptDom::Impl {
@@ -110,6 +246,20 @@ namespace weft {
         };
 
         // A node's script state. Each owning value is duplicated exactly once and is reported by the node's mark().
+        // An img's image as script sees it (HTML's update the image data, its image loading within a frame): its
+        // current request, complete or not, its natural size and URL (none without an image: a broken one, or no
+        // src), and what its src last asked for, which the next deliver_images loads (its src, its URL; an empty src
+        // asks for an error event). generation tells a request apart from those it replaced.
+        struct ImageState {
+            bool complete{true};
+            std::uint32_t width{};
+            std::uint32_t height{};
+            std::string url;
+            std::optional<std::string> pending_src;
+            std::string pending_url;
+            std::uint64_t generation{};
+        };
+
         struct Binding {
             // The node's wrapper, borrowed: not an extra GC root. It stays until the slot is reused, so a finalizer
             // can release references to neighbors collected earlier in the same collection.
@@ -125,6 +275,10 @@ namespace weft {
             bool field_dirty{};
             std::optional<std::string> value_before_edit;
             bool selectionchange_pending{};
+            // The field as it was when an input method began to compose: the history's step of what it commits.
+            std::shared_ptr<const TextFieldState> composition_before;
+            // An img's image (sync_image).
+            std::shared_ptr<ImageState> image;
         };
 
         struct Completion {
@@ -158,8 +312,12 @@ namespace weft {
         JSValue focus_prototype{JS_UNDEFINED};
         JSValue input_prototype{JS_UNDEFINED};
         JSValue composition_prototype{JS_UNDEFINED};
+        JSValue clipboard_prototype{JS_UNDEFINED};
+        JSValue data_transfer_class{JS_UNDEFINED};
         // HTML input and textarea elements' prototype: the node prototype with the text field API.
         JSValue field_prototype{JS_UNDEFINED};
+        // An HTML img's wrapper prototype (HTMLImageElement): the element prototype and image_property's attributes.
+        JSValue image_prototype{JS_UNDEFINED};
         LayoutHost layout_host;
         ComputedStyleHost computed_style_host;
         ParticleHost particle_host;
@@ -175,6 +333,31 @@ namespace weft {
         // The web platform module's hosts and storage areas (local, session).
         ConsoleHost console_host;
         MediaHost media_host;
+        ImageHost image_host;
+        ClipboardHost clipboard_host;
+
+        // The document's editing history (Chrome's UndoStack, one for the frame, not one for each field): each step a
+        // text field's value and selection before and after a user edit. Typing (group 1: text, a line break) and
+        // deleting by keys (group 2) grow the step on top while the caret goes on from where the last edit left it
+        // and nothing moved the selection meanwhile (selection_epoch); a deleting step's selection before is what it
+        // deleted, which undo selects again. Undo moves the top step to redo, a new step clears redo.
+        struct UndoStep {
+            NodeIdentity field;
+            int group{};
+            std::uint64_t epoch{};
+            std::string before;
+            std::uint32_t before_start{};
+            std::uint32_t before_end{};
+            std::string after;
+            std::uint32_t after_start{};
+            std::uint32_t after_end{};
+        };
+
+        std::vector<UndoStep> undo_steps;
+        std::vector<UndoStep> redo_steps;
+        std::uint64_t selection_epoch{};
+        // The imgs whose src asked for an image, with the request's generation (sync_image).
+        std::vector<std::pair<NodeIdentity, std::uint64_t>> image_queue;
         std::array<std::shared_ptr<WebStorage>, 2> storage;
         // The element that has the focus, with the elements whose focus flags it set (it and its ancestors).
         NodeIdentity focus;
@@ -238,6 +421,15 @@ namespace weft {
 
         std::vector<NodeIdentity> hovered_nodes;
         std::vector<NodeIdentity> active_nodes;
+
+        // Pointer capture (set_pointer): the active pointers, whether each can be captured now, and the element it is
+        // to be captured by.
+        struct PointerState {
+            bool capturable{};
+            NodeIdentity pending{};
+        };
+
+        std::map<int, PointerState> pointers;
         std::map<std::uint64_t, JSValue> native_roots;
         std::deque<Completion> completions;
         std::uint64_t view_epoch{1};
@@ -1315,6 +1507,12 @@ namespace weft {
                     throw PendingJsException{};
                 }
             }
+            if (type == constants::element_node_type && local == "img" && space == constants::xhtml_namespace_uri &&
+                !JS_IsUndefined(image_prototype)) {
+                if (JS_SetPrototype(context, object.value, image_prototype) < 0) {
+                    throw PendingJsException{};
+                }
+            }
             if (JS_IsException(object.value)) {
                 faulted = true;
                 throw std::runtime_error("native wrapper allocation failed");
@@ -1498,13 +1696,22 @@ namespace weft {
             Disabled,
             MaxLength,
             FieldName,
-            TextLength
+            TextLength,
+            // An img's (image_property, set_image_property): every magic from ImageComplete on.
+            ImageComplete,
+            NaturalWidth,
+            NaturalHeight,
+            CurrentSrc,
+            ImageSrc
         };
 
         static JSValue get_property(JSContext* c, JSValueConst self, int magic) {
             try {
                 Node& n = node(c, self);
                 Impl& owner = state(c);
+                if (magic >= ImageComplete) {
+                    return owner.image_property(n, magic);
+                }
                 if (magic >= FieldValue) {
                     return owner.field_property(n, magic);
                 }
@@ -1687,6 +1894,10 @@ namespace weft {
         static JSValue set_property(JSContext* c, JSValueConst self, JSValueConst value, int magic) {
             try {
                 Node& n = node(c, self);
+                if (magic >= ImageComplete) {
+                    state(c).set_attribute(n, "src", string_value(c, value));
+                    return JS_UNDEFINED;
+                }
                 if (magic >= FieldValue) {
                     state(c).set_field_property(n, magic, value);
                     return JS_UNDEFINED;
@@ -1714,7 +1925,7 @@ namespace weft {
                     auto& owner = state(c);
                     auto g = owner.geometry(n);
                     if (magic == ScrollLeft && g.scroll_x) {
-                        n.scroll_left = std::clamp(v, 0., std::max(0., g.scroll_width - g.client_width));
+                        n.scroll_left = std::clamp(v, g.scroll_left_min(), g.scroll_left_max());
                     }
                     if (magic == ScrollTop && g.scroll_y) {
                         n.scroll_top = std::clamp(v, 0., std::max(0., g.scroll_height - g.client_height));
@@ -1803,6 +2014,7 @@ namespace weft {
             ClientRects,
             SceneGeometry,
             GetComputedStyle,
+            ElementAnimation,
             EmitParticles,
             FormatInteger,
             EngineSend,
@@ -1811,12 +2023,20 @@ namespace weft {
             EngineClose,
             Console,
             Storage,
+            Editing,
             Focus,
             Focused,
             MatchMedia,
             Blur,
             HasFocus,
             ScrollIntoView,
+            // element.style's declaration (src/script/js/web_host_bootstrap.js): a property written and read.
+            StyleSet,
+            StyleGet,
+            // Pointer capture (ScriptDom::set_pointer).
+            SetPointerCapture,
+            ReleasePointerCapture,
+            HasPointerCapture,
             // The text field API (field_method).
             SetSelectionRange,
             SelectText,
@@ -2011,6 +2231,93 @@ namespace weft {
                         }
                         return JS_DupValue(c, result.value);
                     }
+                    case ElementAnimation: {
+                        // A script animation of the element (scene_platform_bootstrap.js's Animation), as the scene
+                        // solves it (dom/animation.hpp): its id; its keyframes, each [offset, easing, declarations],
+                        // or null to take it off; its timing [delay, end delay, iteration start, iterations, duration,
+                        // direction, fill, easing]; its playback [start time or null, hold time or null, rate].
+                        const auto number_at = [&](JSValueConst list, std::uint32_t i) -> std::optional<double> {
+                            Value v(c, JS_GetPropertyUint32(c, list, i));
+                            if (JS_IsNull(v.value) || JS_IsUndefined(v.value)) {
+                                return std::nullopt;
+                            }
+                            double out{};
+                            if (JS_ToFloat64(c, &out, v.value) < 0) {
+                                throw PendingJsException{};
+                            }
+                            return out;
+                        };
+                        const auto string_at = [&](JSValueConst list, std::uint32_t i) {
+                            Value v(c, JS_GetPropertyUint32(c, list, i));
+                            return string_value(c, v.value);
+                        };
+                        const auto length_of = [&](JSValueConst list) {
+                            Value v(c, JS_GetPropertyStr(c, list, "length"));
+                            std::uint32_t out{};
+                            if (JS_ToUint32(c, &out, v.value) < 0) {
+                                throw PendingJsException{};
+                            }
+                            return out;
+                        };
+                        double key{};
+                        if (JS_ToFloat64(c, &key, arg(argc, argv, 0)) < 0) {
+                            throw PendingJsException{};
+                        }
+                        if (!(key >= 1) || key != std::floor(key)) {
+                            throw std::invalid_argument("WEFT_ANIMATION: an animation id");
+                        }
+                        auto list = n.animations ? std::make_shared<DomAnimations>(*n.animations)
+                                                 : std::make_shared<DomAnimations>();
+                        std::erase_if(*list, [&](const DomAnimation& a) {
+                            return a.id == std::uint64_t(key);
+                        });
+                        const auto keyframes = arg(argc, argv, 1);
+                        if (!JS_IsNull(keyframes) && !JS_IsUndefined(keyframes)) {
+                            DomAnimation a;
+                            a.id = std::uint64_t(key);
+                            const auto count = length_of(keyframes);
+                            if (count > constants::script::max_animation_keyframes) {
+                                throw std::invalid_argument("WEFT_ANIMATION: keyframe bound");
+                            }
+                            for (std::uint32_t k = 0; k < count; ++k) {
+                                Value frame(c, JS_GetPropertyUint32(c, keyframes, k));
+                                DomAnimation::Keyframe f;
+                                f.offset = number_at(frame.value, 0).value_or(0);
+                                f.easing = string_at(frame.value, 1);
+                                f.declarations = string_at(frame.value, 2);
+                                a.keyframes.push_back(std::move(f));
+                            }
+                            const auto timing = arg(argc, argv, 2);
+                            a.delay = number_at(timing, 0).value_or(0);
+                            a.end_delay = number_at(timing, 1).value_or(0);
+                            a.iteration_start = number_at(timing, 2).value_or(0);
+                            a.iterations = number_at(timing, 3).value_or(1);
+                            a.duration = number_at(timing, 4).value_or(0);
+                            a.direction = string_at(timing, 5);
+                            a.fill = string_at(timing, 6);
+                            a.easing = string_at(timing, 7);
+                            const auto playback = arg(argc, argv, 3);
+                            a.start_time = number_at(playback, 0);
+                            a.hold_time = number_at(playback, 1);
+                            a.rate = number_at(playback, 2).value_or(1);
+                            const auto at = std::find_if(list->begin(), list->end(), [&](const DomAnimation& b) {
+                                return b.id > a.id;
+                            });
+                            list->insert(at, std::move(a));
+                            if (list->size() > constants::script::max_element_animations) {
+                                throw std::invalid_argument("WEFT_ANIMATION: animations of one element bound");
+                            }
+                        }
+                        std::shared_ptr<const DomAnimations> next;
+                        if (!list->empty()) {
+                            next = std::move(list);
+                        }
+                        if (!DomSnapshot::same_animations(n.animations, next)) {
+                            n.animations = std::move(next);
+                            owner.changed(n);
+                        }
+                        return JS_UNDEFINED;
+                    }
                     case EmitParticles: {
                         // weft.emitParticles(element, name, options) of the scene platform: the name, a whole count of
                         // at least one, a duration in seconds, and a target element or a point (x, y).
@@ -2161,6 +2468,56 @@ namespace weft {
                     }
                     case Storage:
                         return owner.storage_call(argc, argv);
+                    case Editing: {
+                        // navigator.clipboard and document.execCommand (scene_platform_bootstrap.js): "read" the
+                        // clipboard's text, "write" text onto it, or run the "command" given at the focused element
+                        // (the body when none): copy and cut (a ClipboardEvent at another element than a text field,
+                        // its listener's data put onto the clipboard), undo, redo, selectAll of a text field; whether
+                        // it ran. paste does not run, as a page's execCommand("paste") does not in Chrome.
+                        const auto op = string_value(c, arg(argc, argv, 0));
+                        if (op == "read") {
+                            const auto text = owner.clipboard_host.read ? owner.clipboard_host.read() : std::nullopt;
+                            return text ? JS_NewStringLen(c, text->data(), text->size()) : JS_NewString(c, "");
+                        }
+                        if (op == "write") {
+                            const auto text = string_value(c, arg(argc, argv, 1));
+                            if (owner.clipboard_host.write) {
+                                owner.clipboard_host.write(text);
+                            }
+                            return JS_UNDEFINED;
+                        }
+                        const auto command = string_value(c, arg(argc, argv, 1));
+                        if (command == "undo" || command == "redo") {
+                            return JS_NewBool(c, owner.history(command == "undo"));
+                        }
+                        Node* target = owner.focused_node();
+                        if (!target) {
+                            std::vector<Node*> found;
+                            owner.query(node(c, owner.document_root), "body", found, true);
+                            target = found.empty() ? nullptr : found.front();
+                        }
+                        if (!target) {
+                            return JS_FALSE;
+                        }
+                        if (command == "copy" || command == "cut") {
+                            const auto kind = command == "cut" ? ClipboardCommand::Cut : ClipboardCommand::Copy;
+                            if (target->field) {
+                                owner.clipboard_command(*target, kind);
+                            } else {
+                                const auto [prevented, data] =
+                                    owner.dispatch_clipboard_event(*target, command.c_str(), std::nullopt);
+                                if (prevented && data && owner.clipboard_host.write) {
+                                    owner.clipboard_host.write(*data);
+                                }
+                            }
+                            return JS_TRUE;
+                        }
+                        if (command == "selectAll" && target->field) {
+                            owner.select_field(*target, 0, std::uint32_t(target->field->value.size()), true);
+                            return JS_TRUE;
+                        }
+                        return JS_FALSE;
+                    }
                     case Focus: {
                         // focus(options): an element that can take the focus takes it and scrolls into view where it
                         // does not show, unless options.preventScroll; options.focusVisible says whether it shows the
@@ -2389,6 +2746,94 @@ namespace weft {
                         }
                         return JS_NULL;
                     }
+                    case SetPointerCapture:
+                    case ReleasePointerCapture:
+                    case HasPointerCapture: {
+                        if (n.type != constants::element_node_type) {
+                            throw std::runtime_error("WEFT_DOM_TYPE: pointer capture requires Element");
+                        }
+                        std::int32_t id{};
+                        if (JS_ToInt32(c, &id, arg(argc, argv, 0)) < 0) {
+                            throw PendingJsException{};
+                        }
+                        const auto it = owner.pointers.find(id);
+                        if (magic == HasPointerCapture) {
+                            return JS_NewBool(c, it != owner.pointers.end() && it->second.pending == n.identity);
+                        }
+                        if (it == owner.pointers.end()) {
+                            owner.throw_dom("NotFoundError",
+                                            magic == SetPointerCapture
+                                                ? "Failed to execute 'setPointerCapture' on 'Element': No active "
+                                                  "pointer with the given id is found."
+                                                : "Failed to execute 'releasePointerCapture' on 'Element': No active "
+                                                  "pointer with the given id is found.");
+                        }
+                        if (magic == SetPointerCapture) {
+                            if (!owner.connected(n)) {
+                                owner.throw_dom("InvalidStateError", "Failed to execute 'setPointerCapture' on "
+                                                                     "'Element': InvalidStateError");
+                            }
+                            // The mouse's capture holds only while a button is down.
+                            if (it->second.capturable) {
+                                it->second.pending = n.identity;
+                            }
+                        } else if (it->second.pending == n.identity) {
+                            it->second.pending = {};
+                        }
+                        return JS_UNDEFINED;
+                    }
+                    case StyleSet:
+                    case StyleGet: {
+                        // element.style's write of one property (its CSS name) and its read: the declaration the
+                        // style attribute holds, parsed, changed and written back in one call, as setAttribute writes
+                        // it. A value whose parentheses or quotes do not balance changes nothing; an empty one
+                        // removes the property.
+                        if (n.type != constants::element_node_type) {
+                            throw std::runtime_error("WEFT_DOM_TYPE: style requires Element");
+                        }
+                        // The conversions first: they may run JS that changes the attributes.
+                        const std::string name = string_value(c, arg(argc, argv, 0));
+                        const std::string raw = magic == StyleSet ? string_value(c, arg(argc, argv, 1)) : "";
+                        auto it = std::find_if(n.attributes.begin(), n.attributes.end(), [](const Attribute& a) {
+                            return a.name == "style";
+                        });
+                        auto declarations =
+                            style_declarations(it == n.attributes.end() ? std::string_view{} : it->value);
+                        auto found = std::find_if(declarations.begin(), declarations.end(), [&](const auto& d) {
+                            return d.first == name;
+                        });
+                        if (magic == StyleGet) {
+                            return found == declarations.end()
+                                       ? JS_NewStringLen(c, "", 0)
+                                       : JS_NewStringLen(c, found->second.data(), found->second.size());
+                        }
+                        const auto value = js_trim(raw);
+                        if (!style_value_balanced(value)) {
+                            return JS_UNDEFINED;
+                        }
+                        if (!value.empty()) {
+                            if (found == declarations.end()) {
+                                declarations.emplace_back(name, std::string(value));
+                            } else {
+                                found->second = std::string(value);
+                            }
+                        } else if (found != declarations.end()) {
+                            declarations.erase(found);
+                        }
+                        std::string text = style_text(declarations);
+                        const bool modified = it == n.attributes.end() || it->value != text;
+                        owner.resize_canvas_attribute(n, "style", text);
+                        if (it == n.attributes.end()) {
+                            n.attributes.push_back({"style", "style", {}, std::move(text)});
+                        } else {
+                            it->value = std::move(text);
+                        }
+                        if (modified) {
+                            owner.changed(n);
+                            owner.sync_field(n);
+                        }
+                        return JS_UNDEFINED;
+                    }
                     case SetAttribute:
                     case GetAttribute:
                     case RemoveAttribute:
@@ -2426,6 +2871,7 @@ namespace weft {
                             if (space.empty()) {
                                 owner.resize_canvas_attribute(n, name, converted_value);
                             }
+                            const bool src = space.empty() && name == "src";
                             if (it == n.attributes.end()) {
                                 n.attributes.push_back({name, local, space, std::move(converted_value)});
                             } else {
@@ -2435,6 +2881,9 @@ namespace weft {
                             if (modified) {
                                 owner.changed(n);
                                 owner.sync_field(n);
+                                if (src) {
+                                    owner.sync_image(n);
+                                }
                             }
                             return JS_UNDEFINED;
                         }
@@ -2443,9 +2892,13 @@ namespace weft {
                                 owner.resize_canvas_attribute(n, it->name, "");
                             }
                             if (it != n.attributes.end()) {
+                                const bool src = it->space.empty() && it->name == "src";
                                 n.attributes.erase(it);
                                 owner.changed(n);
                                 owner.sync_field(n);
+                                if (src) {
+                                    owner.sync_image(n);
+                                }
                             }
                             return JS_UNDEFINED;
                         }
@@ -2702,14 +3155,21 @@ namespace weft {
                 property(prototype.value, "offsetParent", OffsetParent);
                 method(prototype.value, "__ceGeometry", SceneGeometry, 0);
                 method(prototype.value, "__ceComputedStyle", GetComputedStyle, 0);
+                method(prototype.value, "__ceAnimation", ElementAnimation, 4);
                 method(prototype.value, "__ceEmitParticles", EmitParticles, 6);
                 method(prototype.value, "__ceFormatInteger", FormatInteger, 1);
+                method(prototype.value, "__ceStyleSet", StyleSet, 2);
+                method(prototype.value, "__ceStyleGet", StyleGet, 1);
+                method(prototype.value, "setPointerCapture", SetPointerCapture, 1);
+                method(prototype.value, "releasePointerCapture", ReleasePointerCapture, 1);
+                method(prototype.value, "hasPointerCapture", HasPointerCapture, 1);
                 method(prototype.value, "__ceEngineSend", EngineSend, 2);
                 method(prototype.value, "__ceEngineCall", EngineCall, 2);
                 method(prototype.value, "__ceEngineInvoke", EngineInvoke, 2);
                 method(prototype.value, "__ceEngineClose", EngineClose, 1);
                 method(prototype.value, "__ceConsole", Console, 2);
                 method(prototype.value, "__ceStorage", Storage, 4);
+                method(prototype.value, "__ceEditing", Editing, 2);
                 method(prototype.value, "__ceFocused", Focused, 0);
                 method(prototype.value, "__ceMatchMedia", MatchMedia, 1);
                 method(prototype.value, "focus", Focus, 1);
@@ -2739,6 +3199,16 @@ namespace weft {
                 method(field_prototype, "setSelectionRange", SetSelectionRange, 3);
                 method(field_prototype, "select", SelectText, 0);
                 method(field_prototype, "setRangeText", SetRangeText, 4);
+                image_prototype = JS_NewObjectProto(context, prototype.value);
+                if (JS_IsException(image_prototype)) {
+                    image_prototype = JS_UNDEFINED;
+                    throw PendingJsException{};
+                }
+                property(image_prototype, "complete", ImageComplete);
+                property(image_prototype, "naturalWidth", NaturalWidth);
+                property(image_prototype, "naturalHeight", NaturalHeight);
+                property(image_prototype, "currentSrc", CurrentSrc);
+                property(image_prototype, "src", ImageSrc, true);
 
                 document_root = make_node(constants::document_node_type, "#document", "", {});
                 const auto document = node(context, document_root).identity;
@@ -2779,6 +3249,25 @@ globalThis.MouseEvent = class MouseEvent extends UIEvent {
 };
 globalThis.WheelEvent = class WheelEvent extends MouseEvent {
   constructor(type, options = {}) { super(type, options); for (const key of ['deltaX','deltaY','deltaZ','deltaMode']) this[key] = Number(options[key] ?? 0); }
+};
+globalThis.Touch = class Touch {
+  constructor(init = {}) {
+    if (!init || init.identifier === undefined || !init.target) throw new TypeError('Touch: identifier and target are required');
+    this.identifier = Number(init.identifier); this.target = init.target;
+    for (const key of ['clientX','clientY','screenX','screenY','pageX','pageY','radiusX','radiusY','rotationAngle','force']) this[key] = Number(init[key] ?? 0);
+  }
+};
+globalThis.TouchList = class TouchList {
+  item(index) { return this[index] ?? null; }
+  *[Symbol.iterator]() { for (let i = 0; i < this.length; i++) yield this[i]; }
+};
+globalThis.TouchEvent = class TouchEvent extends UIEvent {
+  constructor(type, options = {}) {
+    super(type, options);
+    for (const key of ['touches','targetTouches','changedTouches']) this[key] = Object.setPrototypeOf(Array.from(options[key] ?? []), TouchList.prototype);
+    for (const key of ['ctrlKey','shiftKey','altKey','metaKey']) this[key] = !!options[key];
+    Object.defineProperty(this, 'isTrusted', { value: false });
+  }
 };
 globalThis.FocusEvent = class FocusEvent extends UIEvent {
   constructor(type, options = {}) {
@@ -2824,6 +3313,29 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
     Object.defineProperty(this, 'isTrusted', { value: false });
   }
 };
+// A clipboard event's data (HTML's DataTransfer, strings only): "text" is "text/plain".
+globalThis.DataTransfer = class DataTransfer {
+  constructor() {
+    Object.defineProperty(this, '__data', { value: new Map() });
+    this.dropEffect = 'none'; this.effectAllowed = 'uninitialized';
+    Object.defineProperty(this, 'files', { value: Object.freeze([]), enumerable: true });
+  }
+  static __format(format) { const f = String(format).toLowerCase(); return f === 'text' ? 'text/plain' : f; }
+  get types() { return Object.freeze(Array.from(this.__data.keys())); }
+  get items() { return Object.freeze(Array.from(this.__data, ([type]) => ({ kind: 'string', type }))); }
+  getData(format) { return this.__data.get(DataTransfer.__format(format)) ?? ''; }
+  setData(format, data) { this.__data.set(DataTransfer.__format(format), String(data)); }
+  clearData(format) {
+    if (format === undefined) this.__data.clear(); else this.__data.delete(DataTransfer.__format(format));
+  }
+};
+globalThis.ClipboardEvent = class ClipboardEvent extends Event {
+  constructor(type, options = {}) {
+    super(type, options);
+    this.clipboardData = options.clipboardData ?? null;
+    Object.defineProperty(this, 'isTrusted', { value: false });
+  }
+};
 )JS",
                      "<event-probe-bootstrap>");
                 Value mouse(context, JS_GetPropertyStr(context, global.value, "MouseEvent"));
@@ -2844,9 +3356,13 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
                 input_prototype = JS_GetPropertyStr(context, input_event.value, "prototype");
                 Value composition_event(context, JS_GetPropertyStr(context, global.value, "CompositionEvent"));
                 composition_prototype = JS_GetPropertyStr(context, composition_event.value, "prototype");
+                Value clipboard_event(context, JS_GetPropertyStr(context, global.value, "ClipboardEvent"));
+                clipboard_prototype = JS_GetPropertyStr(context, clipboard_event.value, "prototype");
+                data_transfer_class = JS_GetPropertyStr(context, global.value, "DataTransfer");
                 if (JS_IsException(wheel_prototype) || JS_IsException(event_prototype) ||
                     JS_IsException(keyboard_prototype) || JS_IsException(focus_prototype) ||
-                    JS_IsException(input_prototype) || JS_IsException(composition_prototype)) {
+                    JS_IsException(input_prototype) || JS_IsException(composition_prototype) ||
+                    JS_IsException(clipboard_prototype) || JS_IsException(data_transfer_class)) {
                     throw PendingJsException{};
                 }
             } catch (...) {
@@ -2885,8 +3401,14 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
             input_prototype = JS_UNDEFINED;
             JS_FreeValue(context, composition_prototype);
             composition_prototype = JS_UNDEFINED;
+            JS_FreeValue(context, clipboard_prototype);
+            clipboard_prototype = JS_UNDEFINED;
+            JS_FreeValue(context, data_transfer_class);
+            data_transfer_class = JS_UNDEFINED;
             JS_FreeValue(context, field_prototype);
             field_prototype = JS_UNDEFINED;
+            JS_FreeValue(context, image_prototype);
+            image_prototype = JS_UNDEFINED;
             layout_host = {};
             computed_style_host = {};
             particle_host = {};
@@ -3319,9 +3841,9 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
                     throw std::runtime_error("WEFT_GEOMETRY_LIMIT: offset parent/size");
                 }
                 if (g.rect[2] < 0 || g.rect[3] < 0 || g.scroll_width < g.client_width ||
-                    g.scroll_height < g.client_height || g.scroll_left > g.scroll_width - g.client_width ||
-                    g.scroll_top > g.scroll_height - g.client_height || (!g.scroll_x && g.scroll_left != 0) ||
-                    (!g.scroll_y && g.scroll_top != 0)) {
+                    g.scroll_height < g.client_height || g.scroll_left > g.scroll_left_max() ||
+                    g.scroll_left < g.scroll_left_min() || g.scroll_top > g.scroll_height - g.client_height ||
+                    (!g.scroll_x && g.scroll_left != 0) || (!g.scroll_y && g.scroll_top != 0)) {
                     throw std::runtime_error("WEFT_GEOMETRY_LIMIT: inconsistent metrics");
                 }
                 for (const auto& r : g.client_rects) {
@@ -3498,6 +4020,8 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
 
         // Gives target the focus (none: no element has it) without events, as the focus fixup rule does.
         void set_focus(Node* target, std::optional<bool> visible = {}) {
+            // A move of the focus ends the typing the history's last step would take more of.
+            ++selection_epoch;
             focus = target ? target->identity : NodeIdentity{};
             focus_visible_option = target ? visible : std::nullopt;
             update_focus_flags();
@@ -3932,11 +4456,10 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
                     }
                 }
                 if (g->scroll_x) {
-                    const double max = std::max(0.0, g->scroll_width - g->client_width);
-                    const double left = std::clamp(
-                        g->scroll_left + align_delta(rect[0], rect[2], g->rect[0] + g->client_left, g->client_width,
-                                                     inline_align),
-                        0.0, max);
+                    const double left =
+                        std::clamp(g->scroll_left + align_delta(rect[0], rect[2], g->rect[0] + g->client_left,
+                                                                g->client_width, inline_align),
+                                   g->scroll_left_min(), g->scroll_left_max());
                     if (left != g->scroll_left) {
                         n->scroll_left = left;
                         rect[0] -= left - g->scroll_left;
@@ -3965,8 +4488,8 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
                     continue;
                 }
                 const double extent = vertical ? g->client_height : g->client_width;
-                const double max = std::max(0.0, vertical ? g->scroll_height - g->client_height
-                                                          : g->scroll_width - g->client_width);
+                const double min = vertical ? 0.0 : g->scroll_left_min();
+                const double max = vertical ? std::max(0.0, g->scroll_height - g->client_height) : g->scroll_left_max();
                 const double now = vertical ? g->scroll_top : g->scroll_left;
                 double next = now;
                 switch (granularity) {
@@ -3977,10 +4500,10 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
                         next = now + sign * std::max(1.0, extent * constants::input::keyboard_page_fraction);
                         break;
                     case ScrollGranularity::Document:
-                        next = sign < 0 ? 0 : max;
+                        next = sign < 0 ? min : max;
                         break;
                 }
-                next = std::clamp(next, 0.0, max);
+                next = std::clamp(next, min, max);
                 if (next == now) {
                     continue;
                 }
@@ -4007,6 +4530,113 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
             }
             changed(n);
             sync_field(n);
+            if (name == "src") {
+                sync_image(n);
+            }
+        }
+
+        // An img whose src was set or removed (HTML's update the image data): its current request stays while its
+        // src asks for another image, which it is not yet complete for (its natural size the old one's); no src
+        // makes it complete without an image; an empty src too, with an error event; the image it has asks for its
+        // load event again. The image loads at the next deliver_images.
+        void sync_image(Node& n) {
+            if (n.type != constants::element_node_type || n.space != constants::xhtml_namespace_uri ||
+                n.local != "img") {
+                return;
+            }
+            auto& b = binding(n);
+            if (!b.image) {
+                b.image = std::make_shared<ImageState>();
+            }
+            auto& s = *b.image;
+            ++s.generation;
+            s.pending_src.reset();
+            const auto* src = attribute(n, "src");
+            if (!src) {
+                s.complete = true;
+                s.width = s.height = 0;
+                s.url.clear();
+                return;
+            }
+            s.pending_src = *src;
+            s.pending_url = src->empty() ? std::string() : image_host.resolve ? image_host.resolve(*src) : *src;
+            if (src->empty()) {
+                s.complete = true;
+                s.width = s.height = 0;
+                s.url.clear();
+            } else if (!(s.complete && s.width && s.url == s.pending_url)) {
+                s.complete = false;
+            }
+            image_queue.emplace_back(n.identity, s.generation);
+        }
+
+        // An img's attributes (HTMLImageElement): complete, its natural size, currentSrc and src (its attribute
+        // resolved; "" without one).
+        JSValue image_property(Node& n, int magic) {
+            static const ImageState none;
+            const auto& b = binding(n);
+            const auto& s = b.image ? *b.image : none;
+            switch (magic) {
+                case ImageComplete:
+                    return JS_NewBool(context, s.complete);
+                case NaturalWidth:
+                    return JS_NewUint32(context, s.width);
+                case NaturalHeight:
+                    return JS_NewUint32(context, s.height);
+                case CurrentSrc:
+                    return JS_NewStringLen(context, s.url.data(), s.url.size());
+                case ImageSrc: {
+                    const auto* src = attribute(n, "src");
+                    if (!src) {
+                        return JS_NewString(context, "");
+                    }
+                    const auto url = image_host.resolve ? image_host.resolve(*src) : *src;
+                    return JS_NewStringLen(context, url.data(), url.size());
+                }
+                default:
+                    return JS_UNDEFINED;
+            }
+        }
+
+        // Loads the images asked for so far and fires each img's load or error event (not bubbling, not
+        // cancelable), its state its new image's first.
+        std::vector<std::string> deliver_images() {
+            require_runtime();
+            std::vector<std::string> errors;
+            const auto queue = std::exchange(image_queue, {});
+            for (const auto& [identity, generation] : queue) {
+                auto* n = resolve(identity);
+                if (!n) {
+                    continue;
+                }
+                const auto image = binding(*n).image;
+                if (!image || image->generation != generation || !image->pending_src) {
+                    continue;
+                }
+                auto& s = *image;
+                const auto src = *std::exchange(s.pending_src, std::nullopt);
+                const auto size = src.empty() || !image_host.load ? std::nullopt : image_host.load(src);
+                s.complete = true;
+                if (size) {
+                    s.width = (*size)[0];
+                    s.height = (*size)[1];
+                    s.url = s.pending_url;
+                } else {
+                    s.width = s.height = 0;
+                    s.url.clear();
+                }
+                try {
+                    execute([&] {
+                        Value event(context, JS_NewObjectProto(context, event_prototype));
+                        init_event(event.value, size ? "load" : "error", false, false, false);
+                        Value result(context, dispatch(*n, event.value));
+                        return JS_UNDEFINED;
+                    });
+                } catch (const std::runtime_error& e) {
+                    errors.push_back(e.what());
+                }
+            }
+            return errors;
         }
 
         // Text fields (dom/text_field.hpp): an HTML input of a text type and a textarea. A field's state is its node's
@@ -4313,6 +4943,9 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
                 n.attributes.erase(it);
                 changed(n);
                 sync_field(n);
+                if (name == "src") {
+                    sync_image(n);
+                }
             }
         }
 
@@ -4553,6 +5186,7 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
         // HTML's set the selection range, as script sets one: start no later than end; a change fires select as a task
         // (Chrome's ScheduleSelectEvent).
         void set_selection_range(Node& n, std::uint32_t start, std::uint32_t end, bool backward) {
+            ++selection_epoch;
             auto next = field_copy(n);
             next->selection_end = boundary(next->value, end);
             next->selection_start = std::min(boundary(next->value, start), next->selection_end);
@@ -4565,6 +5199,7 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
         // value = text by script: the value is dirty; when it changes the caret goes to its end and a composition ends
         // without events (Chrome's TextFieldInputType::SetValue).
         void set_value(Node& n, std::string text) {
+            ++selection_epoch;
             binding(n).field_dirty = true;
             text = sanitize_value(n, std::move(text));
             if (text == n.field->value) {
@@ -4671,10 +5306,13 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
 
         // An edit the user makes (ScriptDom::edit_text_field).
         TextEditResult edit_field(Node& n, std::uint32_t start, std::uint32_t end, std::string text,
-                                  std::string_view input_type, bool data) {
+                                  std::string_view input_type, bool data,
+                                  std::optional<std::string> announced = std::nullopt) {
             Value hold(context, JS_DupValue(context, wrapper(n)));
-            if (!dispatch_input_event(n, "beforeinput", input_type,
-                                      data ? std::optional<std::string_view>(text) : std::nullopt, false, true)) {
+            if (!announced && data) {
+                announced = text;
+            }
+            if (!dispatch_input_event(n, "beforeinput", input_type, announced, false, true)) {
                 return TextEditResult::Prevented;
             }
             if (!n.field || !n.field->editable || !connected(n)) {
@@ -4688,12 +5326,204 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
             if (start == end && text.empty()) {
                 return TextEditResult::Unchanged;
             }
+            const auto before = n.field;
             user_edit(n, f, start, end, text);
             f.composing = false;
             store_field(n, std::move(next));
+            record_step(n, input_type, *before, start, end);
             dispatch_input_event(n, "input", input_type, data ? std::optional<std::string_view>(text) : std::nullopt,
                                  false, false);
             return TextEditResult::Changed;
+        }
+
+        // A user edit of [start, end) of before's value into n's value as it is now, onto the history (UndoStep).
+        void record_step(Node& n, std::string_view input_type, const TextFieldState& before, std::uint32_t start,
+                         std::uint32_t end) {
+            redo_steps.clear();
+            const auto& after = *n.field;
+            const int group = input_type == "insertText" || input_type == "insertLineBreak" ? 1
+                              : input_type == "deleteContentBackward" || input_type == "deleteContentForward" ||
+                                      input_type == "deleteWordBackward" || input_type == "deleteWordForward"
+                                  ? 2
+                                  : 0;
+            if (group && !undo_steps.empty()) {
+                auto& top = undo_steps.back();
+                if (top.field == n.identity && top.group == group && top.epoch == selection_epoch &&
+                    top.after == before.value && top.after_start == before.selection_start &&
+                    top.after_end == before.selection_end && before.selection_start == before.selection_end) {
+                    if (group == 2) {
+                        // What it deleted grows by this deletion, in the value before the step: back from the caret
+                        // the text there is the same; forward from it, what follows the text deleted so far.
+                        if (end == before.selection_start) {
+                            top.before_start = std::min(top.before_start, start);
+                        } else {
+                            top.before_end += end - start;
+                        }
+                    }
+                    top.after = after.value;
+                    top.after_start = after.selection_start;
+                    top.after_end = after.selection_end;
+                    return;
+                }
+            }
+            UndoStep step;
+            step.field = n.identity;
+            step.group = group;
+            step.epoch = selection_epoch;
+            step.before = before.value;
+            step.before_start = group == 2 ? start : before.selection_start;
+            step.before_end = group == 2 ? end : before.selection_end;
+            step.after = after.value;
+            step.after_start = after.selection_start;
+            step.after_end = after.selection_end;
+            undo_steps.push_back(std::move(step));
+            if (undo_steps.size() > constants::script::max_undo_steps) {
+                undo_steps.erase(undo_steps.begin());
+            }
+        }
+
+        // Undo (redo: the other way) the history's last step (Chrome's Editor::Undo and Redo): beforeinput of
+        // historyUndo or historyRedo at its field (a deleting step's has none, as Chrome's typing commands), then,
+        // unless a listener prevented it, the field takes the focus and its value and selection before (after) the
+        // step, and input. A step whose field left the document or whose value script changed since is dropped. Whether
+        // there was a step.
+        bool history(bool undo) {
+            auto& from = undo ? undo_steps : redo_steps;
+            while (!from.empty()) {
+                const auto step = from.back();
+                Node* n = resolve(step.field);
+                if (!n || !n->field || !connected(*n) || n->field->value != (undo ? step.after : step.before)) {
+                    from.pop_back();
+                    continue;
+                }
+                Value hold(context, JS_DupValue(context, wrapper(*n)));
+                const char* type = undo ? "historyUndo" : "historyRedo";
+                if (step.group != 2 && !dispatch_input_event(*n, "beforeinput", type, std::nullopt, false, true)) {
+                    return true;
+                }
+                if (!n->field || !connected(*n) || from.empty() || from.back().field != step.field) {
+                    return true;
+                }
+                from.pop_back();
+                if (focused_node() != n) {
+                    move_focus(n, FocusType::Script, false);
+                }
+                if (!n->field) {
+                    return true;
+                }
+                auto next = field_copy(*n);
+                auto& b = binding(*n);
+                if (!b.value_before_edit) {
+                    b.value_before_edit = n->field->value;
+                }
+                b.field_dirty = true;
+                next->value = undo ? step.before : step.after;
+                next->selection_start = undo ? step.before_start : step.after_start;
+                next->selection_end = undo ? step.before_end : step.after_end;
+                next->backward = false;
+                next->composing = false;
+                store_field(*n, std::move(next));
+                ++selection_epoch;
+                (undo ? redo_steps : undo_steps).push_back(step);
+                dispatch_input_event(*n, "input", type, std::nullopt, false, false);
+                return true;
+            }
+            return false;
+        }
+
+        // A ClipboardEvent at target (copy, cut, paste: bubbling, cancelable, composed) whose clipboardData is a
+        // DataTransfer holding text when given (paste's). Whether a listener prevented it, and the text/plain its data
+        // holds afterwards (none when it holds none).
+        std::pair<bool, std::optional<std::string>> dispatch_clipboard_event(Node& target, const char* type,
+                                                                             std::optional<std::string_view> text) {
+            Value transfer(context, JS_CallConstructor(context, data_transfer_class, 0, nullptr));
+            if (JS_IsException(transfer.value)) {
+                throw PendingJsException{};
+            }
+            Value map(context, JS_GetPropertyStr(context, transfer.value, "__data"));
+            const auto call = [&](const char* method, int argc, JSValue* argv) {
+                Value function(context, JS_GetPropertyStr(context, map.value, method));
+                JSValue result = JS_Call(context, function.value, map.value, argc, argv);
+                for (int k = 0; k < argc; ++k) {
+                    JS_FreeValue(context, argv[k]);
+                }
+                if (JS_IsException(result)) {
+                    throw PendingJsException{};
+                }
+                return result;
+            };
+            if (text) {
+                JSValue args[]{JS_NewString(context, "text/plain"),
+                               JS_NewStringLen(context, text->data(), text->size())};
+                Value set(context, call("set", 2, args));
+            }
+            Value event(context, JS_NewObjectProto(context, clipboard_prototype));
+            init_event(event.value, type, true, true, true);
+            event_property(event.value, "clipboardData", JS_DupValue(context, transfer.value));
+            Value result(context, dispatch(target, event.value));
+            const bool prevented = JS_ToBool(context, result.value) <= 0;
+            JSValue key[]{JS_NewString(context, "text/plain")};
+            Value data(context, call("get", 1, key));
+            if (JS_IsUndefined(data.value)) {
+                return {prevented, std::nullopt};
+            }
+            return {prevented, string_value(context, data.value)};
+        }
+
+        // A clipboard command at a text field, as Chrome's Editor runs it: copy and cut fire their event (none at a
+        // password), then, unless a listener prevented it, the selection goes onto the clipboard (nothing when the
+        // selection is collapsed) and cut deletes it from a field the user may edit (deleteByCut); a prevented one puts
+        // the text/plain its listener gave, if any. Paste fires paste with the clipboard's text, then, unless
+        // prevented, replaces the selection of a field the user may edit with it (insertFromPaste: beforeinput's data
+        // the clipboard's text, the field's the text it takes: a line break a space in an input, as much as maxlength
+        // lets in).
+        void clipboard_command(Node& n, ClipboardCommand command) {
+            if (!n.field) {
+                return;
+            }
+            Value hold(context, JS_DupValue(context, wrapper(n)));
+            const auto write = [&](std::string_view text) {
+                if (clipboard_host.write) {
+                    clipboard_host.write(text);
+                }
+            };
+            if (command == ClipboardCommand::Paste) {
+                const auto text = clipboard_host.read ? clipboard_host.read() : std::nullopt;
+                const auto [prevented, data] = dispatch_clipboard_event(n, "paste", text.value_or(std::string()));
+                (void)data;
+                if (prevented || !text || text->empty() || !n.field || !n.field->editable || !connected(n)) {
+                    return;
+                }
+                auto inserted = line_feeds(*text);
+                if (!n.field->multiline) {
+                    std::replace(inserted.begin(), inserted.end(), '\n', ' ');
+                }
+                const auto& f = *n.field;
+                edit_field(n, f.selection_start, f.selection_end, std::move(inserted), "insertFromPaste", true, *text);
+                return;
+            }
+            if (n.field->password) {
+                return;
+            }
+            const bool cut = command == ClipboardCommand::Cut;
+            const auto [prevented, data] = dispatch_clipboard_event(n, cut ? "cut" : "copy", std::nullopt);
+            if (prevented) {
+                if (data) {
+                    write(*data);
+                }
+                return;
+            }
+            if (!n.field || n.field->selection_start == n.field->selection_end) {
+                return;
+            }
+            if (cut && (!n.field->editable || !connected(n))) {
+                return;
+            }
+            const auto& f = *n.field;
+            write(f.value.substr(f.selection_start, f.selection_end - f.selection_start));
+            if (cut) {
+                edit_field(n, f.selection_start, f.selection_end, "", "deleteByCut", false);
+            }
         }
 
         // The user selects from anchor to extent, its focus (ScriptDom::select_text_field).
@@ -4701,6 +5531,7 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
             if (!n.field) {
                 return false;
             }
+            ++selection_epoch;
             auto next = field_copy(n);
             anchor = boundary(next->value, anchor);
             extent = boundary(next->value, extent);
@@ -4733,6 +5564,7 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
                 }
                 const auto& f = *n.field;
                 const std::string selected = f.value.substr(f.selection_start, f.selection_end - f.selection_start);
+                binding(n).composition_before = n.field;
                 dispatch_composition_event(n, "compositionstart", selected);
                 if (!n.field || !connected(n)) {
                     return;
@@ -4793,6 +5625,9 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
             user_edit(n, f, f.composition_start, f.composition_end, text);
             f.composing = false;
             store_field(n, std::move(next));
+            if (const auto before = std::exchange(binding(n).composition_before, nullptr)) {
+                record_step(n, "insertCompositionText", *before, 0, 0);
+            }
             dispatch_input_event(n, "input", "insertCompositionText",
                                  text.empty() ? std::nullopt : std::optional<std::string_view>(text), true, false);
             dispatch_composition_event(n, "compositionend", text);
@@ -5003,6 +5838,40 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
     void ScriptDom::install_media_host(MediaHost host) {
         impl_->require_runtime();
         impl_->media_host = std::move(host);
+    }
+
+    void ScriptDom::install_image_host(ImageHost host) {
+        impl_->require_runtime();
+        impl_->image_host = std::move(host);
+    }
+
+    std::vector<std::string> ScriptDom::deliver_images() {
+        return impl_->deliver_images();
+    }
+
+    void ScriptDom::install_clipboard_host(ClipboardHost host) {
+        impl_->require_runtime();
+        impl_->clipboard_host = std::move(host);
+    }
+
+    void ScriptDom::clipboard_command(NodeIdentity field, ClipboardCommand command) {
+        impl_->require_runtime();
+        if (auto* n = impl_->field_node(field)) {
+            impl_->execute([&] {
+                impl_->clipboard_command(*n, command);
+                return JS_UNDEFINED;
+            });
+        }
+    }
+
+    bool ScriptDom::history_command(bool redo) {
+        impl_->require_runtime();
+        bool done{};
+        impl_->execute([&] {
+            done = impl_->history(!redo);
+            return JS_UNDEFINED;
+        });
+        return done;
     }
 
     std::optional<NodeIdentity> ScriptDom::focused() const {
@@ -5267,7 +6136,7 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
                 }
                 bool changed{};
                 if (!x_done && it->wheel_x) {
-                    auto v = std::clamp(it->scroll_left + dx, 0., std::max(0., it->scroll_width - it->client_width));
+                    auto v = std::clamp(it->scroll_left + dx, it->scroll_left_min(), it->scroll_left_max());
                     if (v != n->scroll_left) {
                         n->scroll_left = v;
                         x_done = changed = true;
@@ -5304,7 +6173,8 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
         const bool over = input.type == MouseType::Over;
         const bool out = input.type == MouseType::Out;
         const bool down = input.type == MouseType::Down;
-        const bool up = input.type == MouseType::Up;
+        // A tap's mouseup leaves :active for release_active.
+        const bool up = input.type == MouseType::Up && !input.keep_active;
         if (over || out || down || up) {
             auto& tracked = (over || out) ? impl_->hovered_nodes : impl_->active_nodes;
             auto ancestor = [&](Impl::Node* p, const Impl::Node* n) {
@@ -5396,14 +6266,22 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
             case MouseType::DblClick:
                 type = "dblclick";
                 break;
+            case MouseType::GotPointerCapture:
+                type = "gotpointercapture";
+                break;
+            case MouseType::LostPointerCapture:
+                type = "lostpointercapture";
+                break;
             default:
                 throw std::invalid_argument("WEFT_MOUSE_PROFILE: unsupported event type");
         }
         // As in Chrome: click is a PointerEvent too; the pointer events' positions are fractional and the mouse
         // events' (click's) whole CSS px; detail counts the clicks of down, up and click, and is 0 for the others. A
         // simulated click (the keyboard's) has pointerId -1, no pointer type, no position and detail 0.
-        const bool pointer = std::string_view(type).starts_with("pointer");
-        const bool counted = down || up || input.type == MouseType::Click || input.type == MouseType::DblClick;
+        const bool capture = input.type == MouseType::GotPointerCapture || input.type == MouseType::LostPointerCapture;
+        const bool pointer = std::string_view(type).starts_with("pointer") || capture;
+        const bool counted =
+            down || input.type == MouseType::Up || input.type == MouseType::Click || input.type == MouseType::DblClick;
         const bool simulated = input.simulated && input.type == MouseType::Click;
         const auto position = [&](double v) {
             return simulated ? 0.0 : pointer ? v : std::floor(v);
@@ -5431,8 +6309,22 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
             property("bubbles",
                      JS_NewBool(c, input.type != MouseType::Enter && input.type != MouseType::Leave &&
                                        input.type != MouseType::PointerEnter && input.type != MouseType::PointerLeave));
-            property("cancelable", JS_TRUE);
-            if (pointer || input.type == MouseType::Click) {
+            // pointercancel, the capture events, enter and leave cannot be cancelled (as Chrome's).
+            const bool boundary = input.type == MouseType::Enter || input.type == MouseType::Leave ||
+                                  input.type == MouseType::PointerEnter || input.type == MouseType::PointerLeave;
+            property("cancelable", JS_NewBool(c, !capture && !boundary && input.type != MouseType::PointerCancel));
+            if (input.touch && (pointer || input.type == MouseType::Click)) {
+                property("pointerId", JS_NewInt32(c, input.pointer_id));
+                property("pointerType", JS_NewString(c, "touch"));
+                property("isPrimary", JS_NewBool(c, input.primary));
+                property("width", JS_NewFloat64(c, input.width));
+                property("height", JS_NewFloat64(c, input.height));
+                property("pressure", JS_NewFloat64(c, input.pressure));
+                property("tangentialPressure", JS_NewFloat64(c, 0));
+                property("tiltX", JS_NewInt32(c, 0));
+                property("tiltY", JS_NewInt32(c, 0));
+                property("twist", JS_NewInt32(c, 0));
+            } else if (pointer || input.type == MouseType::Click) {
                 property("pointerId", JS_NewInt32(c, simulated ? -1 : constants::script::mouse_pointer_id));
                 property("pointerType", JS_NewString(c, simulated ? "" : "mouse"));
                 property("isPrimary", JS_NewBool(c, !simulated));
@@ -5444,7 +6336,7 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
             const auto* related = impl_->resolve(input.related_target);
             property("relatedTarget", related ? JS_DupValue(c, impl_->wrapper(*related)) : JS_NULL);
             property("detail", JS_NewUint32(c, counted && !pointer && !simulated ? std::max(1u, input.clicks) : 0));
-            property("button", JS_NewInt32(c, 0));
+            property("button", JS_NewInt32(c, input.touch ? input.button : 0));
             property("buttons", JS_NewUint32(c, simulated ? 0 : input.buttons));
             property("clientX", JS_NewFloat64(c, position(input.client_x)));
             property("clientY", JS_NewFloat64(c, position(input.client_y)));
@@ -5464,6 +6356,210 @@ globalThis.CompositionEvent = class CompositionEvent extends UIEvent {
             return impl_->dispatch(*target, event.value);
         });
         return result == "true" ? DispatchResult::DefaultAllowed : DispatchResult::DefaultPrevented;
+    }
+
+    DispatchResult ScriptDom::dispatch_touch(NodeIdentity identity, const DomTouchEvent& input) {
+        impl_->require_runtime();
+        const auto finite = [](const TouchPoint& p) {
+            return std::isfinite(p.client_x) && std::isfinite(p.client_y) && std::isfinite(p.radius_x) &&
+                   std::isfinite(p.radius_y) && std::isfinite(p.force);
+        };
+        if (!std::isfinite(input.time_ms) || input.time_ms < 0 || input.changed.empty() ||
+            !std::all_of(input.touches.begin(), input.touches.end(), finite) ||
+            !std::all_of(input.changed.begin(), input.changed.end(), finite)) {
+            throw std::invalid_argument("WEFT_TOUCH_PROFILE: finite touches, one changed at least");
+        }
+        // The target stays the element the touch started on while it lives, connected or not (as Chrome's).
+        auto* target = impl_->resolve(identity);
+        if (!target) {
+            return DispatchResult::StaleTarget;
+        }
+        const char* type = input.type == TouchType::Start  ? "touchstart"
+                           : input.type == TouchType::Move ? "touchmove"
+                           : input.type == TouchType::End  ? "touchend"
+                                                           : "touchcancel";
+        const auto result = impl_->execute([&] {
+            auto* c = impl_->context;
+            Value pinned(c, JS_DupValue(c, impl_->wrapper(*target)));
+            Value global(c, JS_GetGlobalObject(c));
+            const auto prototype_of = [&](const char* name) {
+                Value constructor(c, JS_GetPropertyStr(c, global.value, name));
+                return JS_IsObject(constructor.value) ? JS_GetPropertyStr(c, constructor.value, "prototype")
+                                                      : JS_DupValue(c, impl_->event_prototype);
+            };
+            Value event_prototype(c, prototype_of("TouchEvent"));
+            Value touch_prototype(c, prototype_of("Touch"));
+            Value list_prototype(c, prototype_of("TouchList"));
+            // A TouchList of Touch objects: an array with TouchList's prototype (its item()).
+            const auto list = [&](const std::vector<TouchPoint>& points, bool of_target) {
+                JSValue array = JS_NewArray(c);
+                std::uint32_t k{};
+                for (const auto& p : points) {
+                    if (of_target && p.target != target->identity) {
+                        continue;
+                    }
+                    JSValue touch = JS_NewObjectProto(c, touch_prototype.value);
+                    const auto set = [&](const char* name, JSValue v) {
+                        JS_DefinePropertyValueStr(c, touch, name, v, JS_PROP_ENUMERABLE);
+                    };
+                    set("identifier", JS_NewUint32(c, p.identifier));
+                    const auto* n = impl_->resolve(p.target);
+                    set("target", n ? JS_DupValue(c, impl_->wrapper(*n)) : JS_NULL);
+                    set("clientX", JS_NewFloat64(c, p.client_x));
+                    set("clientY", JS_NewFloat64(c, p.client_y));
+                    set("pageX", JS_NewFloat64(c, p.client_x));
+                    set("pageY", JS_NewFloat64(c, p.client_y));
+                    set("screenX", JS_NewFloat64(c, p.client_x));
+                    set("screenY", JS_NewFloat64(c, p.client_y));
+                    set("radiusX", JS_NewFloat64(c, p.radius_x));
+                    set("radiusY", JS_NewFloat64(c, p.radius_y));
+                    set("rotationAngle", JS_NewFloat64(c, 0));
+                    set("force", JS_NewFloat64(c, p.force));
+                    JS_SetPropertyUint32(c, array, k++, touch);
+                }
+                if (JS_IsObject(list_prototype.value)) {
+                    JS_SetPrototype(c, array, list_prototype.value);
+                }
+                return array;
+            };
+            Value event(c, JS_NewObjectProto(c, event_prototype.value));
+            auto property = [&](const char* key, JSValue value) {
+                impl_->event_property(event.value, key, value);
+            };
+            property("type", JS_NewString(c, type));
+            property("bubbles", JS_TRUE);
+            property("cancelable", JS_NewBool(c, input.cancelable));
+            property("composed", JS_TRUE);
+            property("defaultPrevented", JS_FALSE);
+            property("currentTarget", JS_NULL);
+            property("eventPhase", JS_NewInt32(c, constants::script::event_phase_none));
+            property("view", JS_GetGlobalObject(c));
+            property("detail", JS_NewInt32(c, 0));
+            property("touches", list(input.touches, false));
+            property("targetTouches", list(input.touches, true));
+            property("changedTouches", list(input.changed, false));
+            property("timeStamp", JS_NewFloat64(c, input.time_ms));
+            property("ctrlKey", JS_NewBool(c, input.ctrl));
+            property("shiftKey", JS_NewBool(c, input.shift));
+            property("altKey", JS_NewBool(c, input.alt));
+            property("metaKey", JS_NewBool(c, input.meta));
+            if (JS_DefinePropertyValueStr(c, event.value, "isTrusted", JS_TRUE, 0) < 0) {
+                throw PendingJsException{};
+            }
+            return impl_->dispatch(*target, event.value);
+        });
+        return result == "true" ? DispatchResult::DefaultAllowed : DispatchResult::DefaultPrevented;
+    }
+
+    void ScriptDom::set_pointer(int pointer_id, bool active, bool capturable, NodeIdentity capture) {
+        impl_->require_runtime();
+        if (!active) {
+            impl_->pointers.erase(pointer_id);
+            return;
+        }
+        auto& p = impl_->pointers[pointer_id];
+        p.capturable = capturable;
+        if (capture.generation) {
+            p.pending = capture;
+        }
+        if (!capturable) {
+            p.pending = {};
+        }
+    }
+
+    NodeIdentity ScriptDom::pointer_capture(int pointer_id) const {
+        const auto it = impl_->pointers.find(pointer_id);
+        if (it == impl_->pointers.end()) {
+            return {};
+        }
+        // A capture target that left the document releases the capture.
+        auto* n = impl_->resolve(it->second.pending);
+        return n && impl_->connected(*n) ? it->second.pending : NodeIdentity{};
+    }
+
+    void ScriptDom::release_active() {
+        impl_->require_runtime();
+        for (const auto id : impl_->active_nodes) {
+            if (auto* n = impl_->resolve(id); n && n->active) {
+                n->active = false;
+                impl_->changed(*n);
+            }
+        }
+        impl_->active_nodes.clear();
+    }
+
+    NodeIdentity ScriptDom::pan_scroller(NodeIdentity identity, double dx, double dy) {
+        impl_->require_runtime();
+        NodeIdentity found{};
+        impl_->execute([&] {
+            auto* n = impl_->resolve(identity);
+            if (!n || !impl_->connected(*n)) {
+                return JS_UNDEFINED;
+            }
+            const auto& geometry = impl_->refresh_geometry();
+            for (; n; n = impl_->parent_of(*n)) {
+                const auto it = std::find_if(geometry.begin(), geometry.end(), [&](const auto& g) {
+                    return g.identity == n->identity;
+                });
+                if (it == geometry.end()) {
+                    continue;
+                }
+                const double max_y = std::max(0., it->scroll_height - it->client_height);
+                const bool x = it->wheel_x && ((dx > 0 && it->scroll_left < it->scroll_left_max()) ||
+                                               (dx < 0 && it->scroll_left > it->scroll_left_min()));
+                const bool y = it->wheel_y && ((dy > 0 && it->scroll_top < max_y) || (dy < 0 && it->scroll_top > 0));
+                if (x || y) {
+                    found = n->identity;
+                    break;
+                }
+            }
+            return JS_UNDEFINED;
+        });
+        return found;
+    }
+
+    std::array<double, 2> ScriptDom::scroll_by(NodeIdentity identity, double dx, double dy) {
+        impl_->require_runtime();
+        if (!std::isfinite(dx) || !std::isfinite(dy)) {
+            throw std::invalid_argument("WEFT_SCROLL_PROFILE: finite deltas");
+        }
+        std::array<double, 2> moved{};
+        impl_->execute([&] {
+            auto* n = impl_->resolve(identity);
+            if (!n || !impl_->connected(*n)) {
+                return JS_UNDEFINED;
+            }
+            const auto& geometry = impl_->refresh_geometry();
+            const auto it = std::find_if(geometry.begin(), geometry.end(), [&](const auto& g) {
+                return g.identity == n->identity;
+            });
+            if (it == geometry.end()) {
+                return JS_UNDEFINED;
+            }
+            bool changed{};
+            if (it->wheel_x && dx != 0) {
+                const auto v = std::clamp(it->scroll_left + dx, it->scroll_left_min(), it->scroll_left_max());
+                moved[0] = v - it->scroll_left;
+                if (v != n->scroll_left) {
+                    n->scroll_left = v;
+                    changed = true;
+                }
+            }
+            if (it->wheel_y && dy != 0) {
+                const auto v = std::clamp(it->scroll_top + dy, 0., std::max(0., it->scroll_height - it->client_height));
+                moved[1] = v - it->scroll_top;
+                if (v != n->scroll_top) {
+                    n->scroll_top = v;
+                    changed = true;
+                }
+            }
+            if (changed) {
+                impl_->changed(*n);
+                impl_->queue_scroll(*n);
+            }
+            return JS_UNDEFINED;
+        });
+        return moved;
     }
 
     std::string ScriptDom::eval(std::string_view source, std::string_view filename) {

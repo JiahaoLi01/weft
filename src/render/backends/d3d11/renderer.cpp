@@ -781,7 +781,8 @@ namespace weft::render::d3d11 {
         context->VSSetShaderResources(0, 1, views);
         context->PSSetShaderResources(0, 3, views);
         context->OMSetRenderTargets(1, &target, nullptr);
-        std::array<float, 4> view{float(target_width), float(target_height), 1, 0};
+        std::array<float, weft::constants::render::scene::view_constant_floats> view{float(target_width),
+                                                                                     float(target_height), 1, 0};
         auto draw = [&](std::uint32_t first, std::uint32_t count, ID3D11ShaderResourceView* image) {
             view[3] = float(first);
             context->UpdateSubresource(display_constants.Get(), 0, nullptr, view.data(), 0, 0);

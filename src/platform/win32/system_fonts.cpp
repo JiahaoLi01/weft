@@ -295,6 +295,46 @@ namespace weft::platform::win32 {
         catalog.generic_families = {
             {"serif", "Times New Roman"}, {"sans-serif", "Arial"}, {"monospace", "Consolas"}, {"system-ui", ui}};
         catalog.fallback_families = {ui, "Segoe UI Emoji", "Segoe UI Symbol"};
+        // The families DirectWrite's system fallback (which Chrome on Windows asks per character) maps a letter of
+        // each script to on Windows 10 and 11, where the catalog has them; the UI family covers the rest it can.
+        const std::pair<const char*, const char*> by_script[]{
+            {"Arab", "Segoe UI"},
+            {"Hebr", "Segoe UI"},
+            {"Armn", "Segoe UI"},
+            {"Geor", "Segoe UI"},
+            {"Syrc", "Segoe UI Historic"},
+            {"Thaa", "MV Boli"},
+            {"Nkoo", "Ebrima"},
+            {"Ethi", "Ebrima"},
+            {"Cher", "Gadugi"},
+            {"Deva", "Nirmala UI"},
+            {"Beng", "Nirmala UI"},
+            {"Guru", "Nirmala UI"},
+            {"Gujr", "Nirmala UI"},
+            {"Orya", "Nirmala UI"},
+            {"Taml", "Nirmala UI"},
+            {"Telu", "Nirmala UI"},
+            {"Knda", "Nirmala UI"},
+            {"Mlym", "Nirmala UI"},
+            {"Sinh", "Nirmala UI"},
+            {"Thai", "Leelawadee UI"},
+            {"Laoo", "Leelawadee UI"},
+            {"Khmr", "Leelawadee UI"},
+            {"Mymr", "Myanmar Text"},
+            {"Tibt", "Microsoft Himalaya"},
+            {"Mong", "Mongolian Baiti"},
+        };
+        for (const auto& [script, family] : by_script) {
+            const bool installed = std::any_of(catalog.faces.begin(), catalog.faces.end(), [&](const FontFaceEntry& f) {
+                return f.family == family;
+            });
+            if (installed) {
+                const std::uint32_t tag = std::uint32_t(std::uint8_t(script[0])) << 24 |
+                                          std::uint32_t(std::uint8_t(script[1])) << 16 |
+                                          std::uint32_t(std::uint8_t(script[2])) << 8 | std::uint8_t(script[3]);
+                catalog.script_fallbacks.push_back({tag, {family}});
+            }
+        }
         return catalog;
     }
 } // namespace weft::platform::win32

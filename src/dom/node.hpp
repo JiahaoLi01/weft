@@ -1,5 +1,6 @@
 #pragma once
 
+#include "dom/animation.hpp"
 #include "dom/text_field.hpp"
 
 #include <cstdint>
@@ -79,6 +80,8 @@ namespace weft {
         bool focus_within{};
         // A text field's state (dom/text_field.hpp): its value, selection and composition; none for another node.
         std::shared_ptr<const TextFieldState> field;
+        // The element's script animations (dom/animation.hpp); none without one.
+        std::shared_ptr<const DomAnimations> animations;
         // The node's subtree revision when the DOM copied it, or 0 for a value the DOM did not produce. Copies of one
         // node with the same non-zero revision have equal content. Code that changes a copy afterwards sets revision to
         // 0 on the changed node and its ancestors in that copy.
@@ -91,7 +94,13 @@ namespace weft {
                    a.children == b.children && a.scroll_left == b.scroll_left && a.scroll_top == b.scroll_top &&
                    a.hovered == b.hovered && a.active == b.active && a.focused == b.focused &&
                    a.focus_visible == b.focus_visible && a.focus_within == b.focus_within &&
-                   same_field(a.field, b.field);
+                   same_field(a.field, b.field) && same_animations(a.animations, b.animations);
+        }
+
+        // Equal script animations: none on both, or equal lists.
+        static bool same_animations(const std::shared_ptr<const DomAnimations>& a,
+                                    const std::shared_ptr<const DomAnimations>& b) {
+            return a == b || (a && b && *a == *b);
         }
 
         // Equal text field states: none on both, or equal values.

@@ -163,6 +163,15 @@ namespace weft::paint {
                     if (!std::all_of(m.begin(), m.end(), finite_value) || !std::isnormal(m[0] * m[3] - m[1] * m[2])) {
                         return make_diagnostic(Diag::PaintList, "rounded clip map" + at);
                     }
+                    if (const auto asset = list.clips[c].asset;
+                        list.clips[c].kind == RoundedClip::Kind::Mask && asset &&
+                        (asset > list.assets.size() || !list.assets[asset - 1] ||
+                         list.assets[asset - 1]->encoding != Encoding::SrgbStraight)) {
+                        return make_diagnostic(Diag::PaintList, "mask image of no sRGB asset of the list" + at);
+                    }
+                }
+                if (item.blend != BlendMode::Normal && item.kind != Item::Kind::EndGroup) {
+                    return make_diagnostic(Diag::PaintList, "a blend mode on an item other than a group's end" + at);
                 }
                 switch (item.kind) {
                     case Item::Kind::Box:
@@ -415,6 +424,9 @@ namespace weft::paint {
                             return make_diagnostic(Diag::PaintList, "group end without begin" + at);
                         }
                         --depth;
+                        if (item.blend > BlendMode::PlusLighter) {
+                            return make_diagnostic(Diag::PaintList, "blend mode out of range" + at);
+                        }
                         break;
                     default:
                         return make_diagnostic(Diag::PaintList, "unknown item kind" + at);
@@ -504,9 +516,13 @@ namespace weft::paint {
         into.external_textures += from.external_textures;
         into.textures.insert(into.textures.end(), from.textures.begin(), from.textures.end());
         for (auto clip : from.clips) {
-            if (clip.to_local != identity_clip_map) {
-                // A clip in its own space keeps its rectangle; its map takes into's target px back through the
-                // transform first.
+            // A mask's image is an asset of the list, never an external texture.
+            if (clip.kind == RoundedClip::Kind::Mask && clip.asset) {
+                clip.asset += std::uint32_t(assets);
+            }
+            if (clip.to_local != identity_clip_map || clip.kind != RoundedClip::Kind::Rounded) {
+                // A clip in its own space (a polygon's always is) keeps its rectangle and points; its map takes into's
+                // target px back through the transform first.
                 const auto& m = clip.to_local;
                 clip.to_local = {m[0] / t[0],
                                  m[1] / t[0],

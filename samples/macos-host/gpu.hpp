@@ -265,7 +265,18 @@ fragment float4 world_fs(Out in [[stage_in]], constant World& w [[buffer(0)]]) {
                 const weft_render_scene_texture texture{"minimap", 7, 0, minimap_lease};
                 const weft_render_scene_frame scene{sizeof(scene), WEFT_RENDER_ABI_VERSION, frame, 0, 1, &texture};
                 weft_render_handle prepared{};
-                check(weft_renderer_prepare_scene(renderer, &scene, &prepared), "prepare the View's frame");
+                if (const auto result = weft_renderer_prepare_scene(renderer, &scene, &prepared);
+                    result != WEFT_RENDER_OK) {
+                    // The renderer says why.
+                    std::string why;
+                    weft_renderer_last_failure(
+                        renderer,
+                        [](void* user, const char* text, size_t size) {
+                            static_cast<std::string*>(user)->assign(text, size);
+                        },
+                        &why);
+                    throw Failure("prepare the View's frame: render result " + std::to_string(result) + ": " + why);
+                }
                 weft_view_frame_release(frame);
                 const auto linear = [](double encoded) {
                     return float(encoded <= 0.04045 ? encoded / 12.92 : std::pow((encoded + 0.055) / 1.055, 2.4));

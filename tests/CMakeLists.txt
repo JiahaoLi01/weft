@@ -57,8 +57,45 @@ weft_add_test(NAME render_backend_concept COMMAND weft_render_backend_concept_te
 
 # The commands that record prepared scene passes on Vulkan, D3D12 and Metal (scene/scene_schedule.hpp): exact
 # commands of hand-built passes, and the rules of one target at a time on random nestings.
+# The glyph cache of still text's images against FreeType anew (portable: fonts of the source tree).
+weft_add_executable(weft_scene_glyph_cache_tests SOURCES scene_glyph_cache_tests.cpp LINK weft::scene SOURCE_DIR)
+weft_add_test(NAME scene_glyph_cache COMMAND weft_scene_glyph_cache_tests TIMEOUT 120)
+# Bidirectional text and complex scripts (direction, unicode-bidi, dir, bdi, bdo; Arabic, Hebrew, Thai, Devanagari) in
+# scene inline formatting contexts against Chrome (tools/browser_bidi_reference.mjs), with repository fonts.
+weft_add_executable(weft_scene_bidi_tests SOURCES scene_bidi_tests.cpp LINK weft::scene SOURCE_DIR)
+weft_add_test(NAME scene_bidi_browser_contract COMMAND weft_scene_bidi_tests TIMEOUT 120)
+# The direction of boxes (blocks, flex, absolute, grid, scroll containers under direction rtl) against Chrome
+# (tools/browser_rtl_box_reference.mjs).
+weft_add_executable(weft_scene_rtl_box_tests SOURCES scene_rtl_box_tests.cpp LINK weft::scene SOURCE_DIR)
+weft_add_test(NAME scene_rtl_box_browser_contract COMMAND weft_scene_rtl_box_tests TIMEOUT 120)
+# Text fields of right-to-left and mixed text (carets, selections, arrow keys) against Chrome
+# (tools/browser_rtl_field_reference.mjs).
+weft_add_executable(weft_scene_rtl_field_tests SOURCES scene_rtl_field_tests.cpp LINK weft::view SOURCE_DIR LARGE_STACK)
+weft_add_test(NAME scene_rtl_field_browser_contract COMMAND weft_scene_rtl_field_tests TIMEOUT 120)
+# Copy, cut, paste, undo and redo in text fields against Chrome (tools/browser_field_editing_reference.mjs).
+weft_add_executable(weft_field_editing_tests SOURCES field_editing_tests.cpp LINK weft::view SOURCE_DIR LARGE_STACK)
+weft_add_test(NAME field_editing_browser_contract COMMAND weft_field_editing_tests TIMEOUT 120)
+# Web Animations (element.animate()) against Chrome's log of the same steps (tools/browser_web_animations_reference.mjs).
+weft_add_executable(weft_web_animations_tests SOURCES web_animations_tests.cpp LINK weft::view SOURCE_DIR LARGE_STACK)
+weft_add_test(NAME web_animations_browser_contract COMMAND weft_web_animations_tests TIMEOUT 120)
+# Image decoding (PNG, JPEG, WebP, data: URLs) against Chrome (tools/browser_image_decode_reference.mjs).
+weft_add_executable(weft_image_decode_tests SOURCES image_decode_tests.cpp LINK weft::view SOURCE_DIR)
+weft_add_test(NAME image_decode_browser_contract COMMAND weft_image_decode_tests TIMEOUT 120)
+# The img element (layout, object-fit, its script interface) against Chrome (tools/browser_img_reference.mjs).
+weft_add_executable(weft_scene_img_tests SOURCES scene_img_tests.cpp LINK weft::view SOURCE_DIR LARGE_STACK)
+weft_add_test(NAME scene_img_browser_contract COMMAND weft_scene_img_tests TIMEOUT 120)
+# CSS clip-path's hits against Chrome's presses on the same page (tools/browser_clip_path_reference.mjs).
+weft_add_executable(weft_clip_path_tests SOURCES clip_path_tests.cpp LINK weft::view SOURCE_DIR LARGE_STACK)
+weft_add_test(NAME clip_path_browser_contract COMMAND weft_clip_path_tests TIMEOUT 120)
+# Hits on masked elements against Chrome's presses on the same page (tools/browser_mask_image_reference.mjs).
+weft_add_executable(weft_mask_image_tests SOURCES mask_image_tests.cpp LINK weft::view SOURCE_DIR LARGE_STACK)
+weft_add_test(NAME mask_image_browser_contract COMMAND weft_mask_image_tests TIMEOUT 120)
+
 weft_add_executable(weft_scene_schedule_tests SOURCES scene_schedule_tests.cpp LINK weft::scene_native)
 weft_add_test(NAME scene_schedule_contract COMMAND weft_scene_schedule_tests)
+# The smaller levels of a page's image, as Chrome's Skia builds mipmaps (image_scale_browser_reference_metal draws them).
+weft_add_executable(weft_scene_image_mips_tests SOURCES scene_image_mips_tests.cpp LINK weft::scene_native)
+weft_add_test(NAME scene_image_mips_contract COMMAND weft_scene_image_mips_tests)
 
 # UI shader effects the renderer tests draw (cmake/WeftEffects.cmake), compiled for every backend built here.
 add_library(weft_test_effects STATIC)
@@ -627,6 +664,15 @@ weft_add_test(NAME box_layout_contract COMMAND weft_box_layout_tests)
 weft_add_executable(weft_hit_test_tests SOURCES hit_test_tests.cpp LINK weft::layout)
 weft_add_test(NAME hit_test_contract COMMAND weft_hit_test_tests)
 
+# Touch input against what Chrome with touch emulation did on the same page (tools/browser_touch_reference.mjs,
+# tests/fixtures/touch): taps, drags, pans, flings, two touches. Portable.
+weft_add_executable(weft_touch_tests SOURCES touch_tests.cpp LINK weft::view SOURCE_DIR LARGE_STACK)
+weft_add_test(NAME touch_contract COMMAND weft_touch_tests TIMEOUT 120)
+
+# element.style against the declaration's JS reference (src/script/js/web_host_bootstrap.js).
+weft_add_executable(weft_inline_style_tests SOURCES inline_style_tests.cpp LINK weft::script)
+weft_add_test(NAME inline_style_contract COMMAND weft_inline_style_tests TIMEOUT 120)
+
 weft_add_executable(weft_page_tests
     SOURCES page_tests.cpp
     LINK weft::script weft::layout
@@ -690,4 +736,39 @@ if(APPLE AND TARGET weft_scene_metal)
     target_compile_options(weft_logo_reference_metal_tests PRIVATE -fobjc-arc)
     weft_add_test(NAME logo_browser_reference_metal
         COMMAND weft_logo_reference_metal_tests "${artifacts}/logo-reference-metal-$<CONFIG>" TIMEOUT 120)
+    # Images drawn smaller and larger (mipmaps, image-rendering) against Chrome's drawing of the same page
+    # (tools/browser_image_scale_reference.mjs).
+    weft_add_executable(weft_image_scale_metal_tests SOURCES image_scale_metal_tests.mm
+        LINK weft::view weft::scene_metal "-framework Metal" "-framework ImageIO" "-framework CoreGraphics"
+            "-framework Foundation" SOURCE_DIR)
+    target_compile_options(weft_image_scale_metal_tests PRIVATE -fobjc-arc)
+    weft_add_test(NAME image_scale_browser_reference_metal
+        COMMAND weft_image_scale_metal_tests "${artifacts}/image-scale-metal-$<CONFIG>" TIMEOUT 120)
+    # CSS clip-path's drawing against Chrome's of the same page (tools/browser_clip_path_reference.mjs).
+    weft_add_executable(weft_clip_path_metal_tests SOURCES clip_path_metal_tests.mm
+        LINK weft::view weft::scene_metal "-framework Metal" "-framework ImageIO" "-framework CoreGraphics"
+            "-framework Foundation" SOURCE_DIR)
+    target_compile_options(weft_clip_path_metal_tests PRIVATE -fobjc-arc)
+    weft_add_test(NAME clip_path_browser_reference_metal
+        COMMAND weft_clip_path_metal_tests "${artifacts}/clip-path-metal-$<CONFIG>" TIMEOUT 120)
+    # CSS masks' drawing against Chrome's of the same page (tools/browser_mask_image_reference.mjs).
+    weft_add_executable(weft_mask_image_metal_tests SOURCES mask_image_metal_tests.mm
+        LINK weft::view weft::scene_metal "-framework Metal" "-framework ImageIO" "-framework CoreGraphics"
+            "-framework Foundation" SOURCE_DIR)
+    target_compile_options(weft_mask_image_metal_tests PRIVATE -fobjc-arc)
+    weft_add_test(NAME mask_image_browser_reference_metal
+        COMMAND weft_mask_image_metal_tests "${artifacts}/mask-image-metal-$<CONFIG>" TIMEOUT 120)
+    # mix-blend-mode's drawing against Chrome's of the same page (tools/browser_mix_blend_mode_reference.mjs).
+    weft_add_executable(weft_mix_blend_mode_metal_tests SOURCES mix_blend_mode_metal_tests.mm
+        LINK weft::view weft::scene_metal "-framework Metal" "-framework ImageIO" "-framework CoreGraphics"
+            "-framework Foundation" SOURCE_DIR)
+    target_compile_options(weft_mix_blend_mode_metal_tests PRIVATE -fobjc-arc)
+    weft_add_test(NAME mix_blend_mode_browser_reference_metal
+        COMMAND weft_mix_blend_mode_metal_tests "${artifacts}/mix-blend-mode-metal-$<CONFIG>" TIMEOUT 120)
+    # The export texture extension on the GPU (docs/ingame-ui.md): a page's colors linear premultiplied in RGBA16F and
+    # sRGB images, their mips, the ring and its leases.
+    weft_add_executable(weft_render_export_metal_tests SOURCES render_export_metal_tests.mm
+        LINK weft::core weft::scene_metal "-framework Metal" "-framework Foundation")
+    target_compile_options(weft_render_export_metal_tests PRIVATE -fobjc-arc)
+    weft_add_test(NAME render_export_metal COMMAND weft_render_export_metal_tests TIMEOUT 120)
 endif()

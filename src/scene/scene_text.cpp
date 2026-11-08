@@ -8,10 +8,13 @@
 #include "constants/text.hpp"
 
 #include <algorithm>
+#include <array>
+#include <bit>
 #include <cmath>
 #include <set>
 #include <stdexcept>
 #include <tuple>
+#include <unordered_map>
 
 namespace weft {
     namespace {
@@ -60,9 +63,31 @@ namespace weft {
             return (c >= 0xfe00 && c <= 0xfe0f) || c == 0x200d || (c >= 0xe0100 && c <= 0xe01ef);
         }
 
-        // Blink shapes a line word by word (CachingWordShaper): each space or tab is a word of its own, and so is
-        // each CJK ideograph or symbol. Kerning and contextual substitution never cross these boundaries, which
-        // also keeps digits after a Latin word in their own script run.
+        // The last and first characters of a context that HarfBuzz reads (constants::text::shape_context_characters).
+        std::string_view context_tail(std::string_view s) {
+            std::size_t at = s.size();
+            for (int n = 0; n < constants::text::shape_context_characters && at > 0; ++n) {
+                do {
+                    --at;
+                } while (at > 0 && (static_cast<unsigned char>(s[at]) & 0xC0) == 0x80);
+            }
+            return s.substr(at);
+        }
+
+        std::string_view context_head(std::string_view s) {
+            std::size_t at = 0;
+            for (int n = 0; n < constants::text::shape_context_characters && at < s.size(); ++n) {
+                std::size_t i = at;
+                next_codepoint(s, i);
+                at = i;
+            }
+            return s.substr(0, at);
+        }
+
+        // The parts a run is shaped in: each CJK ideograph or symbol (with what attaches to it) alone, the text between
+        // them whole. Spaces stay in the text around them, as Blink's LayoutNG shapes a run (HarfBuzzShaper segments
+        // it by script, emoji and orientation only): a font that kerns a space with the letter after it (Roboto's
+        // " T") is kerned as in Chrome.
         std::vector<std::pair<std::size_t, std::size_t>> words(std::string_view text) {
             std::vector<std::pair<std::size_t, std::size_t>> out;
             std::size_t start = 0;
@@ -70,7 +95,7 @@ namespace weft {
             while (i < text.size()) {
                 const auto at = i;
                 const auto c = next_codepoint(text, i);
-                if (c == ' ' || c == '\t' || cjk(c)) {
+                if (cjk(c)) {
                     if (at > start) {
                         out.emplace_back(start, at);
                     }
@@ -164,6 +189,17 @@ namespace weft {
                 return unit == css::Unit::None ? number(digits) * font.size : length(line, font.size);
             });
         }
+        const auto direction = css::trim(style.text(PropertyId::Direction, "ltr"));
+        if (direction != "ltr" && direction != "rtl") {
+            throw_diagnostic(Diag::SceneRaster, "direction: the value '" + std::string(direction) + "'");
+        }
+        const auto bidi = css::trim(style.text(PropertyId::UnicodeBidi, "normal"));
+        if (bidi != "normal" && bidi != "embed" && bidi != "isolate" && bidi != "bidi-override" &&
+            bidi != "isolate-override" && bidi != "plaintext") {
+            throw_diagnostic(Diag::SceneRaster, "unicode-bidi: the value '" + std::string(bidi) + "'");
+        }
+        font.base = bidi == "plaintext" ? BidiBase::Auto : direction == "rtl" ? BidiBase::Rtl : BidiBase::Ltr;
+        font.bidi_override = bidi == "bidi-override" || bidi == "isolate-override";
         if (!std::isfinite(font.size) || font.size <= 0 || font.size > constants::text::max_font_pixels) {
             throw_diagnostic(Diag::SceneRaster, "font-size out of range");
         }
@@ -229,11 +265,30 @@ namespace weft {
                                            : FontRole::FallbackText;
         }
 
-        // By catalog, families, weight and style.
-        std::map<std::tuple<std::uint64_t, std::string, int, bool>, Match> matches;
+        // By catalog, families, weight, style and script.
+        std::map<std::tuple<std::uint64_t, std::string, int, bool, std::uint32_t>, Match> matches;
         // By catalog, text and font.
-        using RunKey =
-            std::tuple<std::uint64_t, std::string, std::string, float, int, bool, std::uint8_t, float, float>;
+        // After the line height: the base direction, and 4 when overridden; then the context before and after (the
+        // few characters HarfBuzz reads of it).
+        using RunKey = std::tuple<std::uint64_t, std::string, std::string, float, int, bool, std::uint8_t, float, float,
+                                  std::uint8_t, std::string, std::string>;
+
+        static RunKey run_key(std::uint64_t catalog, std::string_view text, const SceneFont& f,
+                              const ShapeContext& context = {}) {
+            return {catalog,
+                    std::string(text),
+                    f.families,
+                    f.size,
+                    f.weight,
+                    f.italic,
+                    f.numeric,
+                    f.letter_spacing,
+                    f.line_height.value_or(-1),
+                    std::uint8_t(std::uint8_t(f.base) | (f.bidi_override ? 4 : 0)),
+                    std::string(context_tail(context.before)),
+                    std::string(context_head(context.after))};
+        }
+
         std::map<RunKey, std::shared_ptr<const SceneTextRun>> runs;
         std::size_t run_bytes{};
         // Run outlines by the run's key; null for runs with color glyphs.
@@ -241,6 +296,25 @@ namespace weft {
         std::size_t outline_bytes{};
         std::size_t hits{};
         std::size_t misses{};
+
+        // Glyph coverage (glyph()) by face, glyph and the bits of the size, offsets and skew it was rasterized at: the
+        // same bits rasterize the same coverage.
+        using GlyphKey = std::array<std::uint32_t, 6>;
+
+        struct GlyphKeyHash {
+            std::size_t operator()(const GlyphKey& key) const noexcept {
+                std::uint64_t h = 1469598103934665603ull;
+                for (const auto word : key) {
+                    h = (h ^ word) * 1099511628211ull;
+                }
+                return std::size_t(h);
+            }
+        };
+
+        std::unordered_map<GlyphKey, std::shared_ptr<const GlyphBitmap>, GlyphKeyHash> glyphs;
+        std::size_t glyph_bytes{};
+        std::size_t glyph_hits{};
+        std::size_t glyph_misses{};
 
         void require_owner() const {
             owner.require(Diag::SceneRasterOwner);
@@ -272,14 +346,15 @@ namespace weft {
             return id;
         }
 
-        Match& matched(const SceneFont& f) {
-            auto key = std::tuple{catalog_id, f.families, f.weight, f.italic};
+        // With a script (an ISO 15924 tag), the platform's fallback fonts for it come before the general ones.
+        Match& matched(const SceneFont& f, std::uint32_t script = 0) {
+            auto key = std::tuple{catalog_id, f.families, f.weight, f.italic, script};
             if (auto i = matches.find(key); i != matches.end()) {
                 return i->second;
             }
             std::size_t listed{};
             std::vector<std::vector<UnicodeRange>> ranges;
-            auto sources = match_font_faces(*catalog, f.families, f.weight, f.italic, &listed, &ranges);
+            auto sources = match_font_faces(*catalog, f.families, f.weight, f.italic, &listed, &ranges, script);
             if (sources.empty()) {
                 throw_diagnostic(Diag::SceneRaster, "no font for font-family " + f.families);
             }
@@ -338,30 +413,25 @@ namespace weft {
             return {width, above + below, above};
         }
 
-        std::shared_ptr<const SceneTextRun> shape(std::string_view text, const SceneFont& f) {
+        std::shared_ptr<const SceneTextRun> shape(std::string_view text, const SceneFont& f,
+                                                  const ShapeContext& context = {}) {
             require_owner();
             if (text.size() > constants::max_text_bytes) {
                 throw_diagnostic(Diag::SceneRaster, "scene text byte bound");
             }
-            RunKey key{catalog_id,       std::string(text),         f.families, f.size, f.weight, f.italic, f.numeric,
-                       f.letter_spacing, f.line_height.value_or(-1)};
+            auto key = run_key(catalog_id, text, f, context);
             if (auto i = runs.find(key); i != runs.end()) {
                 ++hits;
                 return i->second;
             }
             ++misses;
-            auto& match = matched(f);
-            const auto font = [&](std::uint32_t i) -> Font& {
-                return *faces[id(match, i)].font;
-            };
-            const auto origin = [&](std::uint32_t i) {
-                return role(match, i);
-            };
-            const FallbackFonts fonts{match.sources.size(), font, origin, true};
             auto run = std::make_shared<SceneTextRun>();
             run->size = f.size;
             float pen{};
-            const auto primary = id(match, match.primary);
+            const auto primary = [&] {
+                auto& match = matched(f);
+                return id(match, match.primary);
+            }();
             std::set<std::uint32_t> used{primary};
             // font-variant-numeric's OpenType features.
             std::vector<FontFeature> features;
@@ -382,21 +452,104 @@ namespace weft {
                                         1});
                 }
             }
-            for (const auto& [begin, end] : words(text)) {
-                // Chrome positions glyphs in HarfBuzz 16.16 units.
-                const auto shaped = shape_with_fallback(fonts, text.substr(begin, end - begin), f.size,
-                                                        ShapePrecision::Fixed16_16, features, match.ranges);
-                const auto& glyphs = shaped.shaped.glyphs;
-                for (std::size_t i = 0; i < glyphs.size(); ++i) {
-                    const auto& g = glyphs[i];
-                    const auto face = id(match, g.font_id);
-                    used.insert(face);
-                    // Letter-spacing follows each character cluster, including the last one.
-                    const bool cluster_end = i + 1 == glyphs.size() || glyphs[i + 1].utf8_cluster != g.utf8_cluster;
-                    const float advance = g.advance_x + (cluster_end ? f.letter_spacing : 0);
-                    run->glyphs.push_back({face, g.glyph_id, pen + g.offset_x, -g.offset_y, advance,
-                                           std::uint32_t(begin + g.utf8_cluster), f.italic && !faces[face].italic});
-                    pen += advance;
+
+            // The text's runs of one bidi level in logical order: one run when its direction is overridden or it is
+            // left-to-right throughout; otherwise as the bidirectional algorithm resolves it at the font's base.
+            struct LevelRun {
+                std::size_t begin{};
+                std::size_t end{};
+                std::uint8_t level{};
+            };
+
+            std::vector<LevelRun> level_runs;
+            if (f.bidi_override || (f.base == BidiBase::Ltr && bidi_left_to_right(text))) {
+                level_runs.push_back({0, text.size(), std::uint8_t(f.bidi_override && f.base == BidiBase::Rtl)});
+            } else {
+                const auto bidi = bidi_levels(text, f.base);
+                for (std::size_t b = 0; b < text.size(); ++b) {
+                    if (level_runs.empty() || level_runs.back().level != bidi.levels[b]) {
+                        level_runs.push_back({b, b, bidi.levels[b]});
+                    }
+                    level_runs.back().end = b + 1;
+                }
+            }
+            std::vector<std::uint8_t> levels;
+            for (const auto& r : level_runs) {
+                levels.push_back(r.level);
+            }
+            // Each run in visual order, its words (and their script runs) right to left at an odd level.
+            for (const auto index : bidi_visual_order(levels)) {
+                const auto& level_run = level_runs[index];
+                const bool rtl = level_run.level % 2;
+                const auto part = text.substr(level_run.begin, level_run.end - level_run.begin);
+                const auto scripts = script_runs(part);
+
+                struct Segment {
+                    std::size_t begin{};
+                    std::size_t end{};
+                    std::uint32_t script{};
+                };
+
+                std::vector<Segment> segments;
+                std::size_t s = 0;
+                for (const auto& [begin, end] : words(part)) {
+                    for (auto at = begin; at < end;) {
+                        while (s + 1 < scripts.size() && scripts[s].end <= at) {
+                            ++s;
+                        }
+                        const auto stop = scripts.empty() ? end : std::min(end, scripts[s].end);
+                        segments.push_back({at, stop, scripts.empty() ? 0 : scripts[s].script});
+                        at = stop;
+                    }
+                }
+                if (rtl) {
+                    std::reverse(segments.begin(), segments.end());
+                }
+                for (const auto& segment : segments) {
+                    // Common, Inherited and Unknown text: HarfBuzz picks the script, as it does without itemization.
+                    const auto script = segment.script;
+                    const bool known = script != constants::text::script_common &&
+                                       script != constants::text::script_inherited &&
+                                       script != constants::text::script_unknown;
+                    // The fonts for the segment's script: the list's, the platform's for the script, the rest of
+                    // the fallback. Held only while this segment is shaped (matched() may start its cache over).
+                    auto& match = matched(f, known ? script : 0);
+                    const auto font = [&](std::uint32_t i) -> Font& {
+                        return *faces[id(match, i)].font;
+                    };
+                    const auto origin = [&](std::uint32_t i) {
+                        return role(match, i);
+                    };
+                    const FallbackFonts fonts{match.sources.size(), font, origin, true};
+                    // Its context: the few characters around it in the text, the run's context beyond the text.
+                    const auto prefix = text.substr(0, level_run.begin + segment.begin);
+                    const auto suffix = text.substr(level_run.begin + segment.end);
+                    const auto near_before = context_tail(prefix);
+                    const auto near_after = context_head(suffix);
+                    std::string before(near_before.size() == prefix.size() ? context_tail(context.before) : "");
+                    before.append(near_before);
+                    std::string after(near_after);
+                    if (near_after.size() == suffix.size()) {
+                        after.append(context_head(context.after));
+                    }
+                    // Chrome positions glyphs in HarfBuzz 16.16 units.
+                    const auto shaped = shape_with_fallback(
+                        fonts, part.substr(segment.begin, segment.end - segment.begin), f.size,
+                        ShapePrecision::Fixed16_16, features, match.ranges, ShapeSegment{rtl, known ? script : 0},
+                        ShapeContext{context_tail(before), context_head(after)});
+                    const auto& glyphs = shaped.shaped.glyphs;
+                    for (std::size_t i = 0; i < glyphs.size(); ++i) {
+                        const auto& g = glyphs[i];
+                        const auto face = id(match, g.font_id);
+                        used.insert(face);
+                        // Letter-spacing follows each character cluster, including the last one.
+                        const bool cluster_end = i + 1 == glyphs.size() || glyphs[i + 1].utf8_cluster != g.utf8_cluster;
+                        const float advance = g.advance_x + (cluster_end ? f.letter_spacing : 0);
+                        run->glyphs.push_back({face, g.glyph_id, pen + g.offset_x, -g.offset_y, advance,
+                                               std::uint32_t(level_run.begin + segment.begin + g.utf8_cluster),
+                                               f.italic && !faces[face].italic, rtl});
+                        pen += advance;
+                    }
                 }
             }
             run->metrics = line_box(used, primary, f, pen);
@@ -415,9 +568,7 @@ namespace weft {
     std::shared_ptr<const paint::Path> SceneText::outline(std::string_view text, const SceneStyle& style) {
         impl_->require_owner();
         const auto f = scene_font(style);
-        Impl::RunKey key{
-            impl_->catalog_id, std::string(text),         f.families, f.size, f.weight, f.italic, f.numeric,
-            f.letter_spacing,  f.line_height.value_or(-1)};
+        auto key = Impl::run_key(impl_->catalog_id, text, f);
         if (auto i = impl_->outlines.find(key); i != impl_->outlines.end()) {
             return i->second;
         }
@@ -538,13 +689,15 @@ namespace weft {
         return shape(text, style)->metrics;
     }
 
-    std::shared_ptr<const SceneTextRun> SceneText::shape(std::string_view text, const SceneStyle& style) {
+    std::shared_ptr<const SceneTextRun> SceneText::shape(std::string_view text, const SceneStyle& style,
+                                                         const ShapeContext& context) {
         impl_->require_owner();
-        return impl_->shape(text, scene_font(style));
+        return impl_->shape(text, scene_font(style), context);
     }
 
-    std::shared_ptr<const SceneTextRun> SceneText::shape(std::string_view text, const SceneFont& font) {
-        return impl_->shape(text, font);
+    std::shared_ptr<const SceneTextRun> SceneText::shape(std::string_view text, const SceneFont& font,
+                                                         const ShapeContext& context) {
+        return impl_->shape(text, font, context);
     }
 
     SceneTextMetrics SceneText::slice(const SceneTextRun& run, const SceneFont& font, std::uint32_t begin,
@@ -635,8 +788,40 @@ namespace weft {
         return impl_->faces.at(face).color;
     }
 
+    std::shared_ptr<const GlyphBitmap> SceneText::glyph(std::uint32_t face, std::uint32_t glyph_id, float pixels,
+                                                        float offset_x, float offset_y, float skew) {
+        impl_->require_owner();
+        auto& m = *impl_;
+        const Impl::GlyphKey key{face,
+                                 glyph_id,
+                                 std::bit_cast<std::uint32_t>(pixels),
+                                 std::bit_cast<std::uint32_t>(offset_x),
+                                 std::bit_cast<std::uint32_t>(offset_y),
+                                 std::bit_cast<std::uint32_t>(skew)};
+        if (const auto found = m.glyphs.find(key); found != m.glyphs.end()) {
+            ++m.glyph_hits;
+            return found->second;
+        }
+        ++m.glyph_misses;
+        auto bitmap = std::make_shared<const GlyphBitmap>(
+            m.faces.at(face).font->rasterize(glyph_id, pixels, offset_x, offset_y, skew));
+        const auto bytes = sizeof(GlyphBitmap) + bitmap->coverage.size();
+        if (m.glyphs.size() >= std::size_t(constants::scene::text_glyph_cache_max_entries) ||
+            m.glyph_bytes + bytes > std::size_t(constants::scene::text_glyph_cache_max_bytes)) {
+            m.glyphs.clear();
+            m.glyph_bytes = 0;
+        }
+        // A glyph larger than the whole budget is drawn but not kept.
+        if (bytes <= std::size_t(constants::scene::text_glyph_cache_max_bytes)) {
+            m.glyph_bytes += bytes;
+            m.glyphs.emplace(key, bitmap);
+        }
+        return bitmap;
+    }
+
     SceneText::Stats SceneText::stats() const {
         impl_->require_owner();
-        return {impl_->faces.size(), impl_->files.size(), impl_->hits, impl_->misses};
+        return {impl_->faces.size(),  impl_->files.size(), impl_->hits,       impl_->misses,
+                impl_->glyphs.size(), impl_->glyph_bytes,  impl_->glyph_hits, impl_->glyph_misses};
     }
 } // namespace weft

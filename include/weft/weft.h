@@ -292,6 +292,68 @@ typedef struct weft_pointer_event {
 weft_result weft_view_pointer(weft_runtime* runtime, weft_view_handle view, const weft_pointer_event* event,
                               uint32_t* out_prevented);
 
+/* ---- Input devices. Owner thread. ---- */
+
+#define WEFT_INPUT_MOUSE 1u /* a fine pointer that hovers */
+#define WEFT_INPUT_TOUCH 2u /* a touch screen: a coarse pointer that does not hover */
+
+typedef struct weft_input_devices {
+    uint32_t struct_size;
+    uint32_t primary;          /* WEFT_INPUT_MOUSE, WEFT_INPUT_TOUCH, or 0: none (a gamepad's) */
+    uint32_t available;        /* WEFT_INPUT_* of every device there is; it includes primary */
+    uint32_t max_touch_points; /* navigator.maxTouchPoints: 1 to 32 with WEFT_INPUT_TOUCH, 0 without */
+} weft_input_devices;
+
+/* The input devices the page sees, as Chrome on such a device: the media features pointer and hover (@media and
+ * matchMedia) answer from primary (a mouse: fine, hover; a touch screen: coarse, none; none: none), any-pointer and
+ * any-hover from available, navigator.maxTouchPoints is max_touch_points, and ontouchstart and the like exist with a
+ * touch screen. A mouse until set; kept across page loads. matchMedia lists whose outcome changes get a change event,
+ * and the next weft_view_advance restyles where an @media outcome changed. WEFT_INVALID_ARGUMENT for other device bits,
+ * a primary device not available, or touch points that do not go with the touch screen. */
+weft_result weft_view_set_input_devices(weft_runtime* runtime, weft_view_handle view,
+                                        const weft_input_devices* devices);
+
+/* ---- Touch input. Owner thread; positions in the View's logical px. ---- */
+
+#define WEFT_TOUCH_BEGAN 0u
+#define WEFT_TOUCH_MOVED 1u
+#define WEFT_TOUCH_ENDED 2u
+#define WEFT_TOUCH_CANCELLED 3u /* the system took the touch: no tap, no fling */
+
+typedef struct weft_touch_point {
+    uint64_t id;    /* the host's name of the touch from its start to its end (a UITouch, an Android pointer id) */
+    uint32_t phase; /* WEFT_TOUCH_* */
+    uint32_t reserved;
+    float x;
+    float y;
+    float radius_x; /* the contact's radii in logical px; 0 when unknown */
+    float radius_y;
+    float force; /* 0 to 1; 0 when unknown */
+    float reserved2;
+} weft_touch_point;
+
+typedef struct weft_touch_event {
+    uint32_t struct_size;
+    uint32_t modifiers;             /* WEFT_MODIFIER_* held */
+    const weft_touch_point* points; /* the touches that changed, each once */
+    uint32_t count;
+    uint32_t reserved;
+    /* When they changed, in seconds on weft_view_advance's clock (a touch's own timestamp: the release speed of a pan
+       is measured with it); 0 is the View's time. */
+    double time_seconds;
+} weft_touch_event;
+
+/* Touch input, as Chrome takes a touch screen's (docs/engine-communication.md, "Touch"): each touch is a pointer
+ * (pointerType "touch", captured by the element it went down on) and touch events (touchstart; touchmove once it moved
+ * past the 15 px slop; touchend; touchcancel), cancelable until a touchmove goes unprevented. A touch that stays
+ * within the slop is a tap: compatibility mouse events and a click at where it went down (a second tap: dblclick), the
+ * element hovered after; touchstart or touchend prevented, none. One that moves past it pans the nearest scroll
+ * container that can scroll that way, as touch-action allows, and flings on after it lifts (weft_view_advance runs the
+ * fling); its touchmove prevented, the page drags instead. out_prevented, when given: whether a listener prevented a
+ * touch event. WEFT_INVALID_ARGUMENT for a touch that begins twice or changes before it began. */
+weft_result weft_view_touch(weft_runtime* runtime, weft_view_handle view, const weft_touch_event* event,
+                            uint32_t* out_prevented);
+
 /* What is under a point: whether the topmost element taking pointer events is something other than the scene's
  * root (and its ancestors), and that element's cursor (of it or its nearest ancestor that declares one). A host can
  * give a click to the page when element is 1 and the cursor shows something to interact with, and to the game
@@ -592,20 +654,39 @@ typedef struct weft_resource_writer weft_resource_writer;
 /* The file's bytes, copied; at most 16 MiB. */
 weft_result weft_resource_writer_set(weft_resource_writer* writer, const void* bytes, size_t size);
 
-/* Reads a file a page names: a scene page's background-image url() (a PNG image), or a font of its @font-face rules (a
- * forgiving page's: a TrueType or OpenType file), by its path, the URL resolved against weft_page_desc::base (its "."
- * and ".." segments removed; a URL with a scheme or one that starts with '/' as written, without a query or fragment).
- * It runs on the owner thread while the View loads its page (fonts) or lays its scene out (images), once for a path
- * each page load, and must not call into the View (WEFT_BUSY). A file it does not write, a result other than WEFT_OK,
- * or bytes that are no PNG image within the bounds (docs/engine-communication.md) is a scene diagnostic, and the image
- * shows nothing; a font none of whose rule's sources reads is one too (WEFT_FONT_FACE), and its text falls to other
- * fonts. */
+/* Reads a file a page names: a scene page's image (an img's src, a url() of background-image or border-image-source:
+ * a PNG, JPEG or WebP file, told apart by its bytes), or a font of its @font-face rules (a forgiving page's: a TrueType
+ * or OpenType file), by its path, the URL resolved against weft_page_desc::base (its "." and ".." segments removed; a
+ * URL with a scheme or one that starts with '/' as written, without a query or fragment). A data: URL is not read: its
+ * bytes are in it. It runs on the owner thread while the View loads its page (fonts) or lays its scene out (images),
+ * once for a path each page load, and must not call into the View (WEFT_BUSY). A file it does not write, a result
+ * other than WEFT_OK, or bytes that are no image the scene decodes within the bounds (docs/engine-communication.md,
+ * docs/img.md) is a scene diagnostic, and the image shows nothing; a font none of whose rule's sources reads is one
+ * too (WEFT_FONT_FACE), and its text falls to other fonts. */
 typedef weft_result (*weft_resource_fn)(void* user, const char* path, size_t path_size, weft_resource_writer* file);
 
 /* Owner thread. Kept across page loads, for paths the page has not read yet; fn NULL removes it (url() images and
  * @font-face fonts are then diagnostics). */
 weft_result weft_view_set_resource_reader(weft_runtime* runtime, weft_view_handle view, weft_resource_fn fn,
                                           void* user);
+
+/* ---- The clipboard of text fields (copy, cut, paste) and navigator.clipboard. Owner thread. ---- */
+
+/* Reads the system clipboard's text for a paste or navigator.clipboard.readText(): its UTF-8 text, written with
+ * weft_resource_writer_set. Nothing written, a result other than WEFT_OK, or bytes that are not UTF-8: no text. It
+ * must not call into the View (WEFT_BUSY). */
+typedef weft_result (*weft_clipboard_read_fn)(void* user, weft_resource_writer* text);
+
+/* Puts UTF-8 text on the system clipboard: a copy or cut (the selection, or what a copy listener gave), or
+ * navigator.clipboard.writeText(). It must not call into the View (WEFT_BUSY). */
+typedef weft_result (*weft_clipboard_write_fn)(void* user, const char* text, size_t text_size);
+
+/* Owner thread. Kept across page loads. Both NULL removes it: the View keeps its own clipboard, the text copied last,
+ * in memory (the default). One NULL and not the other: WEFT_INVALID_ARGUMENT. The shortcuts are the platform's
+ * (Command+C, X, V, Z, Shift+Z, A on Apple platforms; Control+C, X, V, Z, Y, Shift+Z, A, Insert and Shift+Insert,
+ * Shift+Delete elsewhere), docs/compatibility.md. */
+weft_result weft_view_set_clipboard(weft_runtime* runtime, weft_view_handle view, weft_clipboard_read_fn read,
+                                    weft_clipboard_write_fn write, void* user);
 
 /* ---- Storage: the web platform's localStorage (WEFT_PAGE_WEB_PLATFORM). Owner thread. ---- */
 

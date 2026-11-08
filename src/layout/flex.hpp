@@ -53,6 +53,11 @@ namespace weft {
         std::string_view replaced_width;
         std::string_view replaced_height;
         float ratio{};
+        // A replaced element of a natural size (an img) rather than an svg: sized as CSS 2 §10.3.2, §10.4 and §10.6.2
+        // size one, by its width, height, minimum and maximum sizes, aspect-ratio and its natural size (px; none
+        // without an image: 0 x 0 then), whose ratio is `ratio`. Its width and height attributes are in its style.
+        bool image{};
+        std::optional<std::array<float, 2>> natural;
     };
 
     struct BoxGeometry {

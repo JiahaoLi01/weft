@@ -42,10 +42,17 @@ namespace weft {
             const auto* t = n.style.find(PropertyId::Transform);
             return t && t->text().find("perspective(") != std::string::npos;
         };
-        // A filter spreads and moves what its element's subtree paints.
+        // A filter spreads and moves what its element's subtree paints; a clip-path (a margin box's, or a shape past
+        // the box) and a mask (no-clip) show and hide its subtree's overflow.
         const auto filtered = [](const SceneNode& n) {
-            const auto* v = n.style.find(PropertyId::Filter);
-            return v && !css::trim(v->text()).empty() && css::trim(v->text()) != "none";
+            for (const auto id :
+                 {PropertyId::Filter, PropertyId::ClipPath, PropertyId::WebkitClipPath, PropertyId::MaskImage}) {
+                const auto* v = n.style.find(id);
+                if (v && !css::trim(v->text()).empty() && css::trim(v->text()) != "none") {
+                    return true;
+                }
+            }
+            return false;
         };
         // projected: an ancestor of n is a perspective plane.
         auto add = [&](auto&& self, const SceneNode& n, const auto& boxes, bool projected) -> void {
@@ -136,7 +143,7 @@ namespace weft {
                          x.fragments != y.fragments || x.children.size() != y.children.size() ||
                          bool(x.paint) != bool(y.paint) || (x.paint && x.paint->values != y.paint->values) ||
                          !scene_effect_equal(x.effect, y.effect) || (y.effect && y.effect->program->animated) ||
-                         x.background_image != y.background_image || x.particles != y.particles ||
+                         x.background_image != y.background_image || x.image != y.image || x.particles != y.particles ||
                          !(x.field == y.field || (x.field && y.field && *x.field == *y.field));
             if (!local) {
                 for (std::size_t i = 0; i < x.children.size(); ++i) {

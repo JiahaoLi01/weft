@@ -22,6 +22,11 @@ namespace weft {
     // (nothing to paint). std::invalid_argument for a gradient outside this profile.
     std::optional<paint::Gradient> scene_gradient(const StyleValues& style, float width, float height);
 
+    // A gradient function (any the background takes) over a tile of width, height at its offset (paint::Gradient's
+    // tile), currentcolor from style: the gradient of a mask layer (scene_mask). std::invalid_argument for a value
+    // outside this profile.
+    paint::Gradient scene_gradient_image(std::string_view image, const StyleValues& style, std::array<float, 4> tile);
+
     // The straight color of a gradient at a point of its width x height item, as the scene shader evaluates it: in the
     // tile the point repeats into, between the stops its gradient line reaches there, interpolated premultiplied. A
     // point outside the item (the center of a pixel its edge crosses) takes the item's color at that edge, from the

@@ -2,6 +2,7 @@
 
 #include "paint/display_list.hpp"
 #include "style/values.hpp"
+#include "text/bidi.hpp"
 #include "text/font.hpp"
 #include "text/font_catalog.hpp"
 
@@ -25,6 +26,8 @@ namespace weft {
         float height{};
         // Distance from the top of the line box to the baseline.
         float baseline{};
+
+        friend bool operator==(const SceneTextMetrics&, const SceneTextMetrics&) = default;
     };
 
     // Typed font properties of a scene text node's computed style.
@@ -41,6 +44,12 @@ namespace weft {
         float letter_spacing{};
         // Used line height in px; empty for 'normal'.
         std::optional<float> line_height;
+        // direction and unicode-bidi: the base direction its text is shaped in (the bidirectional algorithm orders its
+        // runs; plaintext takes its first strong character's), or, with bidi_override (bidi-override and
+        // isolate-override), the one direction all of it is shaped in. An inline formatting context shapes each run of
+        // one level alone, overridden to that level's direction.
+        BidiBase base{BidiBase::Ltr};
+        bool bidi_override{};
     };
 
     // The numeric glyph variants of font-variant-numeric, each an OpenType feature.
@@ -56,7 +65,8 @@ namespace weft {
     };
 
     // font-family, font-size (px), font-weight (normal/bold/number), font-style, font-variant-numeric, letter-spacing
-    // (px or em of the font size) and line-height (normal, px or a multiple of the font size).
+    // (px or em of the font size), line-height (normal, px or a multiple of the font size), direction (ltr, rtl) and
+    // unicode-bidi (normal, embed, isolate, bidi-override, isolate-override, plaintext).
     SceneFont scene_font(const SceneStyle& style);
 
     struct SceneGlyph {
@@ -72,13 +82,24 @@ namespace weft {
         // The run asks for italics and the face has none: drawn slanted (constants::text::synthetic_oblique_skew),
         // as Chrome synthesizes it.
         bool oblique{};
+        // It comes from a right-to-left run (an odd bidi level): its cluster starts on its right.
+        bool rtl{};
+
+        friend bool operator==(const SceneGlyph&, const SceneGlyph&) = default;
     };
 
     struct SceneTextRun {
         std::vector<SceneGlyph> glyphs;
         float size{};
         SceneTextMetrics metrics;
+
+        friend bool operator==(const SceneTextRun&, const SceneTextRun&) = default;
     };
+
+    // Whether two runs, either of them none, are none or alike.
+    inline bool same_run(const std::shared_ptr<const SceneTextRun>& a, const std::shared_ptr<const SceneTextRun>& b) {
+        return a == b || (a && b && *a == *b);
+    }
 
     // A font's strut: its primary face's ascent and descent as Blink rounds them (the content area of an inline box),
     // and the extents above and below the baseline that its line-height gives a line box.
@@ -112,9 +133,13 @@ namespace weft {
         SceneText& operator=(const SceneText&) = delete;
 
         SceneTextMetrics measure(std::string_view text, const SceneStyle& style);
-        // Shaped single line; the run stays valid while the caller holds it, also after cache eviction.
-        std::shared_ptr<const SceneTextRun> shape(std::string_view text, const SceneStyle& style);
-        std::shared_ptr<const SceneTextRun> shape(std::string_view text, const SceneFont& font);
+        // Shaped single line; the run stays valid while the caller holds it, also after cache eviction. context: the
+        // text around it (an inline formatting context's paragraph around a run or a line's piece), which joins and
+        // substitutes across the boundary as Blink shapes with its paragraph's text.
+        std::shared_ptr<const SceneTextRun> shape(std::string_view text, const SceneStyle& style,
+                                                  const ShapeContext& context = {});
+        std::shared_ptr<const SceneTextRun> shape(std::string_view text, const SceneFont& font,
+                                                  const ShapeContext& context = {});
         // The line box of the run's bytes [begin, end) alone, as measure() of just those bytes gives it when the
         // run's words break there: the advances of the glyphs whose cluster lies in the range, and the faces they use.
         SceneTextMetrics slice(const SceneTextRun& run, const SceneFont& font, std::uint32_t begin, std::uint32_t end);
@@ -139,11 +164,24 @@ namespace weft {
         Font& face(std::uint32_t face);
         bool color_face(std::uint32_t face) const;
 
+        // A glyph's coverage as face(face).rasterize(glyph_id, pixels, offset_x, offset_y, skew) gives it, kept for the
+        // next call with the same arguments (bounded by constants::scene::text_glyph_cache_max_entries and _bytes; a
+        // full cache starts over). Still text's images ask for their glyphs here: their pens lie on quarter pixels
+        // across and whole rows down, so a line whose text changes (a clock, a counter) rasterizes only the glyphs it has
+        // not drawn before. The bitmap stays valid while the caller holds it.
+        std::shared_ptr<const GlyphBitmap> glyph(std::uint32_t face, std::uint32_t glyph_id, float pixels,
+                                                 float offset_x, float offset_y, float skew = 0);
+
         struct Stats {
             std::size_t faces{};
             std::size_t files{};
             std::size_t shape_hits{};
             std::size_t shape_misses{};
+            // The glyph cache (glyph()): its entries and bytes, and how often it had and lacked a glyph.
+            std::size_t glyphs{};
+            std::size_t glyph_bytes{};
+            std::size_t glyph_hits{};
+            std::size_t glyph_misses{};
         };
 
         Stats stats() const;

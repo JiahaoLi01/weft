@@ -78,11 +78,12 @@ namespace weft::render::metal {
 
     namespace detail {
         id<MTLTexture> make_texture(id<MTLDevice> device, MTLPixelFormat format, std::uint32_t width,
-                                    std::uint32_t height, MTLTextureUsage usage) {
+                                    std::uint32_t height, MTLTextureUsage usage, std::uint32_t levels) {
             MTLTextureDescriptor* d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format
                                                                                          width:width
                                                                                         height:height
                                                                                      mipmapped:NO];
+            d.mipmapLevelCount = levels;
             d.usage = usage;
             d.storageMode = MTLStorageModePrivate;
             id<MTLTexture> out = [device newTextureWithDescriptor:d];
@@ -97,9 +98,9 @@ namespace weft::render::metal {
         }
     }
 
-    id<MTLFunction> SceneRenderer::function(std::string_view source, const char* name) {
+    id<MTLFunction> SceneRenderer::function(std::string_view source, const char* name, MTLLanguageVersion version) {
         MTLCompileOptions* options = [MTLCompileOptions new];
-        options.languageVersion = MTLLanguageVersion2_1;
+        options.languageVersion = version;
         NSError* error = nil;
         id<MTLLibrary> library = [device newLibraryWithSource:text(source) options:options error:&error];
         ensure(library != nil, "compiling MSL: " + describe(error));
@@ -125,6 +126,17 @@ namespace weft::render::metal {
         id<MTLFunction> scene_fragment = function(scene.fragment, "ps_main");
         scene_pipeline_ = make_pipeline(device, scene_vertex_, scene_fragment, false);
         under_pipeline_ = make_pipeline(device, scene_vertex_, scene_fragment, true);
+        // Apple GPUs read a color attachment in the fragment stage (programmable blending; MSL 2.3 on macOS). The iOS
+        // simulator reports an Apple family but builds no such pipeline: without one, blending groups copy their
+        // backdrops.
+        if ([device supportsFamily:MTLGPUFamilyApple1]) {
+            try {
+                blend_pipeline_ = make_pipeline(
+                    device, scene_vertex_, function(scene_fetch_fragment(), "ps_main", MTLLanguageVersion2_3), false);
+            } catch (const std::runtime_error&) {
+                blend_pipeline_ = nil;
+            }
+        }
         const auto particles = particle_shader();
         particle_pipeline_ = pipeline(particles.vertex, particles.fragment);
         const BackdropFilter filters[]{BackdropFilter::Area, BackdropFilter::Blur, BackdropFilter::Matrix};
@@ -271,6 +283,11 @@ namespace weft::render::metal {
                 }
             }
         }
+        for (const auto& mask : prepared.mask_images) {
+            if (mask && pending(mask->id)) {
+                throw Busy("a scene samples what another recording that is not submitted uploads");
+            }
+        }
     }
 
     void SceneRenderer::upload(const ScenePrepared& prepared) {
@@ -305,13 +322,18 @@ namespace weft::render::metal {
                     pending.push_back(sprite);
                 }
             }
+            for (const auto& mask : p.mask_images) {
+                if (mask && !textures_.contains(mask->id) && seen.insert(mask->id).second) {
+                    pending.push_back(mask);
+                }
+            }
         };
         walk(walk, prepared);
         if (pending.empty()) {
             return;
         }
-        // An image on an atlas page goes into its region, inside its border; others into textures of their own. Rows
-        // are staged at a pitch of a multiple of the staging alignment.
+        // An image on an atlas page goes into its region, inside its border; others into textures of their own, with
+        // their smaller levels. Rows are staged at a pitch of a multiple of the staging alignment.
         constexpr auto border = std::uint32_t(weft::constants::render::scene::atlas_border);
         constexpr auto alignment = std::size_t(limits::staging_alignment);
         struct Staged {
@@ -320,6 +342,14 @@ namespace weft::render::metal {
             std::uint32_t height{};
             std::size_t pitch{};
             std::size_t offset{};
+            // Each smaller level's size, pitch and offset.
+            struct Level {
+                std::uint32_t width{};
+                std::uint32_t height{};
+                std::size_t pitch{};
+                std::size_t offset{};
+            };
+            std::vector<Level> levels;
         };
         std::vector<Staged> staged(pending.size());
         std::size_t total{};
@@ -340,6 +370,17 @@ namespace weft::render::metal {
             s.pitch = align(std::size_t(s.width) * texel, alignment);
             s.offset = total;
             total += align(s.pitch * s.height, alignment);
+            auto level = Staged::Level{image.width, image.height};
+            for (const auto& mip : image.mips) {
+                level.width = std::max<std::uint32_t>(1, level.width / 2);
+                level.height = std::max<std::uint32_t>(1, level.height / 2);
+                ensure(!image.atlas && mip.size() == std::size_t(level.width) * level.height * texel,
+                       "scene image level size");
+                level.pitch = align(std::size_t(level.width) * texel, alignment);
+                level.offset = total;
+                total += align(level.pitch * level.height, alignment);
+                s.levels.push_back(level);
+            }
         }
         auto& staging = buffer(total);
         id<MTLBlitCommandEncoder> blit = [command_buffer_ blitCommandEncoder];
@@ -363,7 +404,7 @@ namespace weft::render::metal {
             } else {
                 Texture made{pending[i],
                              {make_texture(device, image_format(image.format), image.width, image.height,
-                                           MTLTextureUsageShaderRead),
+                                           MTLTextureUsageShaderRead, std::uint32_t(1 + image.mips.size())),
                               image.width, image.height},
                              slot_->recording};
                 destination = made.image.texture;
@@ -379,6 +420,24 @@ namespace weft::render::metal {
                    destinationSlice:0
                    destinationLevel:0
                   destinationOrigin:origin];
+            for (std::size_t k = 0; k < s.levels.size(); ++k) {
+                const auto& level = s.levels[k];
+                const auto& mip = image.mips[k];
+                const auto bytes = std::size_t(level.width) * scene_image_texel_bytes(image.format);
+                for (std::uint32_t y = 0; y < level.height; ++y) {
+                    std::memcpy(static_cast<std::uint8_t*>(staging.mapped) + level.offset + y * level.pitch,
+                                mip.data() + y * bytes, bytes);
+                }
+                [blit copyFromBuffer:staging.buffer
+                           sourceOffset:level.offset
+                      sourceBytesPerRow:level.pitch
+                    sourceBytesPerImage:level.pitch * level.height
+                             sourceSize:MTLSizeMake(level.width, level.height, 1)
+                              toTexture:destination
+                       destinationSlice:0
+                       destinationLevel:k + 1
+                      destinationOrigin:MTLOriginMake(0, 0, 0)];
+            }
         }
         [blit endEncoding];
         uploads += pending.size();

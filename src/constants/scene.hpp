@@ -80,6 +80,12 @@ namespace weft::constants::scene {
     // Items of one list: two per node of the largest document holds the CRPG floating UI of 400 units (its boxes,
     // shadows, lines of text and their shadows).
     inline constexpr int max_display_list_items = 2 * constants::max_document_nodes;
+    // The border box a clip-path is checked against when its element is built (its box is not known yet), px.
+    inline constexpr float clip_path_check_size = 100;
+    // How far, in device px, a clip-path's flattened curves may stray from them (scene_clip_path's tolerance).
+    inline constexpr float clip_path_flatness = .2f;
+    // The flattening a clip-path's hit test takes, in the element's px.
+    inline constexpr float clip_path_hit_flatness = .25f;
     // Deepest nesting of isolated opacity groups.
     inline constexpr int max_opacity_group_depth = 4;
     // px around a subtree's extent (what its boxes, lines, shadows and outlines reach) that a list still takes as
@@ -119,6 +125,10 @@ namespace weft::constants::scene {
     inline constexpr int text_max_faces = 64;
     inline constexpr int text_font_max_bytes = 256 * constants::bytes_per_mib;
     inline constexpr int text_cache_max_entries = 256;
+    // Glyph coverage a SceneText keeps for still text's images (SceneText::glyph): entries and their bytes; a full
+    // cache starts over.
+    inline constexpr int text_glyph_cache_max_entries = 4096;
+    inline constexpr int text_glyph_cache_max_bytes = 4 * constants::bytes_per_mib;
     // Layouts of one inline formatting context kept per frame layout, by available width (the widths Yoga measures it
     // at, and the final one).
     inline constexpr int inline_layout_memo_entries = 8;

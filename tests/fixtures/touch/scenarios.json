@@ -1,0 +1,763 @@
+{
+  "comment": "Touch scenarios on touch.js in an 800 x 600 viewport. A step starts touches (id, at: an element's id, dx/dy from its top left, its centre when left out), moves them (by: [dx, dy] from where they are), ends some by id, cancels all, or waits; dt is the time before it in ms (16 when left out). Touch points have radius 5 and no force. chrome-results.json is what Chrome did with touch emulation (tools/browser_touch_reference.mjs): the events after each step and the state after it; tests/touch_tests.cpp replays the steps in a View and compares.",
+  "width": 800,
+  "height": 600,
+  "radius": 5,
+  "scenarios": [
+    {
+      "name": "tap",
+      "steps": [
+        {
+          "start": [
+            {
+              "id": 1,
+              "at": "tap"
+            }
+          ]
+        },
+        {
+          "end": [
+            1
+          ],
+          "dt": 60
+        },
+        {
+          "wait": 400
+        }
+      ]
+    },
+    {
+      "name": "tap_nostart",
+      "steps": [
+        {
+          "start": [
+            {
+              "id": 1,
+              "at": "nostart"
+            }
+          ]
+        },
+        {
+          "end": [
+            1
+          ],
+          "dt": 60
+        },
+        {
+          "wait": 400
+        }
+      ]
+    },
+    {
+      "name": "tap_noend",
+      "steps": [
+        {
+          "start": [
+            {
+              "id": 1,
+              "at": "noend"
+            }
+          ]
+        },
+        {
+          "end": [
+            1
+          ],
+          "dt": 60
+        },
+        {
+          "wait": 400
+        }
+      ]
+    },
+    {
+      "name": "tap_twice_elsewhere",
+      "steps": [
+        {
+          "start": [
+            {
+              "id": 1,
+              "at": "tap"
+            }
+          ]
+        },
+        {
+          "end": [
+            1
+          ],
+          "dt": 60
+        },
+        {
+          "wait": 600
+        },
+        {
+          "start": [
+            {
+              "id": 2,
+              "at": "noend"
+            }
+          ]
+        },
+        {
+          "end": [
+            2
+          ],
+          "dt": 60
+        },
+        {
+          "wait": 400
+        }
+      ]
+    },
+    {
+      "name": "tap_small_move",
+      "steps": [
+        {
+          "start": [
+            {
+              "id": 1,
+              "at": "tap"
+            }
+          ]
+        },
+        {
+          "move": [
+            {
+              "id": 1,
+              "by": [
+                3,
+                2
+              ]
+            }
+          ],
+          "dt": 30
+        },
+        {
+          "end": [
+            1
+          ],
+          "dt": 30
+        },
+        {
+          "wait": 400
+        }
+      ]
+    },
+    {
+      "name": "drag_off_tap",
+      "steps": [
+        {
+          "start": [
+            {
+              "id": 1,
+              "at": "tap"
+            }
+          ]
+        },
+        {
+          "move": [
+            {
+              "id": 1,
+              "by": [
+                0,
+                20
+              ]
+            }
+          ],
+          "dt": 30
+        },
+        {
+          "move": [
+            {
+              "id": 1,
+              "by": [
+                0,
+                30
+              ]
+            }
+          ],
+          "dt": 30
+        },
+        {
+          "move": [
+            {
+              "id": 1,
+              "by": [
+                0,
+                30
+              ]
+            }
+          ],
+          "dt": 30
+        },
+        {
+          "end": [
+            1
+          ],
+          "dt": 30
+        },
+        {
+          "wait": 400
+        }
+      ]
+    },
+    {
+      "name": "pad_drag",
+      "steps": [
+        {
+          "start": [
+            {
+              "id": 1,
+              "at": "pad",
+              "dx": 60,
+              "dy": 60
+            }
+          ]
+        },
+        {
+          "move": [
+            {
+              "id": 1,
+              "by": [
+                20,
+                10
+              ]
+            }
+          ],
+          "dt": 30
+        },
+        {
+          "move": [
+            {
+              "id": 1,
+              "by": [
+                20,
+                10
+              ]
+            }
+          ],
+          "dt": 30
+        },
+        {
+          "move": [
+            {
+              "id": 1,
+              "by": [
+                20,
+                10
+              ]
+            }
+          ],
+          "dt": 30
+        },
+        {
+          "move": [
+            {
+              "id": 1,
+              "by": [
+                20,
+                10
+              ]
+            }
+          ],
+          "dt": 30
+        },
+        {
+          "end": [
+            1
+          ],
+          "dt": 30
+        },
+        {
+          "wait": 400
+        }
+      ]
+    },
+    {
+      "name": "grab_drag",
+      "steps": [
+        {
+          "start": [
+            {
+              "id": 1,
+              "at": "grab"
+            }
+          ]
+        },
+        {
+          "move": [
+            {
+              "id": 1,
+              "by": [
+                0,
+                20
+              ]
+            }
+          ],
+          "dt": 30
+        },
+        {
+          "move": [
+            {
+              "id": 1,
+              "by": [
+                0,
+                20
+              ]
+            }
+          ],
+          "dt": 30
+        },
+        {
+          "move": [
+            {
+              "id": 1,
+              "by": [
+                0,
+                20
+              ]
+            }
+          ],
+          "dt": 30
+        },
+        {
+          "end": [
+            1
+          ],
+          "dt": 30
+        },
+        {
+          "wait": 400
+        }
+      ]
+    },
+    {
+      "name": "list_pan_slow",
+      "steps": [
+        {
+          "start": [
+            {
+              "id": 1,
+              "at": "list",
+              "dx": 150,
+              "dy": 200
+            }
+          ]
+        },
+        {
+          "move": [
+            {
+              "id": 1,
+              "by": [
+                0,
+                -30
+              ]
+            }
+          ],
+          "dt": 60
+        },
+        {
+          "move": [
+            {
+              "id": 1,
+              "by": [
+                0,
+                -30
+              ]
+            }
+          ],
+          "dt": 60
+        },
+        {
+          "move": [
+            {
+              "id": 1,
+              "by": [
+                0,
+                -30
+              ]
+            }
+          ],
+          "dt": 60
+        },
+        {
+          "move": [
+            {
+              "id": 1,
+              "by": [
+                0,
+                -30
+              ]
+            }
+          ],
+          "dt": 60
+        },
+        {
+          "move": [
+            {
+              "id": 1,
+              "by": [
+                0,
+                0
+              ]
+            }
+          ],
+          "dt": 200
+        },
+        {
+          "end": [
+            1
+          ],
+          "dt": 60
+        },
+        {
+          "wait": 800
+        }
+      ]
+    },
+    {
+      "name": "list_fling",
+      "steps": [
+        {
+          "start": [
+            {
+              "id": 1,
+              "at": "list",
+              "dx": 150,
+              "dy": 210
+            }
+          ]
+        },
+        {
+          "move": [
+            {
+              "id": 1,
+              "by": [
+                0,
+                -20
+              ]
+            }
+          ],
+          "dt": 16
+        },
+        {
+          "move": [
+            {
+              "id": 1,
+              "by": [
+                0,
+                -40
+              ]
+            }
+          ],
+          "dt": 16
+        },
+        {
+          "move": [
+            {
+              "id": 1,
+              "by": [
+                0,
+                -40
+              ]
+            }
+          ],
+          "dt": 16
+        },
+        {
+          "move": [
+            {
+              "id": 1,
+              "by": [
+                0,
+                -40
+              ]
+            }
+          ],
+          "dt": 16
+        },
+        {
+          "end": [
+            1
+          ],
+          "dt": 16
+        },
+        {
+          "wait": 2000
+        }
+      ]
+    },
+    {
+      "name": "xlist_across",
+      "steps": [
+        {
+          "start": [
+            {
+              "id": 1,
+              "at": "xlist",
+              "dx": 250,
+              "dy": 60
+            }
+          ]
+        },
+        {
+          "move": [
+            {
+              "id": 1,
+              "by": [
+                -30,
+                0
+              ]
+            }
+          ],
+          "dt": 30
+        },
+        {
+          "move": [
+            {
+              "id": 1,
+              "by": [
+                -30,
+                0
+              ]
+            }
+          ],
+          "dt": 30
+        },
+        {
+          "move": [
+            {
+              "id": 1,
+              "by": [
+                -30,
+                0
+              ]
+            }
+          ],
+          "dt": 30
+        },
+        {
+          "end": [
+            1
+          ],
+          "dt": 30
+        },
+        {
+          "wait": 400
+        }
+      ]
+    },
+    {
+      "name": "xlist_down",
+      "steps": [
+        {
+          "start": [
+            {
+              "id": 1,
+              "at": "xlist",
+              "dx": 150,
+              "dy": 20
+            }
+          ]
+        },
+        {
+          "move": [
+            {
+              "id": 1,
+              "by": [
+                0,
+                30
+              ]
+            }
+          ],
+          "dt": 30
+        },
+        {
+          "move": [
+            {
+              "id": 1,
+              "by": [
+                0,
+                30
+              ]
+            }
+          ],
+          "dt": 30
+        },
+        {
+          "move": [
+            {
+              "id": 1,
+              "by": [
+                0,
+                30
+              ]
+            }
+          ],
+          "dt": 30
+        },
+        {
+          "end": [
+            1
+          ],
+          "dt": 30
+        },
+        {
+          "wait": 400
+        }
+      ]
+    },
+    {
+      "name": "two_fingers",
+      "steps": [
+        {
+          "start": [
+            {
+              "id": 1,
+              "at": "pad",
+              "dx": 50,
+              "dy": 50
+            }
+          ]
+        },
+        {
+          "start": [
+            {
+              "id": 2,
+              "at": "tap"
+            }
+          ],
+          "dt": 40
+        },
+        {
+          "move": [
+            {
+              "id": 1,
+              "by": [
+                10,
+                0
+              ]
+            },
+            {
+              "id": 2,
+              "by": [
+                0,
+                0
+              ]
+            }
+          ],
+          "dt": 30
+        },
+        {
+          "end": [
+            2
+          ],
+          "dt": 40
+        },
+        {
+          "move": [
+            {
+              "id": 1,
+              "by": [
+                10,
+                0
+              ]
+            }
+          ],
+          "dt": 30
+        },
+        {
+          "end": [
+            1
+          ],
+          "dt": 40
+        },
+        {
+          "wait": 400
+        }
+      ]
+    },
+    {
+      "name": "long_press",
+      "steps": [
+        {
+          "start": [
+            {
+              "id": 1,
+              "at": "tap"
+            }
+          ]
+        },
+        {
+          "wait": 1000
+        },
+        {
+          "end": [
+            1
+          ],
+          "dt": 16
+        },
+        {
+          "wait": 400
+        }
+      ]
+    },
+    {
+      "name": "double_tap",
+      "steps": [
+        {
+          "start": [
+            {
+              "id": 1,
+              "at": "tap"
+            }
+          ]
+        },
+        {
+          "end": [
+            1
+          ],
+          "dt": 50
+        },
+        {
+          "start": [
+            {
+              "id": 2,
+              "at": "tap"
+            }
+          ],
+          "dt": 100
+        },
+        {
+          "end": [
+            2
+          ],
+          "dt": 50
+        },
+        {
+          "wait": 500
+        }
+      ]
+    },
+    {
+      "name": "cancel",
+      "steps": [
+        {
+          "start": [
+            {
+              "id": 1,
+              "at": "tap"
+            }
+          ]
+        },
+        {
+          "cancel": true,
+          "dt": 60
+        },
+        {
+          "wait": 400
+        }
+      ]
+    }
+  ]
+}

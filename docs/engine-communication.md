@@ -397,7 +397,7 @@ const player = weft.engine.model('player');      // {value, subscribe}
 实现（13.3a，`src/view` 与 `include/weft/weft.h`）：
 - `weft::View` 把画廊会话收拢成通用的部件。加载（`weft_view_load`）换一个新的文档与 VM 状态，装平台模块 WebHost、AnimationFrame、ScenePlatform、Engine（`WEFT_PAGE_CRPG_BRIDGE` 时再装 CrpgBridge），设好 `innerWidth`、`innerHeight`、`devicePixelRatio`，再按序求值页面的脚本；页面的样式表、关键帧与场景根的选择器（缺省 `#root`）随页面给出。页面的脚本与样式由宿主读好交进来；样式里 `url()` 指的图片经宿主的资源回调读（2026-10-16，见下文“页面的文件”）。脚本抛出，或样式表、关键帧超出 scene 的 profile（2026-10-17 起，此前是 `WEFT_INVALID_ARGUMENT` 且没有诊断）时页面不加载：`WEFT_SCRIPT_ERROR`，View 为空，原因是一条诊断（脚本的，或样式的 scene 诊断）。
 - 推进（`weft_view_advance`）：取 owner 的锚点表，把页面的时钟推到这一帧的时间（13.4），交付引擎的输入，跑任务、rAF、任务，把 DOM 的变化同步进场景，交付 ResizeObserver，再同步一次；场景内容变了（版本号变了）或 View 的大小、缩放变了才发布新的帧。页面抛出的异常、处理函数与 rAF 回调的异常、样式做不出场景都记成诊断（`weft_view_drain_diagnostics`），推进照常返回；做不出场景时保留上一帧。VM 资源耗尽使 View 进入 Faulted（`WEFT_FAULTED`），直到重新加载。
-- 输入（`weft_view_pointer`）：移动、按下、抬起、滚轮、离开，按画廊的顺序合成 pointer 与 mouse 事件、over/out、enter/leave（随悬停元素变化）与 click（在按下的同一元素上抬起）；返回主事件的默认动作是否被阻止。键盘与焦点见下文“键盘与焦点”（2026-10-21），文本框与输入法见“文本框与输入法”（2026-10-22），手柄见“手柄与空间导航”（2026-10-22）。
+- 输入（`weft_view_pointer`）：移动、按下、抬起、滚轮、离开，按画廊的顺序合成 pointer 与 mouse 事件、over/out、enter/leave（随悬停元素变化）与 click（在按下的同一元素上抬起）；返回主事件的默认动作是否被阻止。键盘与焦点见下文“键盘与焦点”（2026-10-21），文本框与输入法见“文本框与输入法”（2026-10-22），手柄见“手柄与空间导航”（2026-10-22），触摸见“触摸与多点触控”（2026-11-07）。
 - 命中（`weft_view_hit_test`，取代草案的 `weft_view_hit_interactive`）：某点下最上层接收指针事件的元素是否是场景根以外的元素，以及它的 `cursor`（它或最近一个声明了 `cursor` 的祖先的值，没有时是 auto）。CRPG 现在按光标是否在可交互元素上把点击交给 UI，否则交给游戏的射线检测（`UUltralightWidget::NativeOnMouseButtonDown`），宿主可以照做。
 - 帧（`weft_view_acquire_frame`，任意线程）：引用计数的不可变帧，内容是场景树（不含元素几何）、View 的大小与缩放、布局用的字体目录与 View 的锚点通道；View 销毁后仍可用。渲染器经 `weft_renderer_prepare_scene` 画它（13.3b，见下文）。
 - 线程：加载、推进、输入、命中、取消息、注册函数、取诊断、调整大小只在 Runtime 的 owner 线程；写锚点、发事件、完成调用、设置视图模型、取帧可在任意线程，经 Runtime 里加锁的表找到 View 的共享部分，与销毁并发时返回 `WEFT_STALE_HANDLE`。宿主的回调（取消息、同步函数、取诊断）里对同一 View 的 owner 操作返回 `WEFT_BUSY`，任意线程的操作照常。owner 线程要至少 8 MiB 的栈（React 与 D3 的包递归很深）。
@@ -428,6 +428,33 @@ const player = weft.engine.model('player');      // {value, subscribe}
 - `weft_pointer_event` 的 `reserved` 改作 `modifiers`（`WEFT_MODIFIER_*`，Shift+点击扩展选区）；原来要求是 0，旧的宿主不受影响。
 - 测试：`text_field_contract`（`tests/text_field_tests.cpp`）把 `tests/fixtures/text_field/scenarios.json` 的十一个场景（打字、选择键、鼠标、输入法、只读/禁用/maxlength/被阻止、溢出与滚动、脚本 API、样式、Tab、textarea、textarea 的样式）在 View 里重放，与 Chrome 155 在同一页上的结果（`tools/browser_text_field_reference.mjs` 录下）逐事件、逐字段比较（selectionchange 的时机 Chrome 不定，不比；鼠标造出选区后焦点离开时 Chrome 多发的一次 select 不比），每一步之后比较所有文本框的值、选区与 scrollLeft（2 px 内）、读到的样式与矩形；十张文本框的截图由原生 D3D11 pass 画出，按亮度与 Chrome 的截图比较（允许 1 px 的水平偏移，那是两个文本引擎字距的差；组合串那张只比下划线与光标，因为 DevTools 给 Chrome 的组合串加了黄底）。
 
+
+文本框的剪贴板、撤销与重做（2026-11-08，`weft-ingame` 分支；用户在列出的缺口里选了这一项）：
+- **快捷键**：照各平台的 Chrome，由 `weft::editing_modifier` 决定，在 Apple 平台是 Command，其他平台是 Control。
+  - 全选、复制、剪切、粘贴、撤销、重做：A、C、X、V、Z，Shift+Z 重做；Windows 等平台另有 Ctrl+Y 重做、Ctrl+Insert 复制、Shift+Insert 粘贴、Shift+Delete 剪切。
+  - 只在有焦点的文本框里起作用，keydown 被页面阻止时不执行。
+  - 文本框的其余键（按词移动、删除）仍照 Windows 上的 Chrome：Apple 平台上原来的 Ctrl+A 全选改成了 Command+A。
+- **剪贴板**（`ScriptDom::clipboard_command`）：照 Chrome 的 `Editor`。
+  - copy、cut 先触发 `ClipboardEvent`（冒泡、可取消，`clipboardData` 是空的 `DataTransfer`）。没被阻止时把选中的文字放上剪贴板，cut 再删掉选区（beforeinput、input 为 `deleteByCut`）；被阻止时放上监听器 `setData` 给的 text/plain。
+  - 选区折叠时只有事件。密码框连事件都没有。只读框能复制，cut 只有事件。
+  - paste 触发 `paste`（`clipboardData` 带剪贴板的文字）。没被阻止且文本框可编辑时，用剪贴板的文字替换选区（`insertFromPaste`）：beforeinput 的 `data` 是原文，input 的 `data` 是实际插入的；单行框里换行变空格，`maxlength` 截断。
+- **撤销与重做**（`ScriptDom::history_command`）：
+  - 历史是整个文档的一个栈（Chrome 的 `UndoStack`，至多 1000 步），不是每个文本框各一个。撤销作用于最后一步，不管焦点在哪个框，并把焦点移到那一步的文本框。
+  - 连续打字合成一步，连续用键删除合成另一步；移动光标、改选区、换焦点、脚本改值都会断开。撤销删除后选中被恢复的文字。
+  - 撤销、重做有 beforeinput（可取消）和 input（`historyUndo`、`historyRedo`）。用键删除的那一步只有 input，这是 Chrome 的怪癖，照做。
+  - 新的编辑清空重做栈。输入法提交的文字是一步。脚本改过值的文本框，它的旧步骤作废。
+- **脚本**：
+  - `ClipboardEvent`、`DataTransfer`（字符串数据：`getData`、`setData`、`clearData`、`types`）。
+  - `navigator.clipboard.writeText()`、`readText()`，立即兑现，不要权限。
+  - `document.execCommand`：copy、cut（焦点不在文本框时在 body 上触发事件）、undo、redo、selectAll；paste 与其余返回 false，同 Chrome 里的普通页面。另有 `document.queryCommandSupported`。
+- **C 接口**：`weft_view_set_clipboard(runtime, view, read, write, user)`，owner 线程，载入页面前后都可设，换页面保留。
+  - `read` 把剪贴板的 UTF-8 文字用 `weft_resource_writer_set` 写出；没写、出错或不是 UTF-8 算没有文字。`write` 收到要放上剪贴板的文字。两个回调里都不能回调 View（`WEFT_BUSY`）。
+  - 两个都传 NULL 是去掉；只给一个是 `WEFT_INVALID_ARGUMENT`。
+  - 没有宿主的剪贴板时，View 用自己的：内存里最后复制的文字。示例宿主都没有把键盘交给页面，所以没有接系统剪贴板，由接入的引擎调用。
+- **测试**：
+  - `field_editing_browser_contract`（`tests/field_editing_tests.cpp`，可移植）：`tests/fixtures/field_editing/steps.json` 的 136 步在 View 里跑，与 `tools/browser_field_editing_reference.mjs` 录下的 Chrome 156 日志逐条相同，共 184 条（每个剪贴板与输入事件，以及 36 次焦点、值和选区）。关掉撤销步骤的合并，测试会在"撤销连续输入"那一步失败。
+  - `c_api_view_contract` 的 `clipboard`：宿主剪贴板的读写、非 UTF-8、`navigator.clipboard`、去掉后改用 View 自己的、参数错误、已销毁的 View。
+
 手柄与空间导航（2026-10-22，`input` 分支；用户提出：手柄能操作界面；用户 2026-10-21 定：手柄导航用页面标志开启）：
 - 页面标志 `WEFT_PAGE_SPATIAL_NAVIGATION`（8）：Blink 的空间导航（Chrome 的 `--enable-spatial-navigation`，`SpatialNavigationController`），`weft::spatial_navigation`（`src/view/view_spatial_navigation.cpp`）照它移植。方向键（不带 Shift、Ctrl、Meta）把焦点移到那个方向上最近的、看得见的候选：Tab 能到的元素，去掉边框后的盒子（Blink 的 `NodeRectInRootFrame`）与视口相交、不全被祖先的 overflow 裁掉，且没被别的元素盖住（它的可见部分的中心与四角的命中测试找到它或它里面的元素）。
 - 能拿焦点的元素（Blink 的 `Element::SupportsSpatialNavigationFocus`，2026-10-23）：开了空间导航时，有脚本监听器的元素（click、keydown、keypress、keyup、mouseover、mouseenter；SVG 元素还有 focus、blur、focusin、focusout）与自己设了 `cursor: pointer` 的元素（一棵手形光标树的顶：继承来的不算，父元素也是手形而它自己又写了的算，同 Chrome 155 的 `SpatNavUsesCursorInheritance`）也能拿焦点：`focus()`、鼠标按下、Tab（调整后的 tab index 是 0，`tabIndex` 照旧是 −1）与方向键都到得了。它们没有显式的非负 tabindex，所以里面有候选时让给里面的元素（卡片里自己设了手形的角标先于卡片）；禁用的表单控件照旧不能。监听器由原生 DOM 回答（`ScriptDom::spatial_navigation_listener`），光标由 View 从场景读（场景只存元素自己的 `cursor`）。
@@ -442,6 +469,68 @@ const player = weft.engine.model('player');      // {value, subscribe}
 - 页面（所有页面，不用 web 平台标志）：`navigator.getGamepads()`（四个槽，空的是 null）、`Gamepad`（`id`、`index`、`connected`、`timestamp`、`mapping` 为 "standard"、冻结的 `axes` 与 `buttons`，`GamepadButton` 的 `pressed`、`touched`、`value`，按下或值大于 0 的按钮也算 touched，同 Blink；`vibrationActuator` 为 null）、`GamepadEvent`，window 上的 `gamepadconnected`、`gamepaddisconnected`。照 Chrome：某个手柄有按钮按下或某个轴超过一半（Chrome 的用户手势）之前一个手柄也不显示，之后每个连着的手柄来一次 gamepadconnected，后来连上的随即一次；Gamepad 是快照，`timestamp` 是状态上一次变化时页面的时钟；页面重新加载后重新等手势。
 - 手柄的键：开了空间导航的页面上、View 有宿主的焦点时，D-pad 与左摇杆（较大的那个轴超过一半）是方向键，A 是 Enter，B 是 Escape：按下时 keydown，抬起时 keyup（key 与 code 都是键名，keyCode 是 Windows 虚拟键 38、40、37、39、13、27），同一次状态里先抬后按（摇杆从右转到下：ArrowRight 的 keyup 在 ArrowDown 的 keydown 之前）；按住的方向 0.5 s 后每 0.1 s 重复一次（`repeat` 为 true，在推进里发；一帧太长时从这一帧接着算，不连发）；手柄断开时抬起它按着的键；宿主的焦点离开时忘掉按着的键（不发 keyup，同窗口失焦）。返回这些键的 `WEFT_INPUT_*`，宿主据此把页面用掉的手柄输入留给页面。Chrome 不把手柄变成键，这是 weft 在页面标志下的选择。
 - 测试：`spatial_navigation_contract`（`tests/spatial_navigation_tests.cpp`）把 `tests/fixtures/spatial_navigation/scenarios.json` 的十五个场景（网格、没有焦点、长短不一的链接、可聚焦与不可聚焦的面板、滚动容器、文本框、textarea、重叠的按钮、Enter 与 Escape、监听器自己移焦点、远处的按钮、有监听器的元素、手形光标的卡片与角标（Enter、空格、Tab、鼠标）、Tab 顺序与 Shift+Tab、Enter 的 `:active`（body、input、textarea、可聚焦的面板、链接的空格与 Enter））在开了空间导航的 View 里重放，与开了 `--enable-spatial-navigation` 的 Chrome 155 在同一页上的结果（`tools/browser_spatial_navigation_reference.mjs` 录下）逐事件、逐字段比较：127 步全部一致，包括 mouseover/out、`:hover`、`:focus-visible`、`:active`、滚动位置与两个文本框的光标（weft 的控件缺省没有边框，所以夹具给所有控件写了 2 px 边框，两边的盒子才一样）；另有没开空间导航的同一页（这些元素不拿焦点、Tab 越过它们、Enter 不点击面板）、拿焦点的规则（移除了的监听器、`cursor: initial` 隔开的手形、图片列表之后的关键字、SVG 元素的 focus 监听器）、`navigator.getGamepads()` 与事件（手势、快照与时间、断开与重连、接口、重新加载、拒绝的状态）、手柄的键（D-pad、重复与太长的一帧、摇杆的方向与先抬后按、右摇杆、A 与 B、宿主焦点、断开）。`c_api_view_contract` 加 `gamepads`（参数、加载前、页面上的 D-pad、同步函数里重入返回 `WEFT_BUSY`、别的线程、过期句柄）。页面运行器：page.json 的 `spatialNavigation`，时间线的 `gamepad` 步骤（之后每帧照宿主的样子再给一次）。
+
+触摸与多点触控（2026-11-07，`weft-ingame` 分支；用户提出：移动端要能触摸操作，行为照 Chrome）：
+- C 接口：`weft_view_touch(runtime, view, const weft_touch_event*, uint32_t* out_prevented)`，owner 线程。
+  - `weft_touch_event`：`struct_size`、`modifiers`、`points`（这次变化的触点，每个一次）、`count`、`time_seconds`（触点自己的时间戳，在 `weft_view_advance` 的时钟上；0 用 View 的时间，计算松手速度用）。
+  - `weft_touch_point`：`id`（宿主对这个触点从按下到抬起的称呼，iOS 用 UITouch 的地址，Android 用 pointer id）、`phase`（`WEFT_TOUCH_BEGAN/MOVED/ENDED/CANCELLED`）、`x`、`y`、`radius_x`、`radius_y`（逻辑 px，未知为 0）、`force`（0–1，未知为 0）。
+  - 一个触点按下两次、按下前就移动、坐标不是有限值，都返回 `WEFT_INVALID_ARGUMENT`。
+- 每个触点是一个指针，照 Chrome（录在 `tests/fixtures/touch`）：
+  - `pointerType` 为 "touch"，pointerId 从 2 起每个触点一个新的。同时没有别的触点时 `isPrimary` 为 true。`width`、`height` 是半径的两倍（未知为 1），`pressure` 是 force。
+  - 按下：`pointerover` → `pointerenter`（从页面根往里）→ `pointerdown` → `touchstart`。
+  - 隐式捕获到按下的元素：下一个指针事件之前补 `gotpointercapture`。
+  - 移动：`pointermove`（button −1）。抬起：`pointerup`（宽高 1、压力 0）→ `lostpointercapture` → `pointerout` → `pointerleave`（由里往外）→ `touchend`。
+  - 系统取消：`pointercancel` → `lostpointercapture` → `pointerout` → `pointerleave` → `touchcancel`。
+- 触摸事件：
+  - `TouchEvent` 带 `touches`、`targetTouches`、`changedTouches`（`TouchList`，可迭代，有 `item()`）；`Touch` 有 `identifier`、`target`、client/page/screen 坐标、`radiusX/Y`、`force`。
+  - 目标始终是按下时的元素。
+  - 只有一个触点、还没离开按下点 15 px 时，移动不发 `touchmove`（Chrome 的滑动阈值）；有第二个触点后照发。
+  - `touchstart` 可取消；第一个越过阈值的 `touchmove` 可取消，它没被阻止的话，这个触点之后的 `touchmove` 与 `touchend` 都不可取消。
+- 点按：只有一个触点、始终在阈值以内、`touchstart` 与 `touchend` 都没被阻止时算点按。抬起后在按下的位置（整像素）发兼容鼠标事件：
+  - 先是悬停转到那里（`mouseout`、`mouseleave`、`mouseover`、`mouseenter`），再 `mousemove`、`mousedown`（焦点移过去，文本框放光标）、`mouseup`，最后 `click`（PointerEvent，pointerType "touch"，detail 是连按次数）。
+  - 400 ms、20 px 内的第二次点按 detail 为 2，并补 `dblclick`。
+  - 之后被点的元素保持悬停，`:active` 再保持 150 ms。
+  - 按住多久都还是点按（Chrome 桌面没有长按菜单）。
+  - 点按停下惯性滚动的那一下不算点按。
+- 平移：
+  - 触点越过阈值、`touchmove` 没被阻止、`touch-action` 允许这个方向（横向看 pan-x，纵向看 pan-y）时，浏览器接管：先 `pointercancel`（位置 0,0），之后没有指针事件。
+  - 平移锁定到从目标往外第一个能往这个方向滚的滚动容器；没有就什么也不滚，但仍然取消指针。
+  - 第一次滚动减去阈值，之后 1:1 跟手（整像素）。
+  - `touch-action`（不继承，元素与祖先的取值求交）：`auto`、`manipulation`、`none`、`pan-x`、`pan-y`（pan-left/right/up/down 归到 pan-x/pan-y）。`none` 或页面阻止 `touchmove` 时，指针事件一直发，页面自己拖动。
+- 惯性滚动：
+  - 松手速度用 Chrome 的 VelocityTracker 算法：最近 100 ms（至多 20 个）移动采样的二次最小二乘；松手前停了 40 ms 以上为 0；钳在 30–17000 px/s。
+  - 曲线用 ui::FlingCurve：p(t) = α·e^(−γt) − β·t − α（α = −5707.62，β = 172，γ = 3.7），从松手速度进入，跑到速度为 0。
+  - `weft_view_advance` 每帧推进；滚到容器尽头或有新触点按下时停止。
+- 指针捕获（2026-11-07，同时做了鼠标的）：
+  - `element.setPointerCapture(id)`、`releasePointerCapture(id)`、`hasPointerCapture(id)`；不活动的 id 抛 `NotFoundError`。
+  - 鼠标只在按着键时能捕获：捕获期间指针与鼠标事件都发给捕获元素，不发边界事件。抬起时顺序是 `pointerup`、`mouseup`、`lostpointercapture`、`click`，然后悬停转到鼠标下面的元素。
+  - 触点在 pointerdown 里释放隐式捕获后，它的指针事件发给手指下的元素，随之发 out/leave/over/enter；它的触摸事件仍在原目标。
+- 输入设备（2026-11-07）：`weft_view_set_input_devices(runtime, view, const weft_input_devices*)`，owner 线程，可以在加载前设置，跨页面加载保留。
+  - `weft_input_devices`：`struct_size`、`primary`（`WEFT_INPUT_MOUSE`、`WEFT_INPUT_TOUCH` 或 0，0 表示没有指针，比如只有手柄）、`available`（全部设备，包含 primary）、`max_touch_points`（有触屏时 1–32，没有时 0）。
+  - 页面看到的与 Chrome 在这种设备上的一致（与 Chrome 156 桌面及触摸模拟下的结果逐项核对）：
+    - `pointer`、`hover` 按 primary 回答：鼠标是 fine、hover，触屏是 coarse、none，没有设备时都是 none；
+    - `any-pointer`、`any-hover` 按 available 回答；
+    - `navigator.maxTouchPoints` 是 max_touch_points；
+    - 有触屏时才有 `ontouchstart` 等四个处理器属性（window 与节点上，返回 false 时取消事件）。
+  - 宽松样式表的 `@media` 跟着变：结果变了的条件在下一次 `weft_view_advance` 重新层叠。
+  - `matchMedia` 的列表改为实时结果；加了 `change` 监听或 `onchange` 的列表，在结果变化时收到 `change` 事件。窗口尺寸变化后同样检查。
+  - 不设置时是鼠标，与以前相同。
+  - iOS 示例声明为触屏（primary 与 available 都是触屏，5 个触点）。
+- 顺带修正鼠标：悬停变化时先发全部指针边界事件（pointerout、pointerleave、pointerover、pointerenter），再发鼠标的，与 Chrome 一致（此前交错）。enter/leave 不可取消。
+- 与 Chrome 的差别：
+  - Chrome 对快速平移的触摸采样做重采样并预测约 8 ms（掩盖它合成器的延迟），内容比手指领先（2.5 px/ms 时约 20 px）；weft 严格跟手，之后的惯性距离一致。
+  - 平移期间 Chrome 约每 200 ms 才发一个不可取消的 `touchmove`，weft 每次都发。
+  - enter/leave 只到页面根，不到 document、html、body。
+  - 没有双指缩放、长按菜单、滚动链（滚到头不交给外层）与回弹。
+- 测试：`touch_contract`（`tests/touch_tests.cpp`，可移植）把 `tests/fixtures/touch/scenarios.json` 的十六个场景逐事件对照 Chrome 156 在同一页面上的结果（`tools/browser_touch_reference.mjs`，CDP 触摸模拟），每步也比较滚动位置与 `:hover`、`:active`，共 84 步。场景包括：
+  - 点按，阻止 `touchstart` 或 `touchend`，两次点按换元素，阈值内小移动仍算点按，拖出元素；
+  - `touch-action: none` 与页面阻止 `touchmove` 的拖动，慢速平移，惯性（比较松手后滚了多远），`pan-y` 容器里横向与纵向拖动；
+  - 两指，长按，双击，取消。
+- 另外四项测试：
+  - 新触点停下惯性且不算点按；惯性停在容器尽头；
+  - 鼠标捕获与触点释放捕获的事件序列，与 Chrome 逐个相同；
+  - 鼠标、触屏手机、触屏笔记本、没有指针四种输入设备下的 `matchMedia`、`@media` 规则、`maxTouchPoints` 与 `ontouchstart`，以及 change 事件、返回 false 的处理器、不合法的设备组合、跨页面加载保留；
+  - 不合法的触点被拒绝。
 
 渲染（13.3b，`include/weft/render_backend*.h`，详见 [渲染后端 API](render-backend-api.md#view-帧2026-10-14)）：
 - 渲染线程（渲染器的 owner）取最新的帧，`weft_renderer_prepare_scene` 准备（之后就可以释放帧的句柄），`weft_renderer_encode` 录制或画进宿主的目标，再照渲染器的协议报告提交与完成。锚点在 encode 时取最新值：准备之后、录制之前写的锚点也会画上。
@@ -463,6 +552,7 @@ const player = weft.engine.model('player');      // {value, subscribe}
 - 宿主给每个 View 设一个资源回调（`weft_view_set_resource_reader`，跨加载保留，NULL 取消）：View 求解场景时在 owner 线程上同步调用它，每次页面加载里每个路径一次；它把文件的字节写进 `weft_resource_writer`（`weft_resource_writer_set` 复制，至多 16 MiB），不写就是没有这个文件；回调里对这个 View 的 owner 操作返回 `WEFT_BUSY`。同步读是有意的：界面的图片是本地小文件，第一帧就有图，不用为异步到达重做场景（那会重启动画）。
 - 解码用 lodepng（固定版本，见 [记录](../third_party/lodepng/README.md)）：任何 PNG 颜色类型与位深转成直通 sRGB RGBA8，颜色按 sRGB（不读 gAMA、iCCP）。限制：一张至多 1024 × 1024 = 1,048,576 像素、边长至多 4096（半透明的图在 pass 里是线性浮点，每像素 16 字节，与 pass 的单图上限 16 MiB 相当）；一次页面加载至多 256 张、解码后共 64 MiB。先读文件头，超界的图不解压。
 - 没有回调、没有文件、回调失败、不是 PNG 或超界：一条 scene 诊断（`WEFT_SCENE_PROFILE: url(<路径>): <原因>`），每个路径一次，那个背景不画图，页面照常。没有图片源（不经 View 的求解器）时 `url()` 本身是 scene 诊断。
+- 2026-11-08 起，同一套读取也服务 `<img>`，并按文件头识别 JPEG（libjpeg-turbo）与 WebP（libwebp），`data:` URL 不经回调直接解码。见 [图片元素](img.md#第二阶段格式与来源)。
 - 每次加载重新读：宿主改了文件，重新加载页面就生效。
 - 字体（2026-11-01，KaTeX 的字体）：宽松样式表里 `@font-face` 的 `src: url()` 也经这个回调读，在页面加载时（样式表编译之后、第一帧之前）读，同样按基准解析、每个路径一次。一条规则取第一个读得出的 TrueType 或 OpenType 来源，`woff`、`woff2` 按 `format()` 提示不读（没有提示的看文件开头），`local()` 不按全名找安装的字体；都读不出时一条 scene 诊断 `WEFT_FONT_FACE: <字族>: <每个来源的原因>`，文字退到别的字体。有 `@font-face` 的页面有自己的字体目录与文字系统（页面的字族遮住同名的安装字体），它的帧带着这个目录，渲染器按帧切换（`ViewFrame::fonts`；三个原生后端相同）；同一运行时里别的 View 不受影响。字节留在内存里（`FontFaceSource::data`），D2D 参考光栅经 DirectWrite 的内存字体加载器读同样的字节。测试：`view_fonts_contract`、`render_d3d12_view_contract` 的 `page_fonts`、`katex_browser_reference`。
 - 绘制：图片像 `-weft-texture()` 那样按 CSS 铺排（`background-size`、`-position`、`-repeat`、`-origin`、`-clip`），自然大小是它的像素；显示列表里是列表自己的资产（`paint::Image::fitted`），pass 把它当作整张纹理（不进图集；不透明的是 sRGB 纹理，半透明的是线性预乘浮点，Vulkan 与 D3D12 上设备不能过滤浮点纹理时整帧回退，同效果纹理），着色器用宿主纹理的铺排代码。显示这种背景的元素在 pass 里画，不做缓存的图层。D2D 参考光栅同样画。

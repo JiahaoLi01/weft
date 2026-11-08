@@ -11,7 +11,8 @@
 // display; stdout prints them every second, and each touch (Xcode's console, xcrun simctl launch --console, or xcrun
 // devicectl device process launch --console).
 //
-//   weft_ios_demo [--page <page>]          hud (the default), logo (logo/color), color, dark, light or static
+//   weft_ios_demo [--page <page>]          hud (the default), logo (logo/color), color, dark, light, static, or a
+//                                          folder of examples: touch, bidi, img, effects, animate
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
 #import <UIKit/UIKit.h>
@@ -52,7 +53,8 @@ namespace {
                 return i;
             }
         }
-        throw demo::Failure("no page \"" + name + "\": one of hud, logo, color, dark, light, static");
+        throw demo::Failure("no page \"" + name +
+                            "\": one of hud, logo, color, dark, light, static, touch, bidi, img, effects, animate");
     }
 } // namespace
 
@@ -76,7 +78,8 @@ namespace {
     Clock::time_point _second;
     std::size_t _page;
     // The touch that is the pointer; others are ignored until it ends.
-    UITouch* _touch;
+    // CACurrentMediaTime at _start: a UITouch's timestamp less it is on the View's clock.
+    CFTimeInterval _media_start;
     unsigned _frames_this_second;
     double _advance_ms;
     // This second's frame times, their sums and slowest frames: the CPU's (the View's advance, encoding and
@@ -112,10 +115,12 @@ namespace {
     CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
     _layer.colorspace = space;
     CGColorSpaceRelease(space);
-    self.multipleTouchEnabled = NO;
+    // Every finger is a touch of the page's (weft_view_touch).
+    self.multipleTouchEnabled = YES;
     _page = first_page;
     _inflight = dispatch_semaphore_create(2);
     _start = _second = Clock::now();
+    _media_start = CACurrentMediaTime();
     // A screen of another scale lays the View out again.
     [self registerForTraitChanges:@[ UITraitDisplayScale.class ] withAction:@selector(setNeedsLayout)];
     return self;
@@ -137,8 +142,10 @@ namespace {
         if (_engine) {
             _engine->resize(float(size.width), float(size.height), float(scale));
         } else {
+            // A touch screen, as Chrome on an iPhone reports it: coarse, no hover, five points.
+            const weft_input_devices touch{sizeof(touch), WEFT_INPUT_TOUCH, WEFT_INPUT_TOUCH, 5};
             _engine = std::make_unique<demo::Engine>(demo::load_page(page_folder(_page)), float(size.width),
-                                                     float(size.height), float(scale));
+                                                     float(size.height), float(scale), &touch);
             [self resume];
         }
         const UIEdgeInsets safe = self.safeAreaInsets;
@@ -284,61 +291,63 @@ namespace {
     _presented = at;
 }
 
-- (void)pointer:(weft_pointer_kind)kind at:(CGPoint)p buttons:(std::uint32_t)buttons {
-    try {
-        _engine->pointer(kind, float(p.x), float(p.y), buttons);
-    } catch (const std::exception& e) {
-        std::fprintf(stderr, "pointer: %s\n", e.what());
-    }
-}
-
-- (void)touchesBegan:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event {
-    if (_touch || !_engine) {
+// The page gets the touches that changed (weft_view_touch): each UITouch by its address while it lasts, its contact's
+// radius and its force (0 where the screen has none), at its own timestamp on the View's clock.
+- (void)touches:(NSSet<UITouch*>*)touches phase:(std::uint32_t)phase {
+    if (!_engine) {
         return;
     }
-    _touch = touches.anyObject;
-    const CGPoint p = [_touch locationInView:self];
+    std::vector<weft_touch_point> points;
+    double latest{};
+    for (UITouch* touch in touches) {
+        const CGPoint p = [touch locationInView:self];
+        const float radius = float(touch.majorRadius);
+        const float force =
+            touch.maximumPossibleForce > 0 ? float(std::min(1.0, touch.force / touch.maximumPossibleForce)) : 0.f;
+        points.push_back({std::uint64_t(reinterpret_cast<std::uintptr_t>((__bridge void*)touch)), phase, 0, float(p.x),
+                          float(p.y), radius, radius, force, 0});
+        latest = std::max(latest, touch.timestamp - _media_start);
+    }
     try {
-        const auto hit = _engine->hit(float(p.x), float(p.y));
-        const bool page = hit.element && std::string(hit.cursor) == "pointer";
-        std::printf("touch down at %.0f, %.0f: %s\n", p.x, p.y, page ? "the page's" : "the world's");
-        [self pointer:WEFT_POINTER_MOVE at:p buttons:0];
-        [self pointer:WEFT_POINTER_DOWN at:p buttons:1];
-        if (!page) {
-            // The world's: the unit under the touch takes damage.
-            const double t = std::chrono::duration<double>(Clock::now() - _start).count();
-            if (const int unit = _engine->unit_at(float(p.x), float(p.y), t); unit >= 0) {
-                _engine->damage(unsigned(unit), 25);
-                std::printf("unit %d takes 25\n", unit + 1);
-            }
-        }
+        _engine->touch(points, std::max(latest, 1e-6));
     } catch (const std::exception& e) {
         std::fprintf(stderr, "touch: %s\n", e.what());
     }
 }
 
-- (void)touchesMoved:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event {
-    if (_touch && [touches containsObject:_touch]) {
-        [self pointer:WEFT_POINTER_MOVE at:[_touch locationInView:self] buttons:1];
+- (void)touchesBegan:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event {
+    if (!_engine) {
+        return;
     }
+    // A touch where the page has nothing to interact with is the world's too: the unit under it takes damage.
+    for (UITouch* touch in touches) {
+        const CGPoint p = [touch locationInView:self];
+        try {
+            const auto hit = _engine->hit(float(p.x), float(p.y));
+            if (!(hit.element && std::string(hit.cursor) == "pointer")) {
+                const double t = std::chrono::duration<double>(Clock::now() - _start).count();
+                if (const int unit = _engine->unit_at(float(p.x), float(p.y), t); unit >= 0) {
+                    _engine->damage(unsigned(unit), 25);
+                    std::printf("unit %d takes 25\n", unit + 1);
+                }
+            }
+        } catch (const std::exception& e) {
+            std::fprintf(stderr, "touch: %s\n", e.what());
+        }
+    }
+    [self touches:touches phase:WEFT_TOUCH_BEGAN];
+}
+
+- (void)touchesMoved:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event {
+    [self touches:touches phase:WEFT_TOUCH_MOVED];
 }
 
 - (void)touchesEnded:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event {
-    if (_touch && [touches containsObject:_touch]) {
-        const CGPoint p = [_touch locationInView:self];
-        std::printf("touch up at %.0f, %.0f\n", p.x, p.y);
-        [self pointer:WEFT_POINTER_UP at:p buttons:0];
-        [self pointer:WEFT_POINTER_LEAVE at:CGPointZero buttons:0];
-        _touch = nil;
-    }
+    [self touches:touches phase:WEFT_TOUCH_ENDED];
 }
 
 - (void)touchesCancelled:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event {
-    if (_touch && [touches containsObject:_touch]) {
-        std::printf("touch cancelled\n");
-        [self pointer:WEFT_POINTER_LEAVE at:CGPointZero buttons:0];
-        _touch = nil;
-    }
+    [self touches:touches phase:WEFT_TOUCH_CANCELLED];
 }
 
 - (void)nextPage {

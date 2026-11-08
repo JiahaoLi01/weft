@@ -21,8 +21,16 @@ namespace weft {
     // The caret stops of a line of a field's text: for each character boundary of its text (byte offsets from start
     // to start + text size), its x from the line box's left, from the glyphs of its shaped run (x and advance by UTF-8
     // cluster; a cluster of several characters splits its advance evenly).
+    // A character of a right-to-left cluster stops at its right: a caret stands at the edge where the character
+    // after it starts (its leading edge), and after the text at the last character's trailing edge.
     std::vector<std::pair<std::uint32_t, float>> scene_field_stops(const SceneTextRun& run, std::string_view text,
                                                                    std::uint32_t start);
+    // Each character's left and right x (SceneLine::extents) when the run has right-to-left glyphs; empty otherwise.
+    std::vector<std::pair<std::uint32_t, std::array<float, 2>>>
+    scene_field_extents(const SceneTextRun& run, std::string_view text, std::uint32_t start);
+    // The x ranges a field's line covers for the shown offsets [begin, end) (its line box's coordinates): one between
+    // the two stops, or, on a line with right-to-left text, the characters' extents merged where they touch.
+    std::vector<std::array<float, 2>> scene_field_ranges(const SceneLine& line, std::uint32_t begin, std::uint32_t end);
 
     // Where a shown offset lies on a field's lines: the line (the last whose text starts at or before it) and the x
     // (node coordinates) of its stop, the nearest one at or before it. None without lines.

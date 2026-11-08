@@ -41,6 +41,8 @@ namespace weft::dom {
         bool focus_within{};
         // A text field's state (dom/text_field.hpp), replaced whole when it changes: snapshots share it.
         std::shared_ptr<const TextFieldState> field;
+        // Its script animations (dom/animation.hpp), replaced whole when one changes: snapshots share them.
+        std::shared_ptr<const DomAnimations> animations;
         std::vector<Attribute> attributes;
         // Tree edges by identity; a null identity (generation 0) is no node.
         NodeIdentity parent;

@@ -345,6 +345,11 @@ namespace weft::render::d3d12 {
                 throw Busy("a scene samples what another recording that is not submitted uploads");
             }
         }
+        for (const auto& mask : prepared.mask_images) {
+            if (mask && pending(mask->id)) {
+                throw Busy("a scene samples what another recording that is not submitted uploads");
+            }
+        }
     }
 
     void SceneRenderer::upload(const ScenePrepared& prepared) {
@@ -377,6 +382,11 @@ namespace weft::render::d3d12 {
             for (const auto& sprite : p.sprites) {
                 if (sprite && !textures_.contains(sprite->id) && seen.insert(sprite->id).second) {
                     pending.push_back(sprite);
+                }
+            }
+            for (const auto& mask : p.mask_images) {
+                if (mask && !textures_.contains(mask->id) && seen.insert(mask->id).second) {
+                    pending.push_back(mask);
                 }
             }
         };
@@ -763,12 +773,16 @@ namespace weft::render::d3d12 {
                     sampled = view_of(*chains.at(draw->image.index).back());
                     break;
             }
-            if (draw->extra == SceneSchedule::Extra::None) {
+            if (draw->extra == SceneSchedule::Extra::None && !draw->backdrop) {
                 use(sampled, std::nullopt);
                 continue;
             }
             Textures textures;
             textures.fill(blank);
+            if (draw->backdrop) {
+                // A blending group's backdrop where an effect's second texture goes (scene.hlsl, blendBackdrop).
+                textures[1] = view_of(*chains.at(*draw->backdrop).back());
+            }
             if (draw->extra == SceneSchedule::Extra::Effect) {
                 const auto& effect = prepared.effects.at(draw->source);
                 ensure(effect.textures.size() <= weft::constants::max_effect_textures, "effect textures");
@@ -777,10 +791,18 @@ namespace weft::render::d3d12 {
                     slot_->leases.push_back(effect.textures[t]);
                 }
                 effects.push_back(effect.program);
-            } else if (const auto& sprite = prepared.sprites.at(draw->source)) {
+            } else if (draw->extra == SceneSchedule::Extra::Mask) {
+                // The image of the item's mask where an effect's first texture goes (scene.hlsl, maskImage).
+                const auto& mask = prepared.mask_images.at(draw->source);
+                ensure(mask != nullptr, "a mask's image");
+                textures[0] = view_of(textures_.at(mask->id).image);
+                slot_->leases.push_back(mask);
+            } else if (draw->extra == SceneSchedule::Extra::Sprite) {
                 // The emission's sprite where an effect's first texture goes.
-                textures[0] = view_of(textures_.at(sprite->id).image);
-                slot_->leases.push_back(sprite);
+                if (const auto& sprite = prepared.sprites.at(draw->source)) {
+                    textures[0] = view_of(textures_.at(sprite->id).image);
+                    slot_->leases.push_back(sprite);
+                }
             }
             use(sampled, textures);
         }
@@ -927,6 +949,10 @@ namespace weft::render::d3d12 {
                         break;
                     case SceneSchedule::Pipeline::Effect:
                         pipeline = effect_pipeline(format, effects.at(next_effect++));
+                        break;
+                    case SceneSchedule::Pipeline::Blend:
+                        // Only a backend that reads its target in the shader schedules these (fetch_blends).
+                        ensure(false, "a blending composite that reads its target");
                         break;
                 }
                 if (pipeline) {

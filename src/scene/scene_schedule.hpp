@@ -23,7 +23,8 @@
 namespace weft {
     struct SceneSchedule {
         // A target the commands draw into: the pass's own (the host's target, or the image of a plane's or a layer's
-        // content), the group at depth index (each of the pass's size), or image `image` of backdrop chain index.
+        // content), a group's (index below groups: the group at depth index, of the pass's size; past them: hoisted
+        // image index - groups), or image `image` of backdrop chain index.
         struct Target {
             enum class Kind : std::uint8_t {
                 Out,
@@ -40,8 +41,10 @@ namespace weft {
 
         // The texture a draw samples as its image: none, the image item index draws (its image, its plane's content,
         // its layer, its filtered image, or the host texture its name binds; one bound without a view draws nothing),
-        // an atlas page (ScenePrepared::pages), the group at depth index, or the last image of backdrop chain index
-        // (a backdrop's filtered copy, or the copy an effect that reads its backdrop samples).
+        // an atlas page (ScenePrepared::pages), a group's (as a Target of kind Group names it), or the last image of
+        // backdrop chain index (a backdrop's filtered copy, or the copy an effect that reads its backdrop samples). A
+        // backend tells a group's composite where its image lies among the pass's device px (scene.hlsl,
+        // View::sampled).
         struct Image {
             enum class Kind : std::uint8_t {
                 Blank,
@@ -58,24 +61,30 @@ namespace weft {
         };
 
         // The pipeline of a draw: the scene's records with source-over, a backdrop beneath its group's content
-        // (destination-over), the particle pass, or an effect program's encoded pass.
+        // (destination-over), the particle pass, an effect program's encoded pass, or a blending group's composite
+        // that reads what the target holds where it draws (SceneScheduleOptions::fetch_blends: no copy of its
+        // backdrop).
         enum class Pipeline : std::uint8_t {
             Scene,
             Under,
             Particles,
-            Effect
+            Effect,
+            Blend
         };
 
         // What a draw binds in the effect texture slots: nothing, an effect's textures (ScenePrepared::effects
-        // [source]), or an emission's sprite (ScenePrepared::sprites[source], none for discs) where the first goes.
+        // [source]), an emission's sprite (ScenePrepared::sprites[source], none for discs) where the first goes, or the
+        // image of the mask the drawn item's chain holds (ScenePrepared::mask_images[source], source the item) there.
         enum class Extra : std::uint8_t {
             None,
             Effect,
-            Sprite
+            Sprite,
+            Mask
         };
 
         // Drawing into target starts: cleared to clear (premultiplied in the pass's space) when given, otherwise
-        // keeping what it holds. The viewport is the pass's size, or a chain image's.
+        // keeping what it holds. The viewport is the pass's size, a hoisted image's (its origin among the pass's
+        // device px the View's: scene.hlsl), or a chain image's.
         struct Begin {
             Target target;
             std::optional<paint::Color> clear;
@@ -89,7 +98,8 @@ namespace weft {
 
         // Records [first, first + count) as instances of `vertices` vertices each (a particle emission: one instance
         // of six vertices per particle), with pipeline (an effect: ScenePrepared::effects[source]'s program), image
-        // and extra.
+        // and extra; and a blending group's composite, the last image of backdrop chain `backdrop` where an effect's
+        // second texture goes (the shader's blendBackdrop).
         struct Draw {
             std::uint32_t first{};
             std::uint32_t count{};
@@ -98,6 +108,7 @@ namespace weft {
             Image image;
             Extra extra{};
             std::uint32_t source{};
+            std::optional<std::uint32_t> backdrop;
         };
 
         // The region (left, top, right, bottom device px) of target `from` copied into chain's first image, at its
@@ -128,10 +139,20 @@ namespace weft {
             bool unreadable{};
         };
 
+        // A group drawn ahead into an image of its own (hoisted): the image's size, and its origin among the pass's
+        // device px, at the device px its composite covers.
+        struct Hoisted {
+            std::array<std::uint32_t, 2> size{};
+            std::array<std::int32_t, 2> origin{};
+        };
+
         std::vector<Command> commands;
         std::vector<Chain> chains;
-        // Groups the pass nests, one target each (ScenePass::group_depth).
+        // Groups the pass nests, one target of the pass's size each (ScenePass::group_depth), which groups drawn in
+        // turn use by their depth.
         std::size_t groups{};
+        // The hoisted groups' images, in the order the groups begin (Target index groups + k).
+        std::vector<Hoisted> hoisted;
         // Per item, the host texture it draws (null: none, or a name nothing binds), and how many items draw a bound
         // texture and how many name one nothing binds.
         std::vector<const SceneTexture*> textures;
@@ -144,11 +165,30 @@ namespace weft {
         // not be read.
         std::size_t copies{};
         std::size_t unreadable_copies{};
+        // Groups that blended (each copies its backdrop as it ends, unless it reads the target where it draws), and
+        // those of them whose target could not be copied (they blend with a transparent backdrop: as if normal).
+        std::size_t blends{};
+        std::size_t unreadable_blends{};
+    };
+
+    // How a backend runs groups. By default they draw in turn: the target a group composites into ends where the
+    // group begins, the group draws into the target of its depth, and the target resumes for its composite; and a
+    // group that blends copies what lies under it first, the target ended for the copy. On a tiled GPU each such
+    // break writes the whole target out and reads it back.
+    struct SceneScheduleOptions {
+        // A group that nothing in reads a target (no backdrop, copy, or blending group that copies) draws instead,
+        // before the target it composites into begins, into an image of the device px its composite covers (Hoisted),
+        // within a budget of images (constants::render::scene::hoisted_group_budget), and composites without a break.
+        // The backend places a target's origin and a composite's image in the View (scene.hlsl).
+        bool hoist{};
+        // A group that blends reads what the target holds where it draws (Pipeline::Blend), without a copy or a break.
+        bool fetch_blends{};
     };
 
     // The schedule of prepared's pass with host_textures bound to its texture names. clear: for a pass drawn over its
     // target (ScenePrepared::over), the color the target is cleared to first (none: kept); a pass that replaces its
     // target begins cleared to its own clear. out_readable: whether a backdrop may copy from the pass's own target.
     SceneSchedule schedule_scene_pass(const ScenePrepared& prepared, std::span<const SceneTexture> host_textures = {},
-                                      const paint::Color* clear = nullptr, bool out_readable = true);
+                                      const paint::Color* clear = nullptr, bool out_readable = true,
+                                      SceneScheduleOptions options = {});
 } // namespace weft

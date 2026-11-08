@@ -34,9 +34,16 @@ namespace weft {
     // constants::view::max_image_pixels pixels or a side over constants::view::max_image_side.
     Result<paint::Asset> view_decode_png(std::span<const std::uint8_t> bytes);
 
-    // The images of one page load (SceneImages): each path read through the reader once and decoded. A path the
-    // reader has no file of, bytes that are no image, or an image past the page's bounds is a diagnostic, once
-    // ("WEFT_SCENE_PROFILE: url(<path>): <why>"), and no image.
+    // An image file's pixels as straight sRGB RGBA8, by what its bytes are (their signature, as Chrome sniffs an
+    // image): PNG (view_decode_png), JPEG (libjpeg-turbo, as Blink decodes one: its Exif orientation applied, its ICC
+    // profile not) or a still WebP (libwebp). Diag::SceneProfile for bytes that are none of those (a GIF, an SVG...),
+    // and for an image past the bounds view_decode_png has, or translucent past
+    // constants::view::max_translucent_image_pixels.
+    Result<paint::Asset> view_decode_image(std::span<const std::uint8_t> bytes);
+
+    // The images of one page load (SceneImages): each path read through the reader once, or a data: URL's bytes, and
+    // decoded (view_decode_image). A path the reader has no file of, bytes that are no image the scene decodes, or an
+    // image past the page's bounds is a diagnostic, once ("WEFT_SCENE_PROFILE: url(<path>): <why>"), and no image.
     class ViewImages final : public SceneImages {
     public:
         ViewImages(std::string base, const ViewResourceReader& reader, std::function<void(std::string)> diagnose);

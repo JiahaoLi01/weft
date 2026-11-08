@@ -348,9 +348,24 @@ namespace weft {
         }
     }
 
+    std::span<const std::pair<std::uint32_t, char32_t>> script_fallback_samples() {
+        static constexpr std::pair<std::uint32_t, char32_t> samples[]{
+            {script_tag("Arab"), U'\u0628'}, {script_tag("Hebr"), U'\u05D0'}, {script_tag("Syrc"), U'\u0710'},
+            {script_tag("Thaa"), U'\u0780'}, {script_tag("Nkoo"), U'\u07CA'}, {script_tag("Armn"), U'\u0531'},
+            {script_tag("Deva"), U'\u0915'}, {script_tag("Beng"), U'\u0995'}, {script_tag("Guru"), U'\u0A15'},
+            {script_tag("Gujr"), U'\u0A95'}, {script_tag("Orya"), U'\u0B15'}, {script_tag("Taml"), U'\u0B95'},
+            {script_tag("Telu"), U'\u0C15'}, {script_tag("Knda"), U'\u0C95'}, {script_tag("Mlym"), U'\u0D15'},
+            {script_tag("Sinh"), U'\u0D9A'}, {script_tag("Thai"), U'\u0E01'}, {script_tag("Laoo"), U'\u0E81'},
+            {script_tag("Tibt"), U'\u0F40'}, {script_tag("Mymr"), U'\u1000'}, {script_tag("Geor"), U'\u10D0'},
+            {script_tag("Ethi"), U'\u1200'}, {script_tag("Cher"), U'\u13A0'}, {script_tag("Khmr"), U'\u1780'},
+            {script_tag("Mong"), U'\u1820'},
+        };
+        return samples;
+    }
+
     std::vector<FontFaceSource> match_font_faces(const FontCatalog& catalog, std::string_view families, int weight,
                                                  bool italic, std::size_t* listed,
-                                                 std::vector<std::vector<UnicodeRange>>* ranges) {
+                                                 std::vector<std::vector<UnicodeRange>>* ranges, std::uint32_t script) {
         std::vector<FontFaceSource> out;
         std::vector<std::vector<UnicodeRange>> out_ranges;
         auto add = [&](std::string_view family) {
@@ -376,6 +391,15 @@ namespace weft {
         }
         if (listed) {
             *listed = out.size();
+        }
+        if (script) {
+            for (const auto& [tag, script_families] : catalog.script_fallbacks) {
+                if (tag == script) {
+                    for (const auto& family : script_families) {
+                        add(family);
+                    }
+                }
+            }
         }
         for (const auto& family : catalog.fallback_families) {
             add(family);

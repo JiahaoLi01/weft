@@ -25,6 +25,11 @@ namespace weft::constants::script {
 
     // Native DOM bounds. They are independent of the smaller layout document profile.
     inline constexpr int max_live_nodes = 32768;
+    // The steps the editing history keeps (Chrome's UndoStack::kMaximumUndoStackDepth).
+    inline constexpr std::size_t max_undo_steps = 1000;
+    // A script animation's keyframes, and the script animations of one element (dom/animation.hpp).
+    inline constexpr std::uint32_t max_animation_keyframes = 1000;
+    inline constexpr std::size_t max_element_animations = 1000;
     inline constexpr int max_listeners_per_node = 1024;
     // The last listener exception kept in the stats is truncated to this many bytes.
     inline constexpr int max_listener_error_bytes = 8192;

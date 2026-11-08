@@ -58,11 +58,12 @@ namespace weft {
         // explicit tabindex of 0 or more, no editing host.
         bool skippable{true};
         // Whether the user can scroll it horizontally and vertically (overflow auto or scroll, with something to
-        // scroll), its scroll offset and the largest.
+        // scroll), its scroll offset and its range (scrollLeft from min_left, negative in a right-to-left one).
         bool scrolls_x{};
         bool scrolls_y{};
         double scroll_left{};
         double scroll_top{};
+        double min_left{};
         double max_left{};
         double max_top{};
     };

@@ -11,6 +11,12 @@ foreach(variant AREA BLUR MATRIX)
     weft_add_msl(weft_render_metal backdrop_${name} "${PROJECT_SOURCE_DIR}/src/render/shaders/backdrop.hlsl"
         DEFINES BACKDROP_${variant}=1)
 endforeach()
+# The resolve of an export image (render_export_texture.h): encoded premultiplied to linear premultiplied.
+weft_add_msl(weft_render_metal export_resolve "${PROJECT_SOURCE_DIR}/src/render/shaders/export_resolve.hlsl")
+# Its composite of a blending group on Apple GPUs (WEFT_BLEND_FETCH): what the target holds where it draws read in the
+# shader (framebuffer fetch, MSL 2.3), not a copy of the backdrop. Only its pixel stage is used.
+weft_add_msl(weft_render_metal scene_fetch_encoded "${PROJECT_SOURCE_DIR}/src/render/shaders/scene.hlsl"
+    DEFINES WEFT_BLEND_FETCH=1 CROSS --msl-version 20300 --msl-framebuffer-fetch)
 # Its particle pass: both stages of the same shader's WEFT_PARTICLES variant.
 weft_add_msl(weft_render_metal scene_particles_encoded "${PROJECT_SOURCE_DIR}/src/render/shaders/scene.hlsl"
     DEFINES WEFT_PARTICLES=1)

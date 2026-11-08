@@ -38,8 +38,28 @@ namespace weft {
         // x (from the line box's left) of each character boundary in its text by byte offset, in order.
         std::uint32_t start{};
         std::vector<std::pair<std::uint32_t, float>> stops;
+        // A field's line with right-to-left text: each character's left and right x by its byte offset, in order, so
+        // that a selection draws over the characters it takes wherever reordering put them; empty otherwise (a range
+        // lies between its stops).
+        std::vector<std::pair<std::uint32_t, std::array<float, 2>>> extents;
+        // Its text is one run of one direction in a paragraph that needs the bidirectional algorithm (bidi), drawn in
+        // that direction (rtl: right to left), as SceneInlinePiece says.
+        bool bidi{};
+        bool rtl{};
+        // The text around its text in its paragraph (a few characters each side), which it is shaped in the context
+        // of: an Arabic letter joins across an element's edge.
+        std::string context_before;
+        std::string context_after;
+        // Its glyphs as layout shaped them, when its text was shaped together with the text of other elements (Blink
+        // shapes text of one font across an element's edge): a ligature, a contextual form or a kerning pair across
+        // the edge, which shaping its text alone would not give. None otherwise: it is shaped anew in its context.
+        std::shared_ptr<const SceneTextRun> run;
 
-        friend bool operator==(const SceneLine&, const SceneLine&) = default;
+        friend bool operator==(const SceneLine& a, const SceneLine& b) {
+            return a.text == b.text && a.rect == b.rect && a.baseline == b.baseline && a.start == b.start &&
+                   a.stops == b.stops && a.extents == b.extents && a.bidi == b.bidi && a.rtl == b.rtl &&
+                   a.context_before == b.context_before && a.context_after == b.context_after && same_run(a.run, b.run);
+        }
     };
 
     // A text field (dom/text_field.hpp) as its node draws it: the field's state; whether the node's text is its
@@ -366,6 +386,13 @@ namespace weft {
         // The url() image of border-image-source (scene_border_image.hpp), drawn in nine pieces instead of the border
         // styles; none for no border image or a URL the images have no image of (the border styles draw then).
         std::shared_ptr<const paint::Asset> border_image;
+        // An img's image (its src, SceneImages), drawn in its content box as object-fit and object-position place it;
+        // its size is the img's natural size. None for another element, an img without a src, or a src the images have
+        // no image of (the img is a replaced box without a natural size then).
+        std::shared_ptr<const paint::Asset> image;
+        // The url() image of its mask's image layer (scene_mask, which takes one), compared by identity; none without
+        // one, or for a URL the images have no image of (the layer is transparent then).
+        std::shared_ptr<const paint::Asset> mask_image;
         // The particle emissions the element shows at the frame, drawn after its background and borders, before its
         // content.
         std::vector<SceneEmission> particles;
@@ -384,15 +411,20 @@ namespace weft {
         // A text field's (an input of a text type, a textarea): its text is what the field shows, its lines carry
         // their caret stops.
         std::shared_ptr<const SceneField> field;
+        // A line's text node (scene_text_line): the text around it, which shapes it (SceneLine's context), or the
+        // glyphs layout shaped it in (SceneLine::run).
+        std::array<std::string, 2> text_context;
+        std::shared_ptr<const SceneTextRun> text_run;
 
         friend bool operator==(const SceneNode& a, const SceneNode& b) {
             return a.identity == b.identity && a.tag == b.tag && a.space == b.space && a.text == b.text &&
+                   a.text_context == b.text_context && same_run(a.text_run, b.text_run) &&
                    a.text_breaks == b.text_breaks && a.attributes == b.attributes && a.style == b.style &&
                    a.box == b.box && a.lines == b.lines && a.fragments == b.fragments &&
                    (a.effect == b.effect || (a.effect && b.effect && *a.effect == *b.effect)) &&
-                   a.background_image == b.background_image && a.border_image == b.border_image &&
-                   a.particles == b.particles && a.anchoring == b.anchoring && a.scroll == b.scroll &&
-                   a.scrolled == b.scrolled && a.scroll_shift == b.scroll_shift &&
+                   a.background_image == b.background_image && a.border_image == b.border_image && a.image == b.image &&
+                   a.mask_image == b.mask_image && a.particles == b.particles && a.anchoring == b.anchoring &&
+                   a.scroll == b.scroll && a.scrolled == b.scrolled && a.scroll_shift == b.scroll_shift &&
                    (a.field == b.field || (a.field && b.field && *a.field == *b.field)) && a.children == b.children;
         }
     };
@@ -410,6 +442,7 @@ namespace weft {
         e.scroll_width = std::max(e.client_width, double(n.scrolled[2]));
         e.scroll_height = std::max(e.client_height, double(n.scrolled[3]));
         e.scroll_x = e.scroll_y = true;
+        e.scroll_rtl = n.style.text(PropertyId::Direction, "ltr") == "rtl";
         const bool wheel = overflow == "auto" || overflow == "scroll";
         e.wheel_x = wheel && e.scroll_width > e.client_width;
         e.wheel_y = wheel && e.scroll_height > e.client_height;
@@ -509,9 +542,9 @@ namespace weft {
                a.attributes == b.attributes && a.style == b.style && a.box == b.box && a.lines == b.lines &&
                a.fragments == b.fragments && bool(a.paint) == bool(b.paint) &&
                (!a.paint || a.paint->values == b.paint->values) && scene_effect_equal(a.effect, b.effect) &&
-               a.background_image == b.background_image && a.border_image == b.border_image &&
-               a.particles == b.particles && a.anchoring == b.anchoring && a.scroll == b.scroll &&
-               a.scrolled == b.scrolled && a.scroll_shift == b.scroll_shift &&
+               a.background_image == b.background_image && a.border_image == b.border_image && a.image == b.image &&
+               a.mask_image == b.mask_image && a.particles == b.particles && a.anchoring == b.anchoring &&
+               a.scroll == b.scroll && a.scrolled == b.scrolled && a.scroll_shift == b.scroll_shift &&
                (a.field == b.field || (a.field && b.field && *a.field == *b.field));
     }
 
@@ -544,9 +577,14 @@ namespace weft {
     // Exact dependency projection for the current geometry adapter. Paint color,
     // opacity and pseudo state do not change geometry; transforms still do.
     inline bool scene_geometry_own_equal(const SceneNode& a, const SceneNode& b, bool identical_style = false) {
+        // An img's image sizes it: another image of another size lays it out anew.
+        const auto natural = [](const SceneNode& n) {
+            return n.image ? std::array<std::uint32_t, 2>{n.image->width, n.image->height}
+                           : std::array<std::uint32_t, 2>{};
+        };
         if (a.identity != b.identity || a.tag != b.tag || a.space != b.space || a.text != b.text ||
             a.text_breaks != b.text_breaks || a.box != b.box || a.fragments != b.fragments ||
-            a.anchoring != b.anchoring) {
+            a.anchoring != b.anchoring || natural(a) != natural(b)) {
             return false;
         }
         auto equal_keys = [](const auto& x, const auto& y, const auto& keys) {
@@ -605,8 +643,8 @@ namespace weft {
             a.attributes != b.attributes || a.style != b.style || a.box != b.box || a.lines != b.lines ||
             a.fragments != b.fragments || a.children.size() != b.children.size() || bool(a.paint) != bool(b.paint) ||
             (a.paint && a.paint->values != b.paint->values) || !scene_effect_equal(a.effect, b.effect) ||
-            a.background_image != b.background_image || a.border_image != b.border_image ||
-            a.particles != b.particles || !(a.field == b.field || (a.field && b.field && *a.field == *b.field))) {
+            a.background_image != b.background_image || a.border_image != b.border_image || a.image != b.image ||
+            a.mask_image != b.mask_image || a.particles != b.particles || !(a.field == b.field || (a.field && b.field && *a.field == *b.field))) {
             return false;
         }
         for (std::size_t i = 0; i < a.children.size(); ++i) {
@@ -677,6 +715,9 @@ namespace weft {
         // env() again, as a new viewport does viewport lengths. Throws DiagnosticError (Diag::SceneProfile) for an
         // inset that is negative, not finite, or larger than constants::scene::max_viewport_dimension.
         void set_safe_area(const SceneSafeArea& safe_area);
+        // The input devices a forgiving sheet's @media reads (pointer, any-pointer, hover, any-hover): a mouse at
+        // first. The next update cascades again when a condition's outcome changed.
+        void set_input_devices(const InputDevices& devices);
         // The images background-image: url() names; the host keeps them alive. Without them such a background is a
         // scene profile diagnostic.
         void set_images(SceneImages* images);

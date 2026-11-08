@@ -196,7 +196,7 @@ namespace weft::render::vulkan {
         output_ = d.image(output_format, w, h, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
         blank_image_ = d.image(VK_FORMAT_R8_UNORM, 1, 1, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
         blank_buffer_ = d.buffer(sizeof(SceneClip), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, false);
-        const std::array<float, 4> view{float(w), float(h), 1, 0};
+        const std::array<float, weft::constants::render::scene::view_constant_floats> view{float(w), float(h), 1, 0};
         view_ = d.buffer(sizeof(view), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true);
         std::memcpy(view_.mapped, view.data(), sizeof(view));
         spare_staging_.reserve(limits::spare_frame_resources);

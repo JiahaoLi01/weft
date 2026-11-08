@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -29,7 +30,22 @@ namespace weft {
         std::vector<std::pair<std::string, std::string>> generic_families;
         // Families tried, in order, for characters that no family of the font-family list covers.
         std::vector<std::string> fallback_families;
+        // Families tried before those, in order, for text of a script (its ISO 15924 tag, as script_runs gives it), as
+        // the platform's own fallback chooses a font by script (the system's choice for a character of each script,
+        // script_fallback_samples).
+        std::vector<std::pair<std::uint32_t, std::vector<std::string>>> script_fallbacks;
     };
+
+    // The scripts a platform layer asks its fallback about, each with a letter of it whose font stands for the
+    // script's (its ISO 15924 tag and a code point): scripts that the fonts of a page's list and of the general
+    // fallback list seldom cover.
+    std::span<const std::pair<std::uint32_t, char32_t>> script_fallback_samples();
+
+    // An ISO 15924 tag from its four letters ("Arab").
+    constexpr std::uint32_t script_tag(const char (&name)[5]) {
+        return std::uint32_t(std::uint8_t(name[0])) << 24 | std::uint32_t(std::uint8_t(name[1])) << 16 |
+               std::uint32_t(std::uint8_t(name[2])) << 8 | std::uint32_t(std::uint8_t(name[3]));
+    }
 
     // Family names of a CSS font-family value in order: quotes removed, unquoted generic keywords lowercased.
     std::vector<std::string> parse_font_families(std::string_view value);
@@ -48,8 +64,10 @@ namespace weft {
 
     // listed, when given, receives how many of the faces come from the font-family list (the rest are fallback).
     // A family whose faces have unicode-ranges is a composite font: every face of the nearest weight and style, the
-    // last listed first (CSS Fonts 4, 4.5); ranges, when given, receives each face's unicode-range in order.
+    // last listed first (CSS Fonts 4, 4.5); ranges, when given, receives each face's unicode-range in order. With a
+    // script (an ISO 15924 tag), the catalog's fallback families for it come before the general fallback families.
     std::vector<FontFaceSource> match_font_faces(const FontCatalog& catalog, std::string_view families, int weight,
                                                  bool italic, std::size_t* listed = nullptr,
-                                                 std::vector<std::vector<UnicodeRange>>* ranges = nullptr);
+                                                 std::vector<std::vector<UnicodeRange>>* ranges = nullptr,
+                                                 std::uint32_t script = 0);
 } // namespace weft

@@ -1,5 +1,6 @@
 #include "weft/render_backend.h"
 #include "weft/render_backend_d3d11.h"
+#include "weft/render_export_texture.h"
 #include "weft/render_backend_metal.h"
 #include "weft/render_backend_vulkan.h"
 
@@ -48,6 +49,27 @@ int main(void) {
         weft_renderer_release_texture(0, handle) != WEFT_RENDER_INVALID_ARGUMENT ||
         weft_renderer_get_external_info(0, &info) != WEFT_RENDER_INVALID_ARGUMENT) {
         return 3;
+    }
+    {
+        /* The export extension: fixed 64-bit layouts, and a null renderer refused by every call. */
+        weft_render_export_backend exporter = {0};
+        weft_render_export_desc desc = {0};
+        weft_render_export_image image = {0};
+        weft_render_export_info export_info = {0};
+        weft_render_pass pass = {0};
+        image.struct_size = sizeof(image);
+        if (sizeof(desc) != 64 || sizeof(image) != 72 || offsetof(weft_render_export_image, native_texture) != 64 ||
+            sizeof(export_info) != 40 || (sizeof(void*) == 8 && sizeof(exporter) != 56)) {
+            return 7;
+        }
+        if (weft_renderer_install_export_backend(0, &exporter) != WEFT_RENDER_INVALID_ARGUMENT ||
+            weft_renderer_create_export(0, &desc, &handle) != WEFT_RENDER_INVALID_ARGUMENT ||
+            weft_renderer_destroy_export(0, handle) != WEFT_RENDER_INVALID_ARGUMENT ||
+            weft_renderer_encode_export(0, handle, handle, &pass, &handle, &image) != WEFT_RENDER_INVALID_ARGUMENT ||
+            weft_renderer_release_export_image(0, handle, 0, 0) != WEFT_RENDER_INVALID_ARGUMENT ||
+            weft_renderer_get_export_info(0, &export_info) != WEFT_RENDER_INVALID_ARGUMENT) {
+            return 8;
+        }
     }
     return weft_renderer_destroy(0) == WEFT_RENDER_INVALID_ARGUMENT ? 0 : 2;
 }
