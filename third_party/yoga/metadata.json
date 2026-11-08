@@ -8,7 +8,8 @@
   "license_file": "source/LICENSE",
   "modified_files": [
     "yoga/algorithm/CalculateLayout.cpp",
-    "yoga/algorithm/AbsoluteLayout.cpp"
+    "yoga/algorithm/AbsoluteLayout.cpp",
+    "yoga/algorithm/BoundAxis.h"
   ],
   "retrieved_date": "2026-10-07",
   "patches": [
@@ -38,6 +39,42 @@
       "reason": "An absolutely positioned box of auto width shrinks to fit the width its containing block leaves beside its insets (CSS 2 10.3.7), in a row as in a column. Yoga gave it the containing block's whole width, only in a column and only when it had some width, so its text wrapped past the containing block's edge or not at all. The adapter's measure function keeps such a box at least its min-content width.",
       "upstream_issue": "No upstream issue filed; local fixed browser counterexamples retained.",
       "exit_condition": "Drop when a fixed upstream release sizes an absolutely positioned box of auto width with at most one horizontal inset to its containing block's width less the inset, in rows and columns."
+    },
+    {
+      "file": "patches/0004-skipped-flex-bounded-basis.patch",
+      "original_file_sha256": "625511e7292e54cf002844b7ee34a24246ed15b4623ca83bccab4b0e2ae68ec6",
+      "patched_file_sha256": "2996122e846ddf029bfea3684d093774e9cfbd06924a4c91f19d71f2cc36bf17",
+      "sha256": "596cd02fa9f55ec6eb7c981ce52a8814b732a0f1ddf8365997da95adba17d9bf",
+      "reason": "A measuring pass that skips the flex step (a stretch-fit cross size, no layout) added each item's flex basis to its line's main size unclamped by the item's min and max sizes: a block took a child's height of 53px over its max-height of 20px. It adds the basis within them, the item's hypothetical main size (CSS Flexbox 1 9.2 step 3), as the flex step does.",
+      "upstream_issue": "No upstream issue filed; local fixed browser counterexamples retained (tests/scene_img_tests.cpp).",
+      "exit_condition": "Drop when a fixed upstream release measures a column whose child's definite height is past its max-height or below its min-height at the clamped height."
+    },
+    {
+      "file": "patches/0005-minimum-over-maximum.patch",
+      "original_file_sha256": "fda8dad098fda150e75ffa066e7f0ecf57457e74fc01af04007647da13c3a30a",
+      "patched_file_sha256": "6e22c673ff3d5956a1dcabaf881d2e6bb7a0153aba99b1f5be62593f154aebf3",
+      "sha256": "375d280c18a844eee3e543a13f075a004da593edbf9aba6b3e794b8bad662396",
+      "reason": "A minimum size wins over a smaller maximum (CSS 2 10.4 and 10.7: the max is taken as max(min, max)). Yoga returned the maximum once a value passed it, so an img of min-height 60px and max-height 40px was 40px tall.",
+      "upstream_issue": "No upstream issue filed; local fixed browser counterexamples retained (tests/scene_img_tests.cpp).",
+      "exit_condition": "Drop when a fixed upstream release bounds a value past both a maximum and a larger minimum at the minimum."
+    },
+    {
+      "file": "patches/0006-flexible-lengths-loop.patch",
+      "original_file_sha256": "2996122e846ddf029bfea3684d093774e9cfbd06924a4c91f19d71f2cc36bf17",
+      "patched_file_sha256": "9584f755ff9464f29003cdb00b5c10e564db04152ba001a735722955d48db2aa",
+      "sha256": "0e3576987426218d717cfcdc921cdef9731c34dc8c2c36e769257b8a6f4bee58",
+      "reason": "Flexible lengths resolve as CSS Flexbox 1 9.7 does: the free space comes from the flex base sizes of the items not frozen at their hypothetical main sizes, and the items whose min or max constraints the total violation names freeze, in a loop until all are. Yoga took the free space from the bases within their min and max, so two flex:1 imgs 40 and 16 wide in a 400px row were 212 and 188 wide (Chrome 200 and 200). Its first pass also took frozen items' scaled shrink factors out of the line's total one by one, leaving a float residue of the wrong sign (+3.8e-6 for 0) that its second pass divided the free space by: items that all shrink to their minimum sizes grew to 2e8 px.",
+      "upstream_issue": "No upstream issue filed; local fixed browser counterexamples retained (tests/scene_img_tests.cpp).",
+      "exit_condition": "Drop when a fixed upstream release resolves flexible lengths by the freezing loop from unclamped flex base sizes: the cases flex grow from zero, flexible lengths and flex items shrunk to their minimum sizes."
+    },
+    {
+      "file": "patches/0007-absolute-auto-margins.patch",
+      "original_file_sha256": "dd8a5c39630a611c9900757abe6678799e564c409600d1b103d073e0590c41c3",
+      "patched_file_sha256": "c3c1f24530a53419f39188c6bb7b472784dabe808289fdd591672d6d0850fc62",
+      "sha256": "62ce20ae8132e4dd0cdd94d6574b0e6247bb5da95e5d31e49f5934caa74ef8e2",
+      "reason": "The auto margins of an absolutely positioned box with both insets of an axis take the space its containing block leaves beside the insets, its other margins and its size (CSS 2 10.3.7, 10.3.8, 10.6.4 and 10.6.5): half each for two, unless that is negative in a row, where the start margin is 0; all of it for one alone. Yoga took them as 0, so left:10px;right:10px;margin:0 auto did not center a box. The adapter keeps both horizontal insets of such a box when a horizontal margin is auto (it drops the end one of a box over-constrained across).",
+      "upstream_issue": "No upstream issue filed; local fixed browser counterexamples retained (tests/scene_img_tests.cpp).",
+      "exit_condition": "Drop when a fixed upstream release places an absolutely positioned box of definite size between its insets by its auto margins, in rows and columns, left to right and right to left."
     }
   ],
   "build_options": {

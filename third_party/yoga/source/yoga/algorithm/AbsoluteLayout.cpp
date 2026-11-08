@@ -145,6 +145,72 @@ static void alignAbsoluteChild(
   }
 }
 
+// Whether the child's margin on an edge is auto: the flex-start edge of a row
+// is its left edge, of a reversed row its right edge, of a column its top
+// edge and of a reversed column its bottom edge.
+static bool marginIsAuto(
+    const yoga::Node* const child,
+    const PhysicalEdge edge,
+    const Direction direction) {
+  switch (edge) {
+    case PhysicalEdge::Left:
+      return child->style().flexStartMarginIsAuto(
+          FlexDirection::Row, direction);
+    case PhysicalEdge::Right:
+      return child->style().flexStartMarginIsAuto(
+          FlexDirection::RowReverse, direction);
+    case PhysicalEdge::Top:
+      return child->style().flexStartMarginIsAuto(
+          FlexDirection::Column, direction);
+    case PhysicalEdge::Bottom:
+      return child->style().flexStartMarginIsAuto(
+          FlexDirection::ColumnReverse, direction);
+  }
+  return false;
+}
+
+// The space that the auto margins of a child with both insets of an axis take
+// before it on that axis (CSS 2 10.3.7, 10.3.8, 10.6.4 and 10.6.5): the space
+// its containing block leaves beside its insets, margins and size, all of it
+// for an auto start margin alone, none for an auto end margin alone, and half
+// for two, unless that is negative on a row, where the start margin is 0.
+static float autoMarginsBefore(
+    const yoga::Node* const containingNode,
+    const yoga::Node* const child,
+    const Direction direction,
+    const FlexDirection axis,
+    const float containingBlockSize) {
+  const bool startAuto =
+      marginIsAuto(child, inlineStartEdge(axis, direction), direction);
+  const bool endAuto =
+      marginIsAuto(child, inlineEndEdge(axis, direction), direction);
+  if ((!startAuto && !endAuto) ||
+      !child->style().isInlineEndPositionDefined(axis, direction) ||
+      child->style().isInlineEndPositionAuto(axis, direction)) {
+    return 0.0f;
+  }
+  const float freeSpace =
+      containingNode->getLayout().measuredDimension(dimension(axis)) -
+      containingNode->style().computeInlineStartBorder(axis, direction) -
+      containingNode->style().computeInlineEndBorder(axis, direction) -
+      child->style().computeInlineStartPosition(
+          axis, direction, containingBlockSize) -
+      child->style().computeInlineEndPosition(
+          axis, direction, containingBlockSize) -
+      child->style().computeInlineStartMargin(
+          axis, direction, containingBlockSize) -
+      child->style().computeInlineEndMargin(
+          axis, direction, containingBlockSize) -
+      child->getLayout().measuredDimension(dimension(axis));
+  if (yoga::isUndefined(freeSpace) || !startAuto) {
+    return 0.0f;
+  }
+  if (!endAuto) {
+    return freeSpace;
+  }
+  return isRow(axis) && freeSpace < 0 ? 0.0f : freeSpace / 2;
+}
+
 /*
  * Absolutely positioned nodes do not participate in flex layout and thus their
  * positions can be determined independently from the rest of their siblings.
@@ -189,7 +255,9 @@ static void positionAbsoluteChild(
             axis, direction, containingBlockSize) +
         containingNode->style().computeInlineStartBorder(axis, direction) +
         child->style().computeInlineStartMargin(
-            axis, direction, containingBlockSize);
+            axis, direction, containingBlockSize) +
+        autoMarginsBefore(
+            containingNode, child, direction, axis, containingBlockSize);
     const float positionRelativeToFlexStart =
         inlineStartEdge(axis, direction) != flexStartEdge(axis)
         ? getPositionOfOppositeEdge(
