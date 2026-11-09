@@ -3855,6 +3855,7 @@ namespace weft {
                 for (std::size_t k = 0; k < n.children.size(); ++k) {
                     const auto& c = n.children[k];
                     if (c.style.text(PropertyId::Display) == "none") {
+                        clear_layout(c);
                         continue;
                     }
                     if (out_of_flow(c)) {
