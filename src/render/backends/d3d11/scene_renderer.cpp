@@ -563,7 +563,7 @@ namespace weft::render::d3d11 {
         // Binds the mask image of the item a draw draws, if it has one.
         const auto bind_mask = [&](std::uint32_t i) {
             if (i < mask_views.size() && mask_views[i]) {
-                ctx->PSSetShaderResources(effect_texture_slot, 1, &mask_views[i]);
+                immediate_->PSSetShaderResources(effect_texture_slot, 1, &mask_views[i]);
             }
         };
         const auto& pass = prepared.pass;

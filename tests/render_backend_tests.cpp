@@ -5,6 +5,7 @@
 #include "render/paint_list.hpp"
 #include "support/check.hpp"
 #include "test_constants/render.hpp"
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstddef>
