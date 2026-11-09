@@ -1614,6 +1614,7 @@ namespace weft {
                     fail("text-overflow: ellipsis hiding an atomic inline outside scene profile");
                 }
                 p.piece.text.clear();
+                p.piece.run.reset();
             };
             // The pieces from the line's end to its start, in visual order: from the right on a left-to-right line,
             // from the left on a right-to-left one.
@@ -1689,6 +1690,10 @@ namespace weft {
                         const auto a = from_start ? p.begin : fit;
                         const auto b = from_start ? fit : p.end;
                         p.piece.text = item.text.substr(a, b - a);
+                        if (p.piece.run) {
+                            p.piece.run = part(*item.run, a, b,
+                                               text.slice(*item.run, item.font, std::uint32_t(a), std::uint32_t(b)));
+                        }
                         const Units kept_width = snapped(kept(a, b));
                         if (line_rtl) {
                             // What is kept stays at the piece's right, the line's start.
