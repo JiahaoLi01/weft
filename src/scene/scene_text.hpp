@@ -70,7 +70,7 @@ namespace weft {
     SceneFont scene_font(const SceneStyle& style);
 
     struct SceneGlyph {
-        // Index in SceneText's face table.
+        // Index in the face table of the SceneText that shaped its run (SceneTextRun::text_id).
         std::uint32_t face{};
         std::uint32_t glyph_id{};
         // Pen position relative to the run origin on the baseline, y down, in px.
@@ -92,6 +92,11 @@ namespace weft {
         std::vector<SceneGlyph> glyphs;
         float size{};
         SceneTextMetrics metrics;
+        // The SceneText that shaped it (none: 0), and where each face its glyphs use comes from, by the number that
+        // SceneText gave it. A face's number means nothing to another SceneText (each numbers its faces as it opens
+        // them): a run laid out in one and drawn in another goes through SceneText::adopted.
+        std::uint64_t text_id{};
+        std::vector<std::pair<std::uint32_t, FontFaceSource>> faces;
 
         friend bool operator==(const SceneTextRun&, const SceneTextRun&) = default;
     };
@@ -140,6 +145,9 @@ namespace weft {
                                                   const ShapeContext& context = {});
         std::shared_ptr<const SceneTextRun> shape(std::string_view text, const SceneFont& font,
                                                   const ShapeContext& context = {});
+        // A run another SceneText shaped with its faces numbered for this one, which opens those it has not (a layout's
+        // run on a renderer's thread); the run itself when this one shaped it.
+        std::shared_ptr<const SceneTextRun> adopted(const std::shared_ptr<const SceneTextRun>& run);
         // The line box of the run's bytes [begin, end) alone, as measure() of just those bytes gives it when the
         // run's words break there: the advances of the glyphs whose cluster lies in the range, and the faces they use.
         SceneTextMetrics slice(const SceneTextRun& run, const SceneFont& font, std::uint32_t begin, std::uint32_t end);

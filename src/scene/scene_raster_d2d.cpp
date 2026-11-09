@@ -1290,7 +1290,7 @@ namespace weft {
                 return;
             }
             const auto run = n.text_run
-                                 ? n.text_run
+                                 ? text.adopted(n.text_run)
                                  : text.shape(n.text, n.style, ShapeContext{n.text_context[0], n.text_context[1]});
             const auto& m = run->metrics;
             float size = len(get(n.style, PropertyId::FontSize, constants::default_font_size));

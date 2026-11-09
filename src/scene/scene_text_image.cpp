@@ -78,8 +78,8 @@ namespace weft {
         if (value != "none" && value != "transparent") {
             color = parse_css_color(css::expand_color_shorthand(value));
         }
-        const auto run =
-            n.text_run ? n.text_run : text.shape(n.text, n.style, ShapeContext{n.text_context[0], n.text_context[1]});
+        const auto run = n.text_run ? text.adopted(n.text_run)
+                                    : text.shape(n.text, n.style, ShapeContext{n.text_context[0], n.text_context[1]});
         const auto origin = scene_text_origin(n, run->metrics);
         std::vector<float> coverage(std::size_t(w) * h);
         // The rows and columns the glyphs reach: the pixels past them stay transparent.

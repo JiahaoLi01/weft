@@ -724,6 +724,8 @@ namespace weft {
             auto out = std::make_shared<SceneTextRun>();
             out->size = run.size;
             out->metrics = metrics;
+            out->text_id = run.text_id;
+            out->faces = run.faces;
             float pen{};
             float origin = std::numeric_limits<float>::quiet_NaN();
             for (const auto& g : run.glyphs) {

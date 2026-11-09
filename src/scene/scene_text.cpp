@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <bit>
 #include <cmath>
 #include <set>
@@ -214,6 +215,11 @@ namespace weft {
 
     struct SceneText::Impl {
         OwnerThread owner;
+        // Its number among the process's SceneTexts, which the runs it shapes carry (SceneTextRun::text_id).
+        std::uint64_t text_id = [] {
+            static std::atomic<std::uint64_t> next{1};
+            return next.fetch_add(1, std::memory_order_relaxed);
+        }();
         // The catalog in use and its number; the numbers of the catalogs used before (an expired one takes a new
         // number if its address comes back).
         std::shared_ptr<const FontCatalog> catalog;
@@ -553,7 +559,16 @@ namespace weft {
                 }
             }
             run->metrics = line_box(used, primary, f, pen);
-            const auto bytes = text.size() + run->glyphs.size() * sizeof(SceneGlyph);
+            run->text_id = text_id;
+            for (const auto& g : run->glyphs) {
+                if (std::none_of(run->faces.begin(), run->faces.end(), [&](const auto& known) {
+                        return known.first == g.face;
+                    })) {
+                    run->faces.emplace_back(g.face, faces[g.face].source);
+                }
+            }
+            const auto bytes =
+                text.size() + run->glyphs.size() * sizeof(SceneGlyph) + run->faces.size() * sizeof(run->faces[0]);
             if (runs.size() >= constants::scene::text_cache_max_entries ||
                 run_bytes + bytes > constants::scene::text_cache_max_bytes) {
                 runs.clear();
@@ -770,6 +785,28 @@ namespace weft {
         const auto limit = impl_->faces.at(primary).font->line_metrics(font.size);
         out.ascent = std::min(std::ceil(out.ascent), limit.ascent);
         out.descent = std::min(std::ceil(out.descent), limit.descent);
+        return out;
+    }
+
+    std::shared_ptr<const SceneTextRun> SceneText::adopted(const std::shared_ptr<const SceneTextRun>& run) {
+        impl_->require_owner();
+        auto& m = *impl_;
+        if (!run->text_id || run->text_id == m.text_id) {
+            return run;
+        }
+        auto out = std::make_shared<SceneTextRun>(*run);
+        out->text_id = m.text_id;
+        std::vector<std::pair<std::uint32_t, std::uint32_t>> ids;
+        ids.reserve(out->faces.size());
+        for (auto& [face, source] : out->faces) {
+            ids.emplace_back(face, m.face(source));
+            face = ids.back().second;
+        }
+        for (auto& g : out->glyphs) {
+            g.face = std::find_if(ids.begin(), ids.end(), [&](const auto& id) {
+                         return id.first == g.face;
+                     })->second;
+        }
         return out;
     }
 
