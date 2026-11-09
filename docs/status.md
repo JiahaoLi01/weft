@@ -17,6 +17,18 @@
 
 ## 本次已实现
 
+main 在 Windows 上的 4 个问题（2026-11-09；`80d64858` 那批改动是在 macOS 上开发的，`tests/CMakeLists.txt` 的 `if(WIN32)` 块里的测试当时没有跑）。
+- **`display:none` 的子元素**：`collect_boxes` 的混合内容分支跳过 `display:none` 的子元素，没有像另外两个分支那样清掉旧布局，增量布局与全量不同，脚本读隐藏元素的几何读到旧值（`incremental_contract`，种子 49 第 23 步）。
+- **省略号**：跨元素的同字体文字带着排版时的字形（`SceneLine::run`），`truncate()` 只截文字，这一行照样整个画，省略号被挤出裁剪区（`scene_paint_reference` 的 ellipsis）。截断的片段现在取留下那段的字形，隐藏的片段不带字形。
+- **字体编号**：`SceneGlyph::face` 是塑形的那个 `SceneText` 的编号，各自按打开的先后编。排版和渲染器各有一个，带排版字形的行在渲染器那边画成另一个字体的字形，或者 `WEFT_GLYPH_ID: out of range` 整帧画不出（`katex_browser_reference`：KaTeX_Math 只有 110 个字形，要画第 193 号）。run 现在记着来源（`SceneTextRun::text_id`、`faces`），`SceneText::adopted` 换成画它的 `SceneText` 的编号，没打开的字体就地打开。
+- **组的合成范围**：`EndGroup` 的 clip 是子树绘制的范围（`80d64858`），补丁只重列变化的部分，变化的部分画到别处时组的范围还是旧值，超出的内容被切掉，直到下一次整列表（`incremental_contract`，种子 1234 第 159 步：368 对 370）。`SceneListSpan::extent` 记组内元素在父坐标里可能绘制的范围，范围变了就拒绝这次补丁。
+- **验证**（Windows，Release，命令同上一条，共 150 个）：131 个通过，15 个失败，4 个没跑（`effects/crpg_smoke.hpp` 没有生成）。
+  - `incremental_contract`、`katex_browser_reference`、`scene_paint_reference` 通过；`incremental_contract` 的 400 帧里 243 帧仍走补丁。
+  - 失败的 12 个是固定输入的哈希校验（工作区的换行符）；`scene_transition_browser_contract`（`step-start` 已经支持，测试还要求报错）；`scene_background_contract`（页面图片已按 Chrome 在编码空间过滤，D2D 参考光栅还是线性）；`scene_text_browser_diff`（Noto Serif SC 的 58 例，还原空格切分、去掉按脚本分段，数都不变）。
+  - CaseGinkgo：自动化测试 193 项通过；toast、武器界面、弹种轮盘的路线通过；设置界面没有 weft 诊断；这些页面的截图核对过。
+- **未验证**：macOS、iOS、Android 的编译；Debug；组内补丁被拒绝多出来的整列表构建没有单独量。
+- **下一步**：更新那两个过期的基准；查 Noto Serif SC 的宽度。
+
 切目录时样式树被反复深拷贝（2026-11-09，CaseGinkgo 的设置界面换目录掉帧）。
 - **起因**：页面每帧往文档里接两行（一个目录约 900 个元素、590 个盒子），一次切换约 17 次 flush。按阶段拆开（临时计时，没有提交）：样式 60–75 ms、布局 30–45 ms、构建约 20 ms。样式的大半不在选择器和缓存上，在 `children_into`（自身 18–26 ms）和 `expand_into`（17–27 ms，里面 `expand` 本身只有 1 ms）。MSVC 的 `std::map` 移动时要给留下的对象分配头结点，不是 noexcept，持有它的 `ComputedStyle`、`DomSnapshot`、`StyleInput::Node` 也就不是，`vector` 扩容时走拷贝：每个子节点一整棵子树。
 - **修复**：`dom/node.hpp` 的 `NothrowMoveMap`（移动声明为 noexcept，其余就是 `std::map`），`AttributeMap` 与 `ComputedStyle::custom_properties` 用它；`DomSnapshot`、`ComputedStyle` 处各一个 `static_assert`。移动时头结点分配失败会结束进程。
