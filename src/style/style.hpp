@@ -59,7 +59,7 @@ namespace weft {
         // Explicit CSS-wide keywords and invalid computed declarations are resolved.
         StyleValues values;
         // nullopt is guaranteed-invalid; an empty string is a valid empty value.
-        std::map<std::string, std::optional<std::string>> custom_properties;
+        NothrowMoveMap<std::map<std::string, std::optional<std::string>>> custom_properties;
         std::vector<std::string> invalid_at_computed_value;
         std::vector<ComputedStyle> children;           // Element children, DOM order.
         std::vector<std::string> specified_properties; // Cascade provenance for animated inheritance.
@@ -92,6 +92,7 @@ namespace weft {
                    a.specified_properties == b.specified_properties && a.generated == b.generated;
         }
     };
+    static_assert(std::is_nothrow_move_constructible_v<ComputedStyle>, "a vector of children moves them when it grows");
 
     // The pointing devices the media features pointer, any-pointer, hover and any-hover answer from (Media Queries 4,
     // as Chrome answers them): the primary one and every one available, as bits: a mouse (a fine pointer that hovers)

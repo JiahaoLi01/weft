@@ -8,6 +8,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 // DOM values shared by the script DOM, style, layout and scenes: node identities, owned subtree snapshots and change
@@ -58,8 +59,29 @@ namespace weft {
         return id;
     }
 
+    // A std::map whose move does not throw. MSVC's move allocates a head node for what it leaves behind, so it is not
+    // noexcept, and a vector of anything that holds one copies its elements when it grows instead of moving them: for
+    // a tree of nodes, the whole subtree of every child, each time.
+    template <class Map>
+    struct NothrowMoveMap : Map {
+        using Map::Map;
+        NothrowMoveMap() = default;
+        NothrowMoveMap(const NothrowMoveMap&) = default;
+        NothrowMoveMap(const Map& other) : Map(other) {
+        }
+        NothrowMoveMap(Map&& other) noexcept : Map(std::move(other)) {
+        }
+        NothrowMoveMap(NothrowMoveMap&& other) noexcept : Map(std::move(static_cast<Map&>(other))) {
+        }
+        NothrowMoveMap& operator=(const NothrowMoveMap&) = default;
+        NothrowMoveMap& operator=(NothrowMoveMap&& other) noexcept {
+            Map::operator=(std::move(static_cast<Map&>(other)));
+            return *this;
+        }
+    };
+
     // Element attributes by qualified name. Lookups take a string_view or literal without building a string.
-    using AttributeMap = std::map<std::string, std::string, std::less<>>;
+    using AttributeMap = NothrowMoveMap<std::map<std::string, std::string, std::less<>>>;
 
     // Owner-produced value copy of a subtree.
     struct DomSnapshot {
@@ -109,6 +131,7 @@ namespace weft {
             return a == b || (a && b && *a == *b);
         }
     };
+    static_assert(std::is_nothrow_move_constructible_v<DomSnapshot>, "a vector of children moves them when it grows");
 
     namespace dom {
         // Makes `to` equal in content to `from`. Where both hold copies of one node with the same non-zero revision,

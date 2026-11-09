@@ -1,6 +1,6 @@
 # Weft 当前状态
 
-更新日期：2026 年 11 月 8 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG 与移动尚未实现（键盘与焦点、文本框与输入法、手柄与空间导航已在 `input` 分支），仍未达到 M0 全部退出条件。
+更新日期：2026 年 11 月 9 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG 与移动尚未实现（键盘与焦点、文本框与输入法、手柄与空间导航已在 `input` 分支），仍未达到 M0 全部退出条件。
 
 ## 待办
 
@@ -16,6 +16,19 @@
 - **Android 示例应用与模拟器、真机运行**（2026-10-12）：需要下载 Android SDK 命令行工具、模拟器与系统镜像；NDK r30 已安装，交叉编译已验证。
 
 ## 本次已实现
+
+切目录时样式树被反复深拷贝（2026-11-09，CaseGinkgo 的设置界面换目录掉帧）。
+- **起因**：页面每帧往文档里接两行（一个目录约 900 个元素、590 个盒子），一次切换约 17 次 flush。按阶段拆开（临时计时，没有提交）：样式 60–75 ms、布局 30–45 ms、构建约 20 ms。样式的大半不在选择器和缓存上，在 `children_into`（自身 18–26 ms）和 `expand_into`（17–27 ms，里面 `expand` 本身只有 1 ms）。MSVC 的 `std::map` 移动时要给留下的对象分配头结点，不是 noexcept，持有它的 `ComputedStyle`、`DomSnapshot`、`StyleInput::Node` 也就不是，`vector` 扩容时走拷贝：每个子节点一整棵子树。
+- **修复**：`dom/node.hpp` 的 `NothrowMoveMap`（移动声明为 noexcept，其余就是 `std::map`），`AttributeMap` 与 `ComputedStyle::custom_properties` 用它；`DomSnapshot`、`ComputedStyle` 处各一个 `static_assert`。移动时头结点分配失败会结束进程。
+- **测量**（Ryzen 9 9950X3D、RTX 5090，weft Release、UE 5.8 Development 的 `-game`，3840 × 2160 不限帧，设置界面来回切 5 次，`Scripts/Measurements/settings_page.py perf`；修复前后两个 DLL 交替各跑 2 轮，热状态没有单独控制，同一时段同一 DLL 两轮差 3%，不同时段差到 25%，所以只比交替的）：`children_into` 自身 18–26 → 4 ms，`expand_into` 17–27 → 8 ms；每次切换 owner 线程上 weft 的工作 157 → 129 ms，超过 8 ms 的帧（5 次合计）70 → 44，每次切换最长一帧的中位数 14.2 → 13.8 ms、最大 25.7 → 25.0 ms。最慢的一帧没有变：第一次进某个目录那一帧，构建多 10 ms，没有细查。
+- **同时修的**：`d3d11/scene_renderer.cpp` 在 `ctx` 声明之前用了它（`80d64858`），`tests/render_backend_tests.cpp` 缺 `<algorithm>`：main 在 Windows 上都编不过。
+- **验证**（Windows，Release；`cmake -S ThirdParty/weft -B Plugins/Weft/Intermediate/WeftTests -DWEFT_BUILD_PROBES=OFF -DWEFT_BUILD_SAMPLES=OFF`，`ctest -C Release -j 6`，共 150 个）：128 个通过，18 个失败，4 个没跑（`effects/crpg_smoke.hpp` 没有生成）。
+  - 失败的 12 个是固定输入的哈希校验（工作区的换行符）。
+  - `incremental_contract`（种子 49 的第 23 步，增量布局与全量不同）、`katex_browser_reference`（D3D11 pass：`WEFT_GLYPH_ID: out of range`）、`scene_transition_browser_contract`、`scene_background_contract`、`scene_paint_reference`：撤掉这个修复后一样失败，报错相同。
+  - `scene_text_browser_diff`（Noto Serif SC 的宽度与 Chrome 差，58 例）没有撤掉修复对比。
+  - CaseGinkgo 的自动化测试 193 项通过。
+- **未验证**：macOS、iOS、Android 上的编译；Debug。
+- **下一步**：上面 6 项在 `0936435e` 上没有失败，是它到 main 之间的合并带来的（Windows），原因待查。设置界面还剩（修复后样式约 30、构建约 20、布局约 30 ms）：`Engine` 的构造每次更新都重走全部规则（约 0.2 ms）；每个元素的 memo 键约 2 KB，2 MiB 的上限只放得下 575 项；每次 flush 重建 Yoga 树（整页一次 1–3 ms，约 5 µs 一个盒子），树跨帧保留后接行才是线性的。
 
 描边遇到小到 FreeType 全部丢掉的子路径时崩溃（2026-11-08，CaseGinkgo 的霰弹枪开镜准星报的）。
 - **起因**：准星中间半径 1.5 的小圆点跟着开镜进度从 0 放大，缩到不到约 2.3% 时，四段三次曲线的控制点彼此不到 2/64，`FT_Stroker_CubicTo` 全部当空操作丢掉；原来的判断只挡“所有点在 26.6 单位里重合”，这种放行了。描边器没有为它开边（`border->start` 还是 -1），`FT_Stroker_EndSubPath` 拿上一条描边留下的起始方向当拐角往边上加点，再由 `ft_stroke_border_close` 写 `points[0xFFFFFFFF]`，访问违例（上一条的方向恰好是 0 时不加点，不崩）。
