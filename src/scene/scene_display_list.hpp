@@ -82,6 +82,10 @@ namespace weft {
         std::array<std::uint32_t, Parts> begin{};
         std::array<std::uint32_t, Parts> end{};
         bool still{};
+        // Inside a group (groups above 0): what the element's subtree may paint in its parent's px, left, top, right and
+        // bottom (left past right: nothing; none: beyond what layout gives it). The groups around it composite over what
+        // their subtrees paint, so a patch of the element leaves them right only while this stays.
+        std::optional<std::array<float, 4>> extent;
     };
 
     // The spans of the elements a list visited, by node: nodes of the frame the list was built from, which must

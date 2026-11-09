@@ -762,6 +762,13 @@ namespace weft {
             if (!built.fallback.empty() || !built.deferred) {
                 return refuse("a part the list cannot defer");
             }
+            // The groups around the part composite over what their subtrees paint: another extent is another composite.
+            if (span->groups) {
+                const auto now = listing.spans.find(part->now);
+                if (now == listing.spans.end() || now->second.extent != span->extent) {
+                    return refuse("a part in a group that paints elsewhere");
+                }
+            }
             const auto sizes = scene_list_sizes(built);
             for (unsigned p = 0; p < Part::Parts; ++p) {
                 const auto size = p == Part::Clips ? sizes[p] - span->chain_count : sizes[p];

@@ -393,6 +393,28 @@ namespace weft {
             return keep(e);
         };
 
+        // What a subtree may paint in its parent's px: its extent through the map that places it.
+        const auto placed_extent = [&](const SceneNode& n) -> Extent {
+            const auto own = extent(extent, n);
+            if (!own || (*own)[0] > (*own)[2] || (*own)[1] > (*own)[3]) {
+                return own;
+            }
+            try {
+                const auto& r = *own;
+                // Transforms do not apply to an inline box, which lies at its box.
+                const Matrix m = n.fragments.empty() ? matrix(n) : Matrix{1, 0, 0, 1, n.box[0], n.box[1]};
+                auto e = nothing;
+                for (const auto& [x, y] :
+                     std::array<std::array<float, 2>, 4>{{{r[0], r[1]}, {r[2], r[1]}, {r[0], r[3]}, {r[2], r[3]}}}) {
+                    const auto p = point(m, x, y);
+                    e = {std::min(e[0], p[0]), std::min(e[1], p[1]), std::max(e[2], p[0]), std::max(e[3], p[1])};
+                }
+                return e;
+            } catch (const std::invalid_argument&) {
+                return std::nullopt;
+            }
+        };
+
         // The rounded clips of a subtree: a run of list.clips, outermost first.
         struct Chain {
             std::uint32_t begin{};
@@ -889,6 +911,9 @@ namespace weft {
                 if (spanned.spans) {
                     spanned.span = {parent, clip, chain.begin, chain.count, groups, scene_list_sizes(out), {}};
                     spanned.span.still = still;
+                    if (groups) {
+                        spanned.span.extent = placed_extent(n);
+                    }
                 }
                 // A box of no area paints nothing of its own; what overflows it still shows (scene_shows_overflow).
                 const bool empty = n.box[2] <= 0 || n.box[3] <= 0;
