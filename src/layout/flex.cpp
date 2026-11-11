@@ -602,10 +602,15 @@ namespace weft {
             YGNodeRef area{};
             // Border-box origins of a grid's children in its border box, in child order.
             std::vector<std::array<float, 2>> positions;
-            // Intrinsic border-box sizes for automatic minimum sizes, and why one is unknown.
+            // Intrinsic border-box sizes, and why one is unknown. min_width, max_width and intrinsic_height are what
+            // the box contributes to its parent's intrinsic sizes (CSS Sizing 3 §5.1): its px size where it states one,
+            // else its content's, within its px minimum and maximum. auto_min_width and auto_min_height are its
+            // content's alone, the content size suggestion of its automatic minimum size as a flex item (CSS Flexbox 1
+            // §4.5), which its own size caps there instead.
             float min_width{};
             float max_width{};
             float intrinsic_height{};
+            float auto_min_width{};
             float auto_min_height{};
             std::string unknown_width;
             std::string unknown_height;
@@ -1502,7 +1507,9 @@ namespace weft {
             }
 
             // Border-box intrinsic sizes, children first: max-content width, min-content width and the height at
-            // the max-content width, as automatic minimum sizes need them.
+            // the max-content width, as automatic minimum sizes need them. A container's are its children's
+            // contributions, each child's margin box (CSS Sizing 3 §5.1): a child of a px width contributes that width
+            // whatever it holds, so the min-content width of a box around a block 140px wide is no less than 140px.
             void intrinsic(Node& n) {
                 const auto& s = *n.style;
                 auto& unknown_w = n.unknown_width;
@@ -1615,8 +1622,9 @@ namespace weft {
                         }
                         ++flow_count;
                         // A child contributes its margin box (CSS Sizing 3 §5.1), negative margins too; auto and
-                        // percentage margins are 0 here.
+                        // percentage margins are 0 here. Margins down do not collapse, as Yoga lays them out.
                         const float margins = intrinsic_margins(*c.style, true);
+                        const float height = c.intrinsic_height + intrinsic_margins(*c.style, false);
                         if (row && nowrap) {
                             n.min_width += c.min_width + margins;
                         } else {
@@ -1624,10 +1632,10 @@ namespace weft {
                         }
                         if (row) {
                             n.max_width += c.max_width + margins;
-                            n.intrinsic_height = std::max(n.intrinsic_height, c.intrinsic_height);
+                            n.intrinsic_height = std::max(n.intrinsic_height, height);
                         } else {
                             n.max_width = std::max(n.max_width, c.max_width + margins);
-                            n.intrinsic_height += c.intrinsic_height;
+                            n.intrinsic_height += height;
                         }
                         pass_unknowns(c, unknown_w, unknown_h);
                     });
@@ -1647,42 +1655,73 @@ namespace weft {
                     // Negative margins never make a content size negative.
                     n.min_width = std::max(0.f, n.min_width) + edges;
                     n.max_width = std::max(0.f, n.max_width) + edges;
-                    n.intrinsic_height += edges_v;
+                    n.intrinsic_height = std::max(0.f, n.intrinsic_height) + edges_v;
                 }
-                const auto specified = length(s.find(P::Width));
-                if (!specified.automatic && !specified.percent) {
-                    const float border = specified.value + (content_box ? edges : 0);
-                    n.min_width = std::min(n.min_width, border);
-                    n.max_width = std::max(n.min_width, border);
-                }
-                const auto specified_height = length(s.find(P::Height));
+                // So far these are the content's sizes with the box's padding and borders: its automatic minimum size
+                // as a flex item starts from them (automatic_minimum). What the box contributes to its parent's
+                // intrinsic sizes is its own px size where it states one, then within its px maximum and minimum (CSS
+                // Sizing 3 §5.1; a percentage is auto there). A box-sizing: border-box size is no smaller than the
+                // box's padding and borders.
+                n.auto_min_width = n.min_width;
                 n.auto_min_height = n.intrinsic_height;
-                if (!specified_height.automatic && !specified_height.percent) {
-                    n.intrinsic_height = specified_height.value + (content_box ? edges_v : 0);
+                const auto stated = [&](PropertyId key, float box_edges) -> std::optional<float> {
+                    const auto l = length(s.find(key));
+                    if (l.automatic || l.percent) {
+                        return std::nullopt;
+                    }
+                    return content_box ? l.value + box_edges : std::max(l.value, box_edges);
+                };
+                const auto width = stated(P::Width, edges);
+                // min-content and max-content, the keywords of the box's widths, are its content's widths, within its
+                // px width. Each of width, min-width and max-width is then the width its keyword resolved to, or its
+                // px length.
+                auto widths = resolve_sizing(n, width ? std::min(n.min_width, *width) : n.min_width,
+                                             width ? *width : n.max_width);
+                std::optional<float> height;
+                std::optional<float> min_height;
+                std::optional<float> max_height;
+                // An img's sizes are its used size already, from its px sizes, minimums, maximums and ratio; a
+                // percentage width or max-width leaves it no min-content width, whatever its width attribute says.
+                if (!n.box->image) {
+                    widths[0] = widths[0] ? widths[0] : width;
+                    widths[1] = widths[1] ? widths[1] : stated(P::MinWidth, edges);
+                    widths[2] = widths[2] ? widths[2] : stated(P::MaxWidth, edges);
+                    height = stated(P::Height, edges_v);
+                    min_height = stated(P::MinHeight, edges_v);
+                    max_height = stated(P::MaxHeight, edges_v);
                 }
-                resolve_sizing(n);
+                // The maximum, then the minimum: a minimum over a maximum wins (CSS 2 §10.4).
+                const auto within = [](float size, const std::optional<float>& maximum,
+                                       const std::optional<float>& minimum) {
+                    return std::max(std::min(size, maximum.value_or(unbounded)), minimum.value_or(0.f));
+                };
+                n.min_width = within(widths[0].value_or(n.min_width), widths[2], widths[1]);
+                n.max_width = within(widths[0].value_or(n.max_width), widths[2], widths[1]);
+                n.intrinsic_height = within(height.value_or(n.intrinsic_height), max_height, min_height);
             }
 
-            // The intrinsic sizing keywords of a box's widths, now that its intrinsic widths are known: min-content
-            // and max-content make the width (or min-width, max-width) that border-box width, for Yoga and for every
-            // read after (the box's values, resolved); fit-content is the shrink-to-fit of auto where a box shrinks to
-            // fit (the root of an atomic inline, an absolutely positioned box), else a diagnostic.
-            void resolve_sizing(Node& n) {
+            // The intrinsic sizing keywords of a box's widths, now that its intrinsic widths are known (content_min and
+            // content_max, border box): min-content and max-content make the width (or min-width, max-width) that
+            // border-box width, for Yoga and for every read after (the box's values, resolved); fit-content is the
+            // shrink-to-fit of auto where a box shrinks to fit (the root of an atomic inline, an absolutely positioned
+            // box), else a diagnostic. Returns the border-box width each of width, min-width and max-width resolved
+            // to, where it is min-content or max-content.
+            std::array<std::optional<float>, 3> resolve_sizing(Node& n, float content_min, float content_max) {
                 const auto& s = *n.style;
                 const std::array<std::pair<PropertyId, Sizing>, 3> keywords{
                     {{P::Width, sizing_keyword(s.find(P::Width))},
                      {P::MinWidth, sizing_keyword(s.find(P::MinWidth))},
                      {P::MaxWidth, sizing_keyword(s.find(P::MaxWidth))}}};
+                std::array<std::optional<float>, 3> widths;
                 if (std::all_of(keywords.begin(), keywords.end(), [](const auto& k) {
                         return k.second == Sizing::None;
                     })) {
-                    return;
+                    return widths;
                 }
                 const bool content_box = s.text(P::BoxSizing, "content-box") == "content-box";
                 auto resolved = std::make_unique<Style>(s);
-                const float content_min = n.min_width;
-                const float content_max = n.max_width;
-                for (const auto& [id, keyword] : keywords) {
+                for (std::size_t k = 0; k < keywords.size(); ++k) {
+                    const auto& [id, keyword] = keywords[k];
                     if (keyword == Sizing::None) {
                         continue;
                     }
@@ -1699,22 +1738,28 @@ namespace weft {
                     char buffer[32];
                     const auto written = std::to_chars(buffer, buffer + sizeof(buffer), value);
                     resolved->set(id, std::string(buffer, written.ptr) + "px");
+                    widths[k] = border;
                     if (id == P::Width) {
                         YGNodeStyleSetWidth(n.yoga, value);
-                        n.min_width = border;
-                        n.max_width = border;
                     } else if (id == P::MinWidth) {
                         YGNodeStyleSetMinWidth(n.yoga, value);
-                        n.min_width = std::max(n.min_width, border);
-                        n.max_width = std::max(n.max_width, border);
                     } else {
                         YGNodeStyleSetMaxWidth(n.yoga, value);
-                        n.min_width = std::min(n.min_width, border);
-                        n.max_width = std::min(n.max_width, border);
                     }
                 }
                 n.resolved = std::move(resolved);
                 n.style = n.resolved.get();
+                return widths;
+            }
+
+            // A row flex container's content width where the percentages of its items' widths resolve before layout:
+            // known (definite_content_width) and not flexed itself, as a row's item is.
+            std::optional<float> percentage_basis(const Node& container) const {
+                if (container.index && nodes[container.box->parent].formatting == Formatting::Flex &&
+                    row_direction(*nodes[container.box->parent].style)) {
+                    return std::nullopt;
+                }
+                return definite_content_width(container);
             }
 
             // Whether a flex item's basis is auto: no flex-basis or flex-basis: auto, and no flex shorthand other
@@ -1728,9 +1773,10 @@ namespace weft {
             }
 
             // CSS automatic minimum size of a flex item in its parent's main axis: its content size, capped by a
-            // definite specified or maximum size. Wrapping text in a column takes its height at its width, definite
-            // from the item or its parent. When layout gives the width, an automatic basis and height make the basis
-            // that same content height, the minimum too: the item does not shrink, without a second layout.
+            // definite specified or maximum size: a px one, or a percentage of a container size known before layout
+            // (one known only in layout does not cap it). Wrapping text in a column takes its height at its width,
+            // definite from the item or its parent. When layout gives the width, an automatic basis and height make
+            // the basis that same content height, the minimum too: the item does not shrink, without a second layout.
             void automatic_minimum(Node& n) {
                 const auto& s = *n.style;
                 const auto& parent = nodes[n.box->parent];
@@ -1748,12 +1794,7 @@ namespace weft {
                 // width; of another, a percentage width or max-width caps it by a width known only in layout: then it
                 // has none.
                 if (n.box->image && main_row) {
-                    // The container's content width, where it is known and not flexed itself (a row's item).
-                    auto basis = definite_content_width(parent);
-                    if (parent.index && nodes[parent.box->parent].formatting == Formatting::Flex &&
-                        row_direction(*nodes[parent.box->parent].style)) {
-                        basis.reset();
-                    }
+                    const auto basis = percentage_basis(parent);
                     // The content size suggestion within px bounds, a px width capping it; then a percentage width or
                     // max-width of that width. Without it, a percentage width leaves no minimum (the img is that
                     // wide), a percentage max-width is taken as not capping (it would widen a narrower img).
@@ -1818,13 +1859,47 @@ namespace weft {
                     YGNodeStyleSetFlexShrink(n.yoga, 0);
                     return;
                 }
-                float minimum = main_row ? n.min_width : n.auto_min_height;
-                // The specified size suggestion (CSS Flexbox 1 §4.5), the most the content-based minimum can be: a px
-                // size, or a percentage of a height known before layout.
+                // The content size suggestion (CSS Flexbox 1 §4.5): the item's min-content size, its content's alone. A
+                // block of a px size in it counts whatever it holds; the item's own size does not, it is the next
+                // suggestion.
+                float minimum = main_row ? n.auto_min_width : n.auto_min_height;
+                // What a percentage of the item's main size or maximum is of, where it is known before layout: a row's
+                // content width (percentage_basis), a column's content height (known_heights); and the border-box
+                // size a percentage of it gives the item.
+                std::optional<float> basis;
+                if (main_row) {
+                    basis = percentage_basis(parent);
+                } else if (parent.known_height) {
+                    std::string unknown_edges;
+                    const float edges = intrinsic_vertical(*parent.style, unknown_edges);
+                    if (unknown_edges.empty()) {
+                        basis = std::max(0.f, *parent.known_height - edges);
+                    }
+                }
+                const auto of_basis = [&](const Length& l) {
+                    const float edges = image_edges(s, main_row ? basis : std::nullopt)[main_row ? 0 : 1];
+                    const float size = l.value / constants::percent_scale * *basis;
+                    return content_box ? size + edges : std::max(size, edges);
+                };
+                const auto maximum = length(s.find(main_row ? P::MaxWidth : P::MaxHeight));
+                // A percentage max-width of a row whose width only layout gives cannot cap a minimum set before it.
+                // An item whose content cannot narrow (its min-content width is its max-content width), of automatic
+                // basis and width, needs no minimum there: its basis is its content's width and its minimum that width
+                // within the maximum, its hypothetical size. It does not shrink, and Yoga resolves the maximum.
+                if (main_row && maximum.percent && !basis && unknown.empty() && specified.automatic &&
+                    automatic_basis(s) && n.auto_min_width >= n.max_width) {
+                    YGNodeStyleSetFlexShrink(n.yoga, 0);
+                    return;
+                }
+                // The specified size suggestion, the most the content-based minimum can be: a px size (what the item
+                // contributes to its container's intrinsic size: with an automatic minimum, that size within its
+                // maximum), a percentage of the row's width, or a percentage of a height known before layout.
                 const auto& main_size = main_row ? specified : specified_height;
                 std::optional<float> suggestion;
                 if (!main_size.automatic && !main_size.percent) {
                     suggestion = main_row ? n.max_width : n.intrinsic_height;
+                } else if (main_row && main_size.percent && basis) {
+                    suggestion = of_basis(main_size);
                 } else if (!main_row && main_size.percent && n.known_height) {
                     suggestion = *n.known_height;
                 }
@@ -1869,11 +1944,13 @@ namespace weft {
                 if (suggestion) {
                     minimum = std::min(minimum, *suggestion);
                 }
-                const auto maximum = length(s.find(main_row ? P::MaxWidth : P::MaxHeight));
+                // The maximum caps it: a px size, or a percentage of a size known before layout.
                 if (!maximum.automatic && !maximum.percent) {
                     const float max_border =
                         maximum.value + (content_box ? (main_row ? horizontal(s) : vertical(s)) : 0);
                     minimum = std::min(minimum, max_border);
+                } else if (maximum.percent && basis) {
+                    minimum = std::min(minimum, of_basis(maximum));
                 }
                 // Yoga accepts a content-box min size when configured content-box.
                 if (content_box) {

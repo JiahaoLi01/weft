@@ -17,6 +17,32 @@
 
 ## 本次已实现
 
+flex 项目的自动最小尺寸：项目里固定尺寸的块（2026-11-10，与开发者工具同在 `devtools` 分支的检出里；对比工具在示例页上发现，见下一条，所有页面受影响）。范围与仍是近似的部分见[兼容范围](compatibility.md#样式和布局)。
+- **问题**：flex 项目里是固定宽度的块时，项目被收缩到比这个块还窄。300px 宽、间距 12px 的行里三张内边距 8px、内含 140px 块的卡片，Weft 各 92px（在 0、104、208），Chrome 各 156px（在 0、168、336，溢出这一行）；给卡片写 `min-width: 0` 后两边都是 92px。
+- **原因**：适配层的内在尺寸预算（`src/layout/flex.cpp` 的 `intrinsic`）用同一个 `min_width` 表示两件事。带 px 宽度的盒子记的是 min(内容, 宽度)：作为这个盒子自己的自动最小值是对的，作为它对父级最小内容宽度的贡献是错的，空的 140px 块贡献成了 0。
+- **实现**（`src/layout/flex.cpp`，`flex.hpp` 只改注释）：
+  - **贡献与内容分开**：`min_width`、`max_width`、`intrinsic_height` 是盒子对父级内在尺寸的贡献（CSS Sizing 3 §5.1）：有 px 尺寸就是它，否则是内容的，再夹在 px 的最大、最小值之间（最小值压过最大值）；`box-sizing: border-box` 的尺寸不小于内边距与边框。新增 `auto_min_width`，与已有的 `auto_min_height` 并列，只记内容，是项目自己的自动最小值里的内容尺寸建议（CSS Flexbox 1 §4.5）；项目自身的尺寸在那里作为指定尺寸建议封顶。
+  - **列方向**：子项的纵向 px 外边距计入容器的内在高度（不折叠，与 Yoga 的排法一致）；px 的 `min-height`、`max-height` 同样夹住贡献。固定高度的子块此前已经计入。
+  - **百分比封顶**：项目的百分比 `width`（指定尺寸建议）和百分比 `max-width`、`max-height`，在容器尺寸布局前已知时给最小值封顶（行：容器的内容宽度已知且容器自己不是行里的弹性项目，与图片分支原有的判断共用 `percentage_basis`；列：`known_heights`）。行宽只在布局中才知道时，内容不能变窄（最小内容宽等于最大内容宽）、宽度与基准都是 `auto` 的项目遇到百分比 `max-width`，改为不收缩、不设最小值：它的假设尺寸就是内容宽度夹在最大值里，与自动最小值相同；其余情形百分比不封顶，与此前一样。这一条是因为内容的最小值变大后，`max-width: 100%`、`width: N%` 的项目会被里面更大的固定块撑过自己的尺寸，有 4 类此前碰巧正确的情形变错。
+  - **图片**：`<img>` 沿用自己那一支算好的贡献。百分比 `width` 或 `max-width` 的图片没有最小内容宽度，`width` 属性不改变这一点（img 夹具的 random 113 检查到）。
+  - **同一处内在宽度的其他用处**随之变对：行内块等原子内联的收缩适配、行内表格单元格的最小内容宽、网格轨道的内容贡献，里面有固定宽度的块时不再窄于它。
+  - 尺寸关键词（`min-content`、`max-content`）解析出的值不变；`resolve_sizing` 改为返回解析结果，由 `intrinsic` 统一计入贡献。
+- **验证**（macOS 26.6，Apple M5，Chrome 157）：
+  - `flex_browser_diff`：共享夹具（`tests/fixtures/flex_layout_cases.json`）加 37 例（`auto-min-*` 与 `min-content-width-fixed-block`）：上面的页面及 `min-width: 0`、`flex: 1` 的版本，项目自身的宽度与 `max-width` 封顶，块套块、px 宽度的外层，嵌套的行、列与换行的 flex 容器，子项的 `min-width`、`max-width`、外边距、两种 `box-sizing` 的内边距，带 px 宽度或 `max-width` 的文字，百分比 `width` 与 `max-width`（含宽度由弹性分配的行），网格项目，`width: min-content`；列方向的同一页面，子项的外边距、`min-height`、`max-height`，百分比 `max-height`。参考用本机 Chrome 157 headless 按[探针文档](layout-text-probes.md)的 `--dump-dom` 流程重录（`tools/extract_flex_reference.py`），原有 62 例与 Chrome 155 的旧参考逐值相同；99 例 1797 个值都在 0.025 CSS px 内。换回改动前的适配层是 70/99：新增的 29 例不通过，另 8 例是对照（`min-width: 0`、百分比上限等此前就对的情形）。
+  - `box_layout_contract`：新增 `fixed_blocks_hold_flex_items`（视口 800×500、`border-box` 的上述页面，列方向的外边距，弹性分配的行里的百分比 `max-width`，收缩适配的根与 `layout_intrinsic_widths`）。
+  - 对比工具（`tools/devtools_compare.mjs`，开发版，800×500）：上面的页面 8 个元素 0 处差异，列方向 22 个元素 0 处；百分比、子项最小宽度、行内块、网格混在一起的页面 43 个元素 0 处；行内块、行内表格单元格包着固定块的页面 16 个元素 0 处。示例页 effects 99 个元素 0 处差异；animate 那一行的卡片是 260、120、260、120px，与 Chrome 相同，剩下自身有差异的 12 个元素是外边距不折叠（高 6px）和 `system-ui` 的文字宽度；img 中间的卡片保持 200px，与 Chrome 相同，两侧的卡片仍是 387.9 / 144.1px 对 384.33 / 147.67px：第一张卡片里那行 `system-ui` 文字不收缩时 Weft 434.02px、Chrome 423px，另有约 1px 来自下面的收缩权重。改动前的数是用未改动的引擎按同样的做法量的（同一份文档、同样的 Chrome 外壳）：effects 的卡片 97.71px（Chrome 156px），animate 的卡片 227.53、105.01、227.53、159.93px，行内块与行内表格单元格都是 100px（Chrome 150px、148px）。
+  - 已有夹具逐元素比较改动前后：`scene_rtl_box_reference.json` 的 316 例里 20 例（10 棵随机树的两个方向）由不一致变为与 Chrome 一致，没有反过来的，`scene_rtl_box_browser_contract` 比较的随机树从 101 棵增加到 111 棵；`scene_img_browser_contract` 的 144 个排版用例输出不变。
+  - 全量 `ctest -j8`：`build/macos-release`（Release）89/97，`build/macos-dev`（开发版）91/99，不含开发者工具改动的 Debug 构建 87/95；失败的都是原来那 8 项 fixture 检查。
+- **未验证**：Windows（本机不能构建；只在 Windows 上注册的场景对照，如 `scene_browser_geometry`、`scene_cluster_browser_contract`、`katex_browser_reference`、`web_platform_contract`，没有运行，其中 flex 项目包着固定块的页面结果可能改变）、Android、iOS。
+- **这次改动留下的近似**：行的宽度只在布局中才知道时（这一行是弹性项目、在纵向 flex 里被拉伸、或由左右 inset 定宽），项目的百分比 `width` 不给最小值封顶。在 150px 宽的纵向 flex 里被拉伸的行中，`width: 80%`、内含 140px 块的项目，Chrome 120px，Weft 140px；改动前是 81.8px，差在另一个方向，文字内容此前就是这样被撑宽的。要补上，或者把更多布局前已知的宽度算进适配层，或者让 Yoga 在布局时给自动最小值封顶。
+- **仍与 Chrome 不同，不是这次改动造成的**（比较时看到，都有最小复现）：
+  - **收缩的权重**：Yoga 按边框盒的基准给 `flex-shrink` 加权，CSS 按内容盒。100px 的行里 `width: 60px; padding: 0 20px` 与 `width: 100px` 两项（都 `min-width: 0`），Chrome 62.5 / 37.5px，Weft 50 / 50px。
+  - **反向主轴上的 `start`、`end`**：`row-reverse` 里 `justify-content: start` 应靠书写方向的起点（左），现在映射成 `flex-start`（右）；`end` 相反。
+  - **列里的百分比 `max-height`**：`height: 90px; max-height: 50%` 的项目旁边 `height: 30px` 的兄弟（两项都 `min-height: 0`），在 100px 高的列里 Chrome 30px，Weft 50px（Yoga，改动前后相同）。
+  - **px 宽度上的尺寸关键词**：`width: 60px; min-width: min-content`（内容 160px）Chrome 160px，Weft 60px；`width: 200px; max-width: max-content`（内容 80px）Chrome 80px，Weft 200px。
+  - **自动最小高度里的行数**：带 px 宽度的文字盒、`flex: 1` 项目里换行的 flex 行都只算一行。
+  - **可换行文字的 flex 基准**：Yoga 把它收缩适配到容器宽度，CSS 取最大内容宽度。150px 的行里 10 个字符宽 200px 的文字与 `width: 100px` 的项目，Chrome 100 / 50px，Weft 90 / 60px。
+
 开发者工具第二阶段：热重载、资源走开发连接、和 Chrome 对比（2026-11-10，`devtools` 分支）。用法和设计见[开发者工具](devtools.md#热重载)。
 - **实现**（只在开发版里）：
   - `src/view`：`View::inspect_restyle` 先用新样式表把场景做出来，成功才换，图片和字体随之重读；工具送来的文件按解析后的路径盖住宿主的读取器；View 记住最近一次加载的页面；`inspect_adopt` 让顶替的 View 接过时间、`sessionStorage`、剪贴板文本和工具日志。

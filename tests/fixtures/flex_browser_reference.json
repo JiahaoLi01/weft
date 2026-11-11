@@ -1,7 +1,7 @@
 {
   "fixture": "caseelephant-flex-v1",
-  "browser": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36",
-  "input_sha256": "779e495e2941057b1bc2e8f54db4962ed74d141c16759a8aeea8945df43a86b6",
+  "browser": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36",
+  "input_sha256": "87ad7e3473ec943f4279e0a408fceffeba3735f79dac77ed7f6d400d3aeef696",
   "font_loaded": true,
   "tolerance_css_px": 0.025,
   "cases": [
@@ -2045,6 +2045,1470 @@
           "y": 50,
           "width": 100,
           "height": 10
+        }
+      ]
+    },
+    {
+      "id": "auto-min-fixed-block",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 800,
+          "height": 500
+        },
+        {
+          "id": "row",
+          "x": 0,
+          "y": 0,
+          "width": 300,
+          "height": 36
+        },
+        {
+          "id": "card0",
+          "x": 0,
+          "y": 0,
+          "width": 156,
+          "height": 36
+        },
+        {
+          "id": "inner0",
+          "x": 8,
+          "y": 8,
+          "width": 140,
+          "height": 20
+        },
+        {
+          "id": "card1",
+          "x": 168,
+          "y": 0,
+          "width": 156,
+          "height": 36
+        },
+        {
+          "id": "inner1",
+          "x": 176,
+          "y": 8,
+          "width": 140,
+          "height": 20
+        },
+        {
+          "id": "card2",
+          "x": 336,
+          "y": 0,
+          "width": 156,
+          "height": 36
+        },
+        {
+          "id": "inner2",
+          "x": 344,
+          "y": 8,
+          "width": 140,
+          "height": 20
+        }
+      ]
+    },
+    {
+      "id": "auto-min-fixed-block-min-zero",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 800,
+          "height": 500
+        },
+        {
+          "id": "row",
+          "x": 0,
+          "y": 0,
+          "width": 300,
+          "height": 36
+        },
+        {
+          "id": "card0",
+          "x": 0,
+          "y": 0,
+          "width": 92,
+          "height": 36
+        },
+        {
+          "id": "inner0",
+          "x": 8,
+          "y": 8,
+          "width": 140,
+          "height": 20
+        },
+        {
+          "id": "card1",
+          "x": 104,
+          "y": 0,
+          "width": 92,
+          "height": 36
+        },
+        {
+          "id": "inner1",
+          "x": 112,
+          "y": 8,
+          "width": 140,
+          "height": 20
+        },
+        {
+          "id": "card2",
+          "x": 208,
+          "y": 0,
+          "width": 92,
+          "height": 36
+        },
+        {
+          "id": "inner2",
+          "x": 216,
+          "y": 8,
+          "width": 140,
+          "height": 20
+        }
+      ]
+    },
+    {
+      "id": "auto-min-fixed-block-basis-zero",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 300,
+          "height": 20
+        },
+        {
+          "id": "card0",
+          "x": 0,
+          "y": 0,
+          "width": 140,
+          "height": 20
+        },
+        {
+          "id": "inner0",
+          "x": 0,
+          "y": 0,
+          "width": 140,
+          "height": 20
+        },
+        {
+          "id": "card1",
+          "x": 140,
+          "y": 0,
+          "width": 140,
+          "height": 20
+        },
+        {
+          "id": "inner1",
+          "x": 140,
+          "y": 0,
+          "width": 140,
+          "height": 20
+        },
+        {
+          "id": "card2",
+          "x": 280,
+          "y": 0,
+          "width": 140,
+          "height": 20
+        },
+        {
+          "id": "inner2",
+          "x": 280,
+          "y": 0,
+          "width": 140,
+          "height": 20
+        }
+      ]
+    },
+    {
+      "id": "auto-min-width-under-fixed-block",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 150,
+          "height": 20
+        },
+        {
+          "id": "card0",
+          "x": 0,
+          "y": 0,
+          "width": 100,
+          "height": 20
+        },
+        {
+          "id": "inner0",
+          "x": 0,
+          "y": 0,
+          "width": 140,
+          "height": 20
+        },
+        {
+          "id": "card1",
+          "x": 100,
+          "y": 0,
+          "width": 100,
+          "height": 20
+        },
+        {
+          "id": "inner1",
+          "x": 100,
+          "y": 0,
+          "width": 140,
+          "height": 20
+        }
+      ]
+    },
+    {
+      "id": "auto-min-width-over-fixed-block",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 150,
+          "height": 20
+        },
+        {
+          "id": "card0",
+          "x": 0,
+          "y": 0,
+          "width": 75,
+          "height": 20
+        },
+        {
+          "id": "inner0",
+          "x": 0,
+          "y": 0,
+          "width": 40,
+          "height": 20
+        },
+        {
+          "id": "card1",
+          "x": 75,
+          "y": 0,
+          "width": 75,
+          "height": 20
+        },
+        {
+          "id": "inner1",
+          "x": 75,
+          "y": 0,
+          "width": 40,
+          "height": 20
+        }
+      ]
+    },
+    {
+      "id": "auto-min-max-width-under-fixed-block",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 150,
+          "height": 20
+        },
+        {
+          "id": "card0",
+          "x": 0,
+          "y": 0,
+          "width": 100,
+          "height": 20
+        },
+        {
+          "id": "inner0",
+          "x": 0,
+          "y": 0,
+          "width": 140,
+          "height": 20
+        },
+        {
+          "id": "card1",
+          "x": 100,
+          "y": 0,
+          "width": 100,
+          "height": 20
+        },
+        {
+          "id": "inner1",
+          "x": 100,
+          "y": 0,
+          "width": 140,
+          "height": 20
+        }
+      ]
+    },
+    {
+      "id": "auto-min-nested-blocks",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 150,
+          "height": 20
+        },
+        {
+          "id": "card",
+          "x": 0,
+          "y": 0,
+          "width": 150,
+          "height": 20
+        },
+        {
+          "id": "wrap",
+          "x": 0,
+          "y": 0,
+          "width": 150,
+          "height": 20
+        },
+        {
+          "id": "inner",
+          "x": 5,
+          "y": 0,
+          "width": 140,
+          "height": 20
+        },
+        {
+          "id": "other",
+          "x": 150,
+          "y": 0,
+          "width": 0,
+          "height": 20
+        }
+      ]
+    },
+    {
+      "id": "auto-min-nested-fixed-wrapper",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 150,
+          "height": 20
+        },
+        {
+          "id": "card",
+          "x": 0,
+          "y": 0,
+          "width": 100,
+          "height": 20
+        },
+        {
+          "id": "wrap",
+          "x": 0,
+          "y": 0,
+          "width": 100,
+          "height": 20
+        },
+        {
+          "id": "inner",
+          "x": 0,
+          "y": 0,
+          "width": 140,
+          "height": 20
+        },
+        {
+          "id": "other",
+          "x": 100,
+          "y": 0,
+          "width": 50,
+          "height": 20
+        }
+      ]
+    },
+    {
+      "id": "auto-min-nested-flex-row-fixed",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 100,
+          "height": 20
+        },
+        {
+          "id": "card",
+          "x": 0,
+          "y": 0,
+          "width": 170,
+          "height": 20
+        },
+        {
+          "id": "a",
+          "x": 0,
+          "y": 0,
+          "width": 80,
+          "height": 20
+        },
+        {
+          "id": "b",
+          "x": 90,
+          "y": 0,
+          "width": 80,
+          "height": 20
+        },
+        {
+          "id": "other",
+          "x": 170,
+          "y": 0,
+          "width": 0,
+          "height": 20
+        }
+      ]
+    },
+    {
+      "id": "auto-min-nested-flex-column-fixed",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 100,
+          "height": 20
+        },
+        {
+          "id": "card",
+          "x": 0,
+          "y": 0,
+          "width": 120,
+          "height": 20
+        },
+        {
+          "id": "a",
+          "x": 0,
+          "y": 0,
+          "width": 80,
+          "height": 10
+        },
+        {
+          "id": "b",
+          "x": 0,
+          "y": 10,
+          "width": 120,
+          "height": 10
+        },
+        {
+          "id": "other",
+          "x": 120,
+          "y": 0,
+          "width": 0,
+          "height": 20
+        }
+      ]
+    },
+    {
+      "id": "auto-min-nested-flex-wrap-fixed",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 100,
+          "height": 20
+        },
+        {
+          "id": "card",
+          "x": 0,
+          "y": 0,
+          "width": 120,
+          "height": 20
+        },
+        {
+          "id": "a",
+          "x": 0,
+          "y": 0,
+          "width": 80,
+          "height": 10
+        },
+        {
+          "id": "b",
+          "x": 0,
+          "y": 10,
+          "width": 120,
+          "height": 10
+        },
+        {
+          "id": "other",
+          "x": 120,
+          "y": 0,
+          "width": 0,
+          "height": 20
+        }
+      ]
+    },
+    {
+      "id": "auto-min-child-min-width",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 150,
+          "height": 20
+        },
+        {
+          "id": "card",
+          "x": 0,
+          "y": 0,
+          "width": 140,
+          "height": 20
+        },
+        {
+          "id": "inner",
+          "x": 0,
+          "y": 0,
+          "width": 140,
+          "height": 20
+        },
+        {
+          "id": "other",
+          "x": 140,
+          "y": 0,
+          "width": 10,
+          "height": 20
+        }
+      ]
+    },
+    {
+      "id": "auto-min-child-max-width",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 150,
+          "height": 20
+        },
+        {
+          "id": "card",
+          "x": 0,
+          "y": 0,
+          "width": 100,
+          "height": 20
+        },
+        {
+          "id": "inner",
+          "x": 0,
+          "y": 0,
+          "width": 100,
+          "height": 20
+        },
+        {
+          "id": "other",
+          "x": 100,
+          "y": 0,
+          "width": 50,
+          "height": 20
+        }
+      ]
+    },
+    {
+      "id": "auto-min-child-min-over-width",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 150,
+          "height": 20
+        },
+        {
+          "id": "card",
+          "x": 0,
+          "y": 0,
+          "width": 120,
+          "height": 20
+        },
+        {
+          "id": "inner",
+          "x": 0,
+          "y": 0,
+          "width": 120,
+          "height": 20
+        },
+        {
+          "id": "other",
+          "x": 120,
+          "y": 0,
+          "width": 30,
+          "height": 20
+        }
+      ]
+    },
+    {
+      "id": "auto-min-child-margins",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 150,
+          "height": 20
+        },
+        {
+          "id": "card",
+          "x": 0,
+          "y": 0,
+          "width": 130,
+          "height": 20
+        },
+        {
+          "id": "inner",
+          "x": 10,
+          "y": 0,
+          "width": 100,
+          "height": 20
+        },
+        {
+          "id": "other",
+          "x": 130,
+          "y": 0,
+          "width": 20,
+          "height": 20
+        }
+      ]
+    },
+    {
+      "id": "auto-min-child-padding-content-box",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 150,
+          "height": 20
+        },
+        {
+          "id": "card",
+          "x": 0,
+          "y": 0,
+          "width": 120,
+          "height": 20
+        },
+        {
+          "id": "inner",
+          "x": 0,
+          "y": 0,
+          "width": 120,
+          "height": 20
+        },
+        {
+          "id": "other",
+          "x": 120,
+          "y": 0,
+          "width": 30,
+          "height": 20
+        }
+      ]
+    },
+    {
+      "id": "auto-min-child-padding-border-box",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 150,
+          "height": 20
+        },
+        {
+          "id": "card",
+          "x": 0,
+          "y": 0,
+          "width": 100,
+          "height": 20
+        },
+        {
+          "id": "inner",
+          "x": 0,
+          "y": 0,
+          "width": 100,
+          "height": 20
+        },
+        {
+          "id": "other",
+          "x": 100,
+          "y": 0,
+          "width": 50,
+          "height": 20
+        }
+      ]
+    },
+    {
+      "id": "auto-min-child-border-box-under-padding",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 150,
+          "height": 20
+        },
+        {
+          "id": "card",
+          "x": 0,
+          "y": 0,
+          "width": 60,
+          "height": 20
+        },
+        {
+          "id": "inner",
+          "x": 0,
+          "y": 0,
+          "width": 60,
+          "height": 10
+        },
+        {
+          "id": "other",
+          "x": 60,
+          "y": 0,
+          "width": 90,
+          "height": 20
+        }
+      ]
+    },
+    {
+      "id": "auto-min-text-child-width",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 150,
+          "height": 20
+        },
+        {
+          "id": "card",
+          "x": 0,
+          "y": 0,
+          "width": 60,
+          "height": 20
+        },
+        {
+          "id": "t",
+          "x": 0,
+          "y": 0,
+          "width": 60,
+          "height": 20,
+          "text_lines": 1,
+          "text_width": 160,
+          "text_height": 20
+        },
+        {
+          "id": "other",
+          "x": 60,
+          "y": 0,
+          "width": 90,
+          "height": 20
+        }
+      ]
+    },
+    {
+      "id": "auto-min-text-child-max-width",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 150,
+          "height": 20
+        },
+        {
+          "id": "card",
+          "x": 0,
+          "y": 0,
+          "width": 60,
+          "height": 20
+        },
+        {
+          "id": "t",
+          "x": 0,
+          "y": 0,
+          "width": 60,
+          "height": 20,
+          "text_lines": 1,
+          "text_width": 160,
+          "text_height": 20
+        },
+        {
+          "id": "other",
+          "x": 60,
+          "y": 0,
+          "width": 90,
+          "height": 20
+        }
+      ]
+    },
+    {
+      "id": "auto-min-percent-width",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 150,
+          "height": 20
+        },
+        {
+          "id": "card",
+          "x": 0,
+          "y": 0,
+          "width": 120,
+          "height": 20
+        },
+        {
+          "id": "inner",
+          "x": 0,
+          "y": 0,
+          "width": 140,
+          "height": 10
+        },
+        {
+          "id": "other",
+          "x": 120,
+          "y": 0,
+          "width": 30,
+          "height": 20
+        }
+      ]
+    },
+    {
+      "id": "auto-min-percent-width-text",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 150,
+          "height": 20
+        },
+        {
+          "id": "card",
+          "x": 0,
+          "y": 0,
+          "width": 120,
+          "height": 20,
+          "text_lines": 1,
+          "text_width": 160,
+          "text_height": 20
+        },
+        {
+          "id": "other",
+          "x": 120,
+          "y": 0,
+          "width": 30,
+          "height": 20
+        }
+      ]
+    },
+    {
+      "id": "auto-min-percent-width-border-box",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 150,
+          "height": 20
+        },
+        {
+          "id": "card",
+          "x": 0,
+          "y": 0,
+          "width": 75,
+          "height": 20
+        },
+        {
+          "id": "inner",
+          "x": 10,
+          "y": 0,
+          "width": 140,
+          "height": 10
+        },
+        {
+          "id": "other",
+          "x": 75,
+          "y": 0,
+          "width": 75,
+          "height": 20
+        }
+      ]
+    },
+    {
+      "id": "auto-min-percent-max-width",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 150,
+          "height": 20
+        },
+        {
+          "id": "card",
+          "x": 0,
+          "y": 0,
+          "width": 75,
+          "height": 20
+        },
+        {
+          "id": "inner",
+          "x": 0,
+          "y": 0,
+          "width": 140,
+          "height": 10
+        },
+        {
+          "id": "other",
+          "x": 75,
+          "y": 0,
+          "width": 75,
+          "height": 20
+        }
+      ]
+    },
+    {
+      "id": "auto-min-percent-max-width-alone",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 150,
+          "height": 10
+        },
+        {
+          "id": "card",
+          "x": 0,
+          "y": 0,
+          "width": 150,
+          "height": 10
+        },
+        {
+          "id": "inner",
+          "x": 0,
+          "y": 0,
+          "width": 200,
+          "height": 10
+        }
+      ]
+    },
+    {
+      "id": "auto-min-percent-max-width-flexed-row",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 300,
+          "height": 20
+        },
+        {
+          "id": "mid",
+          "x": 0,
+          "y": 0,
+          "width": 200,
+          "height": 20
+        },
+        {
+          "id": "card",
+          "x": 0,
+          "y": 0,
+          "width": 160,
+          "height": 20
+        },
+        {
+          "id": "inner",
+          "x": 0,
+          "y": 0,
+          "width": 300,
+          "height": 10
+        },
+        {
+          "id": "side",
+          "x": 200,
+          "y": 0,
+          "width": 100,
+          "height": 20
+        }
+      ]
+    },
+    {
+      "id": "auto-min-grid-items-fixed-blocks",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 100,
+          "height": 10
+        },
+        {
+          "id": "a",
+          "x": 0,
+          "y": 0,
+          "width": 80,
+          "height": 10
+        },
+        {
+          "id": "b",
+          "x": 0,
+          "y": 0,
+          "width": 80,
+          "height": 10
+        },
+        {
+          "id": "c",
+          "x": 80,
+          "y": 0,
+          "width": 70,
+          "height": 10
+        },
+        {
+          "id": "d",
+          "x": 80,
+          "y": 0,
+          "width": 70,
+          "height": 10
+        }
+      ]
+    },
+    {
+      "id": "min-content-width-fixed-block",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 300,
+          "height": 50
+        },
+        {
+          "id": "card",
+          "x": 0,
+          "y": 0,
+          "width": 80,
+          "height": 50
+        },
+        {
+          "id": "inner",
+          "x": 0,
+          "y": 0,
+          "width": 80,
+          "height": 10
+        },
+        {
+          "id": "t",
+          "x": 0,
+          "y": 10,
+          "width": 80,
+          "height": 40,
+          "text_lines": 2,
+          "text_width": 40,
+          "text_height": 40
+        },
+        {
+          "id": "other",
+          "x": 80,
+          "y": 0,
+          "width": 100,
+          "height": 20
+        }
+      ]
+    },
+    {
+      "id": "auto-min-column-fixed-block",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 800,
+          "height": 500
+        },
+        {
+          "id": "col",
+          "x": 0,
+          "y": 0,
+          "width": 300,
+          "height": 100
+        },
+        {
+          "id": "card0",
+          "x": 0,
+          "y": 0,
+          "width": 300,
+          "height": 56
+        },
+        {
+          "id": "inner0",
+          "x": 8,
+          "y": 8,
+          "width": 140,
+          "height": 40
+        },
+        {
+          "id": "card1",
+          "x": 0,
+          "y": 68,
+          "width": 300,
+          "height": 56
+        },
+        {
+          "id": "inner1",
+          "x": 8,
+          "y": 76,
+          "width": 140,
+          "height": 40
+        },
+        {
+          "id": "card2",
+          "x": 0,
+          "y": 136,
+          "width": 300,
+          "height": 56
+        },
+        {
+          "id": "inner2",
+          "x": 8,
+          "y": 144,
+          "width": 140,
+          "height": 40
+        }
+      ]
+    },
+    {
+      "id": "auto-min-column-fixed-block-min-zero",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 800,
+          "height": 500
+        },
+        {
+          "id": "col",
+          "x": 0,
+          "y": 0,
+          "width": 300,
+          "height": 100
+        },
+        {
+          "id": "card0",
+          "x": 0,
+          "y": 0,
+          "width": 300,
+          "height": 25.34375
+        },
+        {
+          "id": "inner0",
+          "x": 8,
+          "y": 8,
+          "width": 140,
+          "height": 40
+        },
+        {
+          "id": "card1",
+          "x": 0,
+          "y": 37.34375,
+          "width": 300,
+          "height": 25.328125
+        },
+        {
+          "id": "inner1",
+          "x": 8,
+          "y": 45.34375,
+          "width": 140,
+          "height": 40
+        },
+        {
+          "id": "card2",
+          "x": 0,
+          "y": 74.671875,
+          "width": 300,
+          "height": 25.328125
+        },
+        {
+          "id": "inner2",
+          "x": 8,
+          "y": 82.671875,
+          "width": 140,
+          "height": 40
+        }
+      ]
+    },
+    {
+      "id": "auto-min-column-fixed-block-basis-zero",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 300,
+          "height": 90
+        },
+        {
+          "id": "card0",
+          "x": 0,
+          "y": 0,
+          "width": 300,
+          "height": 40
+        },
+        {
+          "id": "inner0",
+          "x": 0,
+          "y": 0,
+          "width": 140,
+          "height": 40
+        },
+        {
+          "id": "card1",
+          "x": 0,
+          "y": 40,
+          "width": 300,
+          "height": 40
+        },
+        {
+          "id": "inner1",
+          "x": 0,
+          "y": 40,
+          "width": 140,
+          "height": 40
+        },
+        {
+          "id": "card2",
+          "x": 0,
+          "y": 80,
+          "width": 300,
+          "height": 40
+        },
+        {
+          "id": "inner2",
+          "x": 0,
+          "y": 80,
+          "width": 140,
+          "height": 40
+        }
+      ]
+    },
+    {
+      "id": "auto-min-column-child-margins",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 300,
+          "height": 60
+        },
+        {
+          "id": "card",
+          "x": 0,
+          "y": 0,
+          "width": 300,
+          "height": 55
+        },
+        {
+          "id": "inner",
+          "x": 0,
+          "y": 10,
+          "width": 300,
+          "height": 40
+        },
+        {
+          "id": "other",
+          "x": 0,
+          "y": 55,
+          "width": 300,
+          "height": 5
+        }
+      ]
+    },
+    {
+      "id": "auto-min-column-child-min-height",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 300,
+          "height": 60
+        },
+        {
+          "id": "card",
+          "x": 0,
+          "y": 0,
+          "width": 300,
+          "height": 40
+        },
+        {
+          "id": "inner",
+          "x": 0,
+          "y": 0,
+          "width": 300,
+          "height": 40
+        },
+        {
+          "id": "other",
+          "x": 0,
+          "y": 40,
+          "width": 300,
+          "height": 20
+        }
+      ]
+    },
+    {
+      "id": "auto-min-column-child-max-height",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 300,
+          "height": 60
+        },
+        {
+          "id": "card",
+          "x": 0,
+          "y": 0,
+          "width": 300,
+          "height": 40
+        },
+        {
+          "id": "inner",
+          "x": 0,
+          "y": 0,
+          "width": 300,
+          "height": 40
+        },
+        {
+          "id": "other",
+          "x": 0,
+          "y": 40,
+          "width": 300,
+          "height": 20
+        }
+      ]
+    },
+    {
+      "id": "auto-min-column-height-over-margined-block",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 300,
+          "height": 40
+        },
+        {
+          "id": "a",
+          "x": 0,
+          "y": 0,
+          "width": 300,
+          "height": 18
+        },
+        {
+          "id": "b",
+          "x": 0,
+          "y": 6,
+          "width": 300,
+          "height": 12
+        },
+        {
+          "id": "c",
+          "x": 0,
+          "y": 18,
+          "width": 300,
+          "height": 30
+        },
+        {
+          "id": "d",
+          "x": 0,
+          "y": 24,
+          "width": 300,
+          "height": 28
+        }
+      ]
+    },
+    {
+      "id": "auto-min-column-row-item-margins",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 300,
+          "height": 60
+        },
+        {
+          "id": "card",
+          "x": 0,
+          "y": 0,
+          "width": 300,
+          "height": 38
+        },
+        {
+          "id": "a",
+          "x": 0,
+          "y": 8,
+          "width": 10,
+          "height": 30
+        },
+        {
+          "id": "b",
+          "x": 10,
+          "y": 0,
+          "width": 10,
+          "height": 36
+        },
+        {
+          "id": "other",
+          "x": 0,
+          "y": 38,
+          "width": 300,
+          "height": 22
+        }
+      ]
+    },
+    {
+      "id": "auto-min-column-percent-max-height",
+      "boxes": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "width": 300,
+          "height": 100
+        },
+        {
+          "id": "card",
+          "x": 0,
+          "y": 0,
+          "width": 300,
+          "height": 50
+        },
+        {
+          "id": "inner",
+          "x": 0,
+          "y": 0,
+          "width": 300,
+          "height": 80
+        },
+        {
+          "id": "other",
+          "x": 0,
+          "y": 50,
+          "width": 300,
+          "height": 30
         }
       ]
     }

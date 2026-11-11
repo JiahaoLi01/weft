@@ -99,9 +99,10 @@ namespace weft {
                                           const LayoutOptions& options = {});
 
     // The root's border-box min-content and max-content widths (CSS Sizing 3 §5), as layout_boxes sizes a root that
-    // shrinks to fit: from its content, its padding and borders; a px width property of its own bounds them as
-    // layout_boxes takes it (a table cell's sizing passes a root of auto width). Percentages in the content resolve
-    // against nothing, as intrinsic sizes take them.
+    // shrinks to fit: from its content, its padding and borders, each box in it contributing its px width where it
+    // states one, within its px min-width and max-width (§5.1). A px width of the root's own is both, as the root
+    // would contribute to a container (a table cell's sizing passes a root of auto width). Percentages in the content
+    // resolve against nothing, as intrinsic sizes take them.
     struct IntrinsicWidths {
         float min{};
         float max{};
