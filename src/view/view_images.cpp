@@ -328,10 +328,12 @@ namespace weft {
     }
 
     std::shared_ptr<const paint::Asset> ViewImages::load(const std::string& path) {
-        // A data: URL is named by its start in diagnostics.
+        // In diagnostics a data: URL is named by its start, and a long path by its end, where the file's name is.
         constexpr std::size_t named = 64;
         const auto fail = [&](const std::string& why) {
-            const auto name = path.size() > named ? path.substr(0, named) + "..." : path;
+            const auto name = path.size() <= named ? path
+                              : data_scheme(path)  ? path.substr(0, named) + "..."
+                                                   : "..." + path.substr(path.size() - named);
             diagnose_(make_diagnostic(Diag::SceneProfile, "url(" + name + "): " + why).message);
             return nullptr;
         };

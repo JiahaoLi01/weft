@@ -42,6 +42,36 @@ target_include_directories(weft_c_api_smoke PRIVATE "${PROJECT_SOURCE_DIR}/inclu
 set_target_properties(weft_c_api_smoke PROPERTIES LINKER_LANGUAGE CXX)
 target_link_libraries(weft_c_api_smoke PRIVATE weft::core)
 weft_add_test(NAME c_api_smoke COMMAND weft_c_api_smoke)
+# The two builds of the engine (docs/devtools.md): one C host over the shared library, and what the file contains.
+if(TARGET weft_shared)
+    add_executable(weft_devtools_mode_test devtools_mode_test.c)
+    target_include_directories(weft_devtools_mode_test PRIVATE "${PROJECT_SOURCE_DIR}/include")
+    target_link_libraries(weft_devtools_mode_test PRIVATE weft_shared)
+    if(WIN32)
+        target_link_libraries(weft_devtools_mode_test PRIVATE ws2_32)
+    endif()
+    weft_add_test(NAME devtools_mode COMMAND weft_devtools_mode_test $<IF:$<BOOL:${WEFT_DEVTOOLS}>,dev,release>)
+    weft_add_test(NAME devtools_binary COMMAND "${CMAKE_COMMAND}" -DBINARY=$<TARGET_FILE:weft_shared>
+        -DEXPECT=$<IF:$<BOOL:${WEFT_DEVTOOLS}>,dev,release> -P "${CMAKE_CURRENT_SOURCE_DIR}/devtools_binary_check.cmake")
+endif()
+# The developer tools' protocol against a real View, through its socket, and against what Chrome's own domains say
+# (tools/browser_devtools_reference.mjs). POSIX sockets; only the dev build has it.
+if(WEFT_DEVTOOLS AND NOT WIN32)
+    weft_add_executable(weft_devtools_protocol_tests SOURCES devtools_protocol_tests.cpp
+        LINK weft::devtools weft::view SOURCE_DIR LARGE_STACK)
+    target_link_libraries(weft_devtools_protocol_tests PRIVATE weft::core)
+    weft_add_test(NAME devtools_protocol COMMAND weft_devtools_protocol_tests TIMEOUT 120)
+    # Reloading from the tools through the C ABI: a page tried in a new View, one that does not load leaving the old.
+    weft_add_executable(weft_devtools_reload_tests SOURCES devtools_reload_tests.cpp
+        LINK weft::core weft::devtools weft::bridge LARGE_STACK)
+    weft_add_test(NAME devtools_reload COMMAND weft_devtools_reload_tests TIMEOUT 120)
+    # A host without a window that goes from page to page when told, for the tools' end-to-end check
+    # (tools/devtools_watch_check.mjs): C11 over include/weft alone.
+    add_executable(weft_devtools_host devtools_host.c)
+    target_include_directories(weft_devtools_host PRIVATE "${PROJECT_SOURCE_DIR}/include")
+    set_target_properties(weft_devtools_host PROPERTIES LINKER_LANGUAGE CXX)
+    target_link_libraries(weft_devtools_host PRIVATE weft::core)
+endif()
 # The View's C ABI: sizes, versions, threads, stale handles, pages, the bridge, anchors, hits, frames and faults.
 weft_add_executable(weft_c_api_view_tests SOURCES c_api_view_tests.cpp LINK weft::core weft::bridge SOURCE_DIR LARGE_STACK)
 weft_add_test(NAME c_api_view_contract COMMAND weft_c_api_view_tests TIMEOUT 180)

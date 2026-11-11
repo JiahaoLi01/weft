@@ -81,6 +81,49 @@ namespace weft {
             }
             return out;
         }
+#if WEFT_DEVTOOLS
+        // Where a sheet's text is once comments() has made each comment a space: for the offsets of that text, those of
+        // the text as it was given.
+        struct CommentMap {
+            struct Gap {
+                std::size_t at{};
+                std::size_t delta{};
+            };
+
+            std::vector<Gap> gaps;
+
+            explicit CommentMap(std::string_view text) {
+                char quote{};
+                std::size_t delta{};
+                for (std::size_t p = 0; p < text.size(); ++p) {
+                    const char c = text[p];
+                    if (quote) {
+                        quote = c == quote ? char{} : quote;
+                    } else if (c == '\'' || c == '"') {
+                        quote = c;
+                    } else if (c == '/' && p + 1 < text.size() && text[p + 1] == '*') {
+                        const auto e = text.find("*/", p + 2);
+                        if (e == std::string_view::npos) {
+                            return;
+                        }
+                        const auto length = e + 2 - p;
+                        // The space comments() left is at p - delta.
+                        delta += length - 1;
+                        gaps.push_back({p + length - delta, delta});
+                        p = e + 1;
+                    }
+                }
+            }
+
+            std::size_t original(std::size_t offset) const {
+                auto next = std::upper_bound(gaps.begin(), gaps.end(), offset, [](std::size_t v, const Gap& g) {
+                    return v < g.at;
+                });
+                return next == gaps.begin() ? offset : offset + std::prev(next)->delta;
+            }
+        };
+#endif
+
         // Tokens retain boundaries through substitution: NUMBER(16) IDENT(px) may
         // never be concatenated into a DIMENSION(16px). Functions own balanced tokens.
         enum class Kind {
@@ -1624,6 +1667,10 @@ namespace weft {
             unsigned layer = std::numeric_limits<unsigned>::max();
             // The @media conditions the rule holds under; none: always.
             std::shared_ptr<const MediaCondition> media;
+#if WEFT_DEVTOOLS
+            std::shared_ptr<const RuleSource> source;
+            std::string selector_text;
+#endif
 
             bool matches(const std::vector<const DomSnapshot*>& path) const {
                 // A generated box (Engine::generate) matches the rules whose subject is that pseudo-element of its
@@ -1652,6 +1699,9 @@ namespace weft {
             // Some rule holds under a @media condition on the viewport.
             bool sized_media{};
             Warnings warnings;
+#if WEFT_DEVTOOLS
+            std::vector<SheetProblem> problems;
+#endif
         };
 
         // The index of [begin, end) of a top-level token: skips a string or a balanced (), [] or {} group.
@@ -2066,14 +2116,136 @@ namespace weft {
 
         // A forgiving profile's sheet, as CSS Syntax 3 parses a style sheet: qualified rules and at-rules, nested as
         // CSS Nesting nests them; what it cannot take is dropped with a warning.
+#if WEFT_DEVTOOLS
+        // One declaration of a list (without its ';') as the profile takes it.
+        WrittenDeclaration written_declaration(std::string_view part, const StyleProfile& profile) {
+            WrittenDeclaration w;
+            w.text = trim(part);
+            const auto colon = part.find(':');
+            if (colon == std::string_view::npos) {
+                w.name = w.text;
+                w.reason = "no colon";
+                return w;
+            }
+            w.name = trim(part.substr(0, colon));
+            w.value = trim(part.substr(colon + 1));
+            if (const auto bang = w.value.rfind('!');
+                bang != std::string::npos && lower(trim(w.value.substr(bang + 1))) == "important") {
+                w.important = true;
+                w.value = trim(w.value.substr(0, bang));
+            }
+            std::vector<Declaration> expanded;
+            try {
+                declaration(part, profile, expanded);
+                for (const auto& d : expanded) {
+                    if (!custom(d.key) && !find_property(d.key)) {
+                        fail("unregistered property " + d.key);
+                    }
+                }
+            } catch (const std::invalid_argument& e) {
+                w.reason = e.what();
+                return w;
+            }
+            if (expanded.empty()) {
+                w.reason = "no effect in a scene";
+                return w;
+            }
+            w.supported = true;
+            for (const auto& d : expanded) {
+                w.longhands.emplace_back(d.key, serialize(d.tokens));
+            }
+            return w;
+        }
+
+        // The declarations directly in a block (its nested rules are rules of their own), offsets relative to its text.
+        std::vector<WrittenDeclaration> written_declarations_in(std::string_view body, const StyleProfile& profile) {
+            std::vector<WrittenDeclaration> out;
+            std::size_t p{};
+            while (p < body.size()) {
+                if (std::isspace(static_cast<unsigned char>(body[p])) || body[p] == ';') {
+                    ++p;
+                    continue;
+                }
+                const auto end = prelude_end(body, p);
+                if (end != std::string_view::npos && body[end] == '{') {
+                    const auto close = skip_group(body, end);
+                    if (close == std::string_view::npos) {
+                        break;
+                    }
+                    p = close;
+                    continue;
+                }
+                const auto stop = end == std::string_view::npos ? body.size() : end;
+                auto written = written_declaration(body.substr(p, stop - p), profile);
+                written.start = p;
+                written.end = end == std::string_view::npos ? stop : stop + 1;
+                out.push_back(std::move(written));
+                p = stop + 1;
+            }
+            return out;
+        }
+
+        // A rule's source from the sheet's text with comments gone: the prelude at [prelude, brace), the block at
+        // [body, close).
+        std::shared_ptr<const RuleSource> located_rule(std::string selector, std::string_view text,
+                                                       const CommentMap& map, std::size_t prelude, std::size_t brace,
+                                                       std::size_t body, std::size_t close,
+                                                       const StyleProfile& profile) {
+            auto source = std::make_shared<RuleSource>();
+            source->selector = std::move(selector);
+            source->located = true;
+            auto last = brace;
+            while (last > prelude && std::isspace(static_cast<unsigned char>(text[last - 1]))) {
+                --last;
+            }
+            source->selector_start = map.original(prelude);
+            source->selector_end = map.original(last);
+            source->body_start = map.original(body);
+            source->body_end = map.original(close);
+            source->declarations = written_declarations_in(text.substr(body, close - body), profile);
+            for (auto& w : source->declarations) {
+                w.start = map.original(body + w.start);
+                w.end = map.original(body + w.end);
+            }
+            return source;
+        }
+#endif
+
         struct SheetParser {
             const StyleProfile& profile;
             Sheet& out;
             LayerTree layers;
             std::vector<std::size_t> rule_layers;
             const dom::SelectorGrammar grammar{true, true, Diag::StyleProfile, Diag::StyleProfile, true};
+#if WEFT_DEVTOOLS
+            // The text the views below point into, how its offsets map, where the parser is in it, and the source of
+            // the rule being added.
+            std::string_view text_base;
+            const CommentMap* map{};
+            std::size_t position{};
+            std::shared_ptr<const RuleSource> source;
+
+            // An offset of a view into text_base; where the parser is for a view of anything else.
+            std::size_t offset_of(const char* at) const {
+                const auto* base = text_base.data();
+                return at >= base && at <= base + text_base.size() ? std::size_t(at - base) : position;
+            }
+
+            // The source of a rule whose prelude is at `prelude` in text_base.
+            std::shared_ptr<const RuleSource> locate(const std::string& selectors, std::string_view prelude,
+                                                     std::string_view body) const {
+                const auto start = offset_of(prelude.data());
+                const auto open = offset_of(body.data());
+                return located_rule(selectors, text_base, *map, start, open - 1, open, open + body.size(), profile);
+            }
+#endif
 
             void warn(std::string text) {
+#if WEFT_DEVTOOLS
+                if (out.problems.size() < std::size_t(constants::style::max_style_warnings)) {
+                    out.problems.push_back({text, map ? map->original(position) : position});
+                }
+#endif
                 out.warnings.add(std::move(text));
             }
 
@@ -2125,6 +2297,9 @@ namespace weft {
                         ++p;
                         continue;
                     }
+#if WEFT_DEVTOOLS
+                    position = offset_of(text.data() + p);
+#endif
                     if (c == '}') {
                         warn("a stray } in the style sheet");
                         ++p;
@@ -2160,19 +2335,40 @@ namespace weft {
                     if (c == '@') {
                         at_rule(prelude.substr(1), body, layer, media, depth, parent);
                     } else {
+#if WEFT_DEVTOOLS
+                        prelude_view = prelude;
+#endif
                         style_rule(parent ? nest(*parent, prelude) : std::string(trim(prelude)), body, layer, media,
                                    depth);
                     }
                     p = close;
                 }
                 if (parent && !trim(declarations_text).empty()) {
+#if WEFT_DEVTOOLS
+                    auto gathered = std::make_shared<RuleSource>();
+                    gathered->selector = *parent;
+                    gathered->declarations = written_declarations_in(declarations_text, profile);
+                    source = std::move(gathered);
+#endif
                     add_rules(*parent, declarations_text, layer, media);
+#if WEFT_DEVTOOLS
+                    source.reset();
+#endif
                 }
             }
+
+#if WEFT_DEVTOOLS
+            // The prelude of the rule style_rule is called for.
+            std::string_view prelude_view;
+#endif
 
             void add_rules(const std::string& selectors, const std::string& body, std::size_t layer,
                            const std::shared_ptr<const MediaCondition>& media) {
                 std::vector<dom::Selector> list;
+#if WEFT_DEVTOOLS
+                const auto items =
+                    css::split(selectors, ',', {.quotes = true, .brackets = true, .trim_parts = true}).parts;
+#endif
                 for (const auto& item :
                      css::split(selectors, ',', {.quotes = true, .brackets = true, .trim_parts = true}).parts) {
                     auto s = dom::parse_selector(trim(item), grammar);
@@ -2184,11 +2380,24 @@ namespace weft {
                     list.push_back(std::move(*s));
                 }
                 auto decl = declarations(body, profile, &out.warnings);
+#if WEFT_DEVTOOLS
+                // A rule the engine takes nothing of applies nothing; the tools still show what it wrote.
+                if (decl.empty() && (!source || source->declarations.empty())) {
+                    return;
+                }
+#else
                 if (decl.empty()) {
                     return;
                 }
+#endif
+#if WEFT_DEVTOOLS
+                std::size_t item{};
+#endif
                 for (auto& s : list) {
                     if (s.pseudo() == dom::PseudoElement::Other) {
+#if WEFT_DEVTOOLS
+                        ++item;
+#endif
                         continue;
                     }
                     if (out.rules.size() >= std::size_t(constants::style::max_forgiving_rules)) {
@@ -2196,6 +2405,10 @@ namespace weft {
                     }
                     out.rules.push_back({std::move(s), decl});
                     out.rules.back().media = media;
+#if WEFT_DEVTOOLS
+                    out.rules.back().source = source;
+                    out.rules.back().selector_text = std::string(trim(items[item++]));
+#endif
                     rule_layers.push_back(layer);
                 }
             }
@@ -2230,8 +2443,18 @@ namespace weft {
                     nested.emplace_back(body.substr(p, end - p), body.substr(end + 1, close - end - 2));
                     p = close;
                 }
+#if WEFT_DEVTOOLS
+                source = locate(selectors, prelude_view, body);
+#endif
                 add_rules(selectors, declarations_text, layer, media);
+#if WEFT_DEVTOOLS
+                source.reset();
+#endif
                 for (const auto& [prelude, inner] : nested) {
+#if WEFT_DEVTOOLS
+                    position = offset_of(prelude.data());
+                    prelude_view = prelude;
+#endif
                     if (!prelude.empty() && prelude[0] == '@') {
                         at_rule(prelude.substr(1), inner, layer, media, depth + 1, &selectors);
                     } else {
@@ -2446,8 +2669,15 @@ namespace weft {
                 fail("stylesheet byte bound");
             }
             Sheet sheet;
+#if WEFT_DEVTOOLS
+            const CommentMap map(text);
+#endif
             text = comments(text, true);
             SheetParser parser{profile, sheet};
+#if WEFT_DEVTOOLS
+            parser.text_base = text;
+            parser.map = &map;
+#endif
             parser.block(text, 0, nullptr, 0, nullptr);
             parser.layers.rank();
             for (std::size_t i = 0; i < sheet.rules.size(); ++i) {
@@ -2465,6 +2695,9 @@ namespace weft {
             if (text.size() > constants::max_text_bytes) {
                 fail("stylesheet byte bound");
             }
+#if WEFT_DEVTOOLS
+            const CommentMap map(text);
+#endif
             text = comments(text, profile.scene_syntax);
             std::vector<Rule> out;
             std::size_t p{};
@@ -2501,8 +2734,20 @@ namespace weft {
                     fail("at-rule/nested rule outside profile");
                 }
                 auto decl = declarations(text.substr(b + 1, e - b - 1), profile);
+#if WEFT_DEVTOOLS
+                auto prelude_start = p;
+                while (prelude_start < b && std::isspace(static_cast<unsigned char>(text[prelude_start]))) {
+                    ++prelude_start;
+                }
+                const auto source =
+                    located_rule(trim(text.substr(p, b - p)), text, map, prelude_start, b, b + 1, e, profile);
+#endif
                 for (auto s : split(text.substr(p, b - p), ',')) {
                     out.push_back(selector(trim(s), decl, profile.scene_syntax));
+#if WEFT_DEVTOOLS
+                    out.back().source = source;
+                    out.back().selector_text = trim(s);
+#endif
                 }
                 if (out.size() > constants::style::max_rules) {
                     fail("rule bound");
@@ -5088,6 +5333,10 @@ namespace weft {
         // A sheet compiled for a profile: its rules, and for a forgiving profile their index, the sheet's registered
         // custom properties, its @keyframes and what it dropped.
         struct Compiled {
+#if WEFT_DEVTOOLS
+            std::string source_text;
+            std::vector<SheetProblem> problems;
+#endif
             std::vector<Rule> ua;
             std::vector<Rule> author;
             std::unique_ptr<RuleIndex> index;
@@ -5098,6 +5347,9 @@ namespace weft {
             Warnings warnings;
 
             Compiled(std::string sheet, const StyleProfile& profile) {
+#if WEFT_DEVTOOLS
+                source_text = sheet;
+#endif
                 // A forgiving profile's UA sheet takes its selectors (:focus-visible) as its author sheet does.
                 ua = profile.forgiving ? parse_sheet(profile.ua_stylesheet, profile).rules
                                        : rules(profile.ua_stylesheet, profile);
@@ -5112,6 +5364,9 @@ namespace weft {
                 font_faces = std::move(parsed.font_faces);
                 sized_media = parsed.sized_media;
                 warnings = std::move(parsed.warnings);
+#if WEFT_DEVTOOLS
+                problems = std::move(parsed.problems);
+#endif
                 index = std::make_unique<RuleIndex>(author);
             }
         };
@@ -5225,6 +5480,137 @@ namespace weft {
     }
 
     CompiledStyle::~CompiledStyle() = default;
+
+#if WEFT_DEVTOOLS
+    const std::string& CompiledStyle::source_text() const {
+        return impl_->compiled->source_text;
+    }
+
+    namespace {
+        bool path_to(const DomSnapshot& node, NodeIdentity target, std::vector<const DomSnapshot*>& path) {
+            path.push_back(&node);
+            if (node.identity == target) {
+                return true;
+            }
+            for (const auto& child : node.children) {
+                if (path_to(child, target, path)) {
+                    return true;
+                }
+            }
+            path.pop_back();
+            return false;
+        }
+    } // namespace
+
+    std::vector<MatchedRule> CompiledStyle::matched_rules(const DomSnapshot& root, NodeIdentity element) const {
+        std::vector<const DomSnapshot*> path;
+        if (!path_to(root, element, path)) {
+            return {};
+        }
+
+        struct Hit {
+            const Rule* rule{};
+            unsigned origin{};
+            unsigned order{};
+        };
+
+        std::vector<Hit> hits;
+        const auto& context = impl_->context;
+        const bool forgiving = impl_->profile.forgiving;
+        unsigned origin{};
+        for (const auto* list : {&impl_->ua, &impl_->author}) {
+            for (const auto& rule : *list) {
+                const bool holds =
+                    !rule.media || (forgiving && rule.media->holds(context.width, context.height, context.devices));
+                if (holds && rule.matches(path)) {
+                    hits.push_back({&rule, origin, unsigned(hits.size())});
+                }
+            }
+            ++origin;
+        }
+        // As Engine::compute ranks normal declarations: origin, layer, specificity, order.
+        std::sort(hits.begin(), hits.end(), [](const Hit& a, const Hit& b) {
+            const auto key = [](const Hit& h) {
+                const auto& s = h.rule->selector.specificity;
+                return std::array<unsigned, 6>{h.origin,       h.rule->layer,  unsigned(s[0]),
+                                               unsigned(s[1]), unsigned(s[2]), h.order};
+            };
+            return key(a) < key(b);
+        });
+        std::vector<MatchedRule> out;
+        out.reserve(hits.size());
+        for (const auto& hit : hits) {
+            out.push_back({hit.rule->source, hit.rule->selector_text, hit.origin == 0});
+        }
+        return out;
+    }
+
+    std::vector<std::shared_ptr<const RuleSource>> CompiledStyle::rule_sources() const {
+        std::vector<std::shared_ptr<const RuleSource>> out;
+        for (const auto& rule : impl_->author) {
+            if (rule.source && (out.empty() || out.back() != rule.source)) {
+                out.push_back(rule.source);
+            }
+        }
+        return out;
+    }
+
+    std::vector<std::pair<NodeIdentity, std::shared_ptr<const RuleSource>>>
+    CompiledStyle::unsupported_matches(const DomSnapshot& root) const {
+        std::vector<const Rule*> rules;
+        for (const auto& rule : impl_->author) {
+            if (rule.source && std::any_of(rule.source->declarations.begin(), rule.source->declarations.end(),
+                                           [](const WrittenDeclaration& w) {
+                                               return !w.supported;
+                                           })) {
+                rules.push_back(&rule);
+            }
+        }
+        std::vector<std::pair<NodeIdentity, std::shared_ptr<const RuleSource>>> out;
+        const auto& context = impl_->context;
+        const bool forgiving = impl_->profile.forgiving;
+        std::vector<const DomSnapshot*> path;
+        const auto visit = [&](auto&& self, const DomSnapshot& node) -> void {
+            path.push_back(&node);
+            if (node.type == constants::element_node_type) {
+                std::set<const RuleSource*> counted;
+                for (const auto* rule : rules) {
+                    const bool holds = !rule->media || (forgiving && rule->media->holds(context.width, context.height,
+                                                                                        context.devices));
+                    if (holds && rule->matches(path) && counted.insert(rule->source.get()).second) {
+                        out.emplace_back(node.identity, rule->source);
+                    }
+                }
+            }
+            for (const auto& child : node.children) {
+                self(self, child);
+            }
+            path.pop_back();
+        };
+        visit(visit, root);
+        return out;
+    }
+
+    std::vector<WrittenDeclaration> CompiledStyle::written_declarations(std::string_view text) const {
+        std::string stripped;
+        try {
+            stripped = comments(text, impl_->profile.scene_syntax);
+        } catch (const std::invalid_argument&) {
+            return {};
+        }
+        const CommentMap map(text);
+        auto out = written_declarations_in(stripped, impl_->profile);
+        for (auto& w : out) {
+            w.start = map.original(w.start);
+            w.end = map.original(w.end);
+        }
+        return out;
+    }
+
+    const std::vector<SheetProblem>& CompiledStyle::sheet_problems() const {
+        return impl_->compiled->problems;
+    }
+#endif
 
     std::vector<std::string> CompiledStyle::take_warnings() const {
         auto& warnings = impl_->compiled->warnings;

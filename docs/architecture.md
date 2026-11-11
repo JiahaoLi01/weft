@@ -395,6 +395,8 @@ SurfaceEpoch/MetricsRevision 与 DeviceEpoch 分开。输入事件携带相应�
 
 热重载构建新的 Document/VM 世代，校验后在安全点切换。失败保持原页面并显示诊断；旧请求、事件和 IME 会话不进入新世代。焦点和状态迁移按显式 key 策略，不能重新套用所有旧 NodeId。
 
+2026-11-10：开发版里已有一个实现，由开发者工具触发，见[开发者工具的热重载](devtools.md#热重载)。新世代是一个新的 View 对象，加载成功并发布出第一帧后才替换旧的；失败时恢复引擎通道的检查点。状态不迁移，页面要保留的状态放进 `sessionStorage`。
+
 JS 源码或 bundle 为基础资产格式，VM bytecode 仅作为绑定引擎版本与构建配置的可再生成缓存，不能当永久跨版本文件格式。默认不导出 QuickJS 的 shell、std 或 os 能力。
 
 ## 调试和证据
@@ -405,7 +407,7 @@ JS 源码或 bundle 为基础资产格式，VM bytecode 仅作为绑定引擎版
 
 2026-10-18 起 grid 不再是等列子集：`layout_boxes` 对网格容器按 CSS Grid 1 放置项目（§8.5）并跑轨道尺寸算法（§11），值的解析、放置与轨道尺寸在 [grid.hpp](../src/layout/grid.hpp)，只处理数值，与 Yoga 无关。网格节点在 Yoga 里仍是带测量函数的叶子（Yoga 不许测量节点有子节点）：测量时按 Yoga 给的确定宽度、最大内容或收缩适配算列，再算行。每个网格项有自己的 Yoga 根（`Node::area`），是与它的网格区域同大的列方向 flex 盒，由 Yoga 在其中拉伸或对齐项目，解析百分比尺寸与 auto 外边距；绝对定位的子项在同样的盒里按网格的内边距盒或行号围出的区域定位。列的贡献取适配器的内在宽度，行的贡献取项目在其列宽下的布局。宽松页面构建 scene 时丢弃适配器不接受的网格值（`drop_grid`，`WEFT_STYLE_DROPPED`），严格页面仍是诊断。
 
-先提供可序列化的 DOM、计算样式、布局盒、paint order、clip、资源账目和失效原因。trace 串联输入、JS task、同步 flush、style、layout、paint、upload、submit 与完成 serial。通过 CLI 或简单检查器使用，之后再决定是否实现 Chrome DevTools Protocol 子集。
+先提供可序列化的 DOM、计算样式、布局盒、paint order、clip、资源账目和失效原因。trace 串联输入、JS task、同步 flush、style、layout、paint、upload、submit 与完成 serial。通过 CLI 或简单检查器使用；2026-11-10 决定走 Chrome DevTools Protocol，并把引擎分成发布版和开发版两份二进制，见[开发者工具](devtools.md)。
 
 每份 FramePacket 可捕获元数据、必要资源和确定性时钟输入，以便离线 replay。初期捕获只覆盖测试资产，不能默认认为可以重放任意宿主纹理或回调。
 

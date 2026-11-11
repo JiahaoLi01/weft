@@ -1,6 +1,6 @@
 # Weft 当前状态
 
-更新日期：2026 年 11 月 9 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG 与移动尚未实现（键盘与焦点、文本框与输入法、手柄与空间导航已在 `input` 分支），仍未达到 M0 全部退出条件。
+更新日期：2026 年 11 月 10 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG 与移动尚未实现（键盘与焦点、文本框与输入法、手柄与空间导航已在 `input` 分支），仍未达到 M0 全部退出条件。
 
 ## 待办
 
@@ -16,6 +16,84 @@
 - **Android 示例应用与模拟器、真机运行**（2026-10-12）：需要下载 Android SDK 命令行工具、模拟器与系统镜像；NDK r30 已安装，交叉编译已验证。
 
 ## 本次已实现
+
+flex 项目的自动最小尺寸：项目里固定尺寸的块（2026-11-10，与开发者工具同在 `devtools` 分支的检出里；对比工具在示例页上发现，见下一条，所有页面受影响）。范围与仍是近似的部分见[兼容范围](compatibility.md#样式和布局)。
+- **问题**：flex 项目里是固定宽度的块时，项目被收缩到比这个块还窄。300px 宽、间距 12px 的行里三张内边距 8px、内含 140px 块的卡片，Weft 各 92px（在 0、104、208），Chrome 各 156px（在 0、168、336，溢出这一行）；给卡片写 `min-width: 0` 后两边都是 92px。
+- **原因**：适配层的内在尺寸预算（`src/layout/flex.cpp` 的 `intrinsic`）用同一个 `min_width` 表示两件事。带 px 宽度的盒子记的是 min(内容, 宽度)：作为这个盒子自己的自动最小值是对的，作为它对父级最小内容宽度的贡献是错的，空的 140px 块贡献成了 0。
+- **实现**（`src/layout/flex.cpp`，`flex.hpp` 只改注释）：
+  - **贡献与内容分开**：`min_width`、`max_width`、`intrinsic_height` 是盒子对父级内在尺寸的贡献（CSS Sizing 3 §5.1）：有 px 尺寸就是它，否则是内容的，再夹在 px 的最大、最小值之间（最小值压过最大值）；`box-sizing: border-box` 的尺寸不小于内边距与边框。新增 `auto_min_width`，与已有的 `auto_min_height` 并列，只记内容，是项目自己的自动最小值里的内容尺寸建议（CSS Flexbox 1 §4.5）；项目自身的尺寸在那里作为指定尺寸建议封顶。
+  - **列方向**：子项的纵向 px 外边距计入容器的内在高度（不折叠，与 Yoga 的排法一致）；px 的 `min-height`、`max-height` 同样夹住贡献。固定高度的子块此前已经计入。
+  - **百分比封顶**：项目的百分比 `width`（指定尺寸建议）和百分比 `max-width`、`max-height`，在容器尺寸布局前已知时给最小值封顶（行：容器的内容宽度已知且容器自己不是行里的弹性项目，与图片分支原有的判断共用 `percentage_basis`；列：`known_heights`）。行宽只在布局中才知道时，内容不能变窄（最小内容宽等于最大内容宽）、宽度与基准都是 `auto` 的项目遇到百分比 `max-width`，改为不收缩、不设最小值：它的假设尺寸就是内容宽度夹在最大值里，与自动最小值相同；其余情形百分比不封顶，与此前一样。这一条是因为内容的最小值变大后，`max-width: 100%`、`width: N%` 的项目会被里面更大的固定块撑过自己的尺寸，有 4 类此前碰巧正确的情形变错。
+  - **图片**：`<img>` 沿用自己那一支算好的贡献。百分比 `width` 或 `max-width` 的图片没有最小内容宽度，`width` 属性不改变这一点（img 夹具的 random 113 检查到）。
+  - **同一处内在宽度的其他用处**随之变对：行内块等原子内联的收缩适配、行内表格单元格的最小内容宽、网格轨道的内容贡献，里面有固定宽度的块时不再窄于它。
+  - 尺寸关键词（`min-content`、`max-content`）解析出的值不变；`resolve_sizing` 改为返回解析结果，由 `intrinsic` 统一计入贡献。
+- **验证**（macOS 26.6，Apple M5，Chrome 157）：
+  - `flex_browser_diff`：共享夹具（`tests/fixtures/flex_layout_cases.json`）加 37 例（`auto-min-*` 与 `min-content-width-fixed-block`）：上面的页面及 `min-width: 0`、`flex: 1` 的版本，项目自身的宽度与 `max-width` 封顶，块套块、px 宽度的外层，嵌套的行、列与换行的 flex 容器，子项的 `min-width`、`max-width`、外边距、两种 `box-sizing` 的内边距，带 px 宽度或 `max-width` 的文字，百分比 `width` 与 `max-width`（含宽度由弹性分配的行），网格项目，`width: min-content`；列方向的同一页面，子项的外边距、`min-height`、`max-height`，百分比 `max-height`。参考用本机 Chrome 157 headless 按[探针文档](layout-text-probes.md)的 `--dump-dom` 流程重录（`tools/extract_flex_reference.py`），原有 62 例与 Chrome 155 的旧参考逐值相同；99 例 1797 个值都在 0.025 CSS px 内。换回改动前的适配层是 70/99：新增的 29 例不通过，另 8 例是对照（`min-width: 0`、百分比上限等此前就对的情形）。
+  - `box_layout_contract`：新增 `fixed_blocks_hold_flex_items`（视口 800×500、`border-box` 的上述页面，列方向的外边距，弹性分配的行里的百分比 `max-width`，收缩适配的根与 `layout_intrinsic_widths`）。
+  - 对比工具（`tools/devtools_compare.mjs`，开发版，800×500）：上面的页面 8 个元素 0 处差异，列方向 22 个元素 0 处；百分比、子项最小宽度、行内块、网格混在一起的页面 43 个元素 0 处；行内块、行内表格单元格包着固定块的页面 16 个元素 0 处。示例页 effects 99 个元素 0 处差异；animate 那一行的卡片是 260、120、260、120px，与 Chrome 相同，剩下自身有差异的 12 个元素是外边距不折叠（高 6px）和 `system-ui` 的文字宽度；img 中间的卡片保持 200px，与 Chrome 相同，两侧的卡片仍是 387.9 / 144.1px 对 384.33 / 147.67px：第一张卡片里那行 `system-ui` 文字不收缩时 Weft 434.02px、Chrome 423px，另有约 1px 来自下面的收缩权重。改动前的数是用未改动的引擎按同样的做法量的（同一份文档、同样的 Chrome 外壳）：effects 的卡片 97.71px（Chrome 156px），animate 的卡片 227.53、105.01、227.53、159.93px，行内块与行内表格单元格都是 100px（Chrome 150px、148px）。
+  - 已有夹具逐元素比较改动前后：`scene_rtl_box_reference.json` 的 316 例里 20 例（10 棵随机树的两个方向）由不一致变为与 Chrome 一致，没有反过来的，`scene_rtl_box_browser_contract` 比较的随机树从 101 棵增加到 111 棵；`scene_img_browser_contract` 的 144 个排版用例输出不变。
+  - 全量 `ctest -j8`：`build/macos-release`（Release）89/97，`build/macos-dev`（开发版）91/99，不含开发者工具改动的 Debug 构建 87/95；失败的都是原来那 8 项 fixture 检查。
+- **未验证**：Windows（本机不能构建；只在 Windows 上注册的场景对照，如 `scene_browser_geometry`、`scene_cluster_browser_contract`、`katex_browser_reference`、`web_platform_contract`，没有运行，其中 flex 项目包着固定块的页面结果可能改变）、Android、iOS。
+- **这次改动留下的近似**：行的宽度只在布局中才知道时（这一行是弹性项目、在纵向 flex 里被拉伸、或由左右 inset 定宽），项目的百分比 `width` 不给最小值封顶。在 150px 宽的纵向 flex 里被拉伸的行中，`width: 80%`、内含 140px 块的项目，Chrome 120px，Weft 140px；改动前是 81.8px，差在另一个方向，文字内容此前就是这样被撑宽的。要补上，或者把更多布局前已知的宽度算进适配层，或者让 Yoga 在布局时给自动最小值封顶。
+- **仍与 Chrome 不同，不是这次改动造成的**（比较时看到，都有最小复现）：
+  - **收缩的权重**：Yoga 按边框盒的基准给 `flex-shrink` 加权，CSS 按内容盒。100px 的行里 `width: 60px; padding: 0 20px` 与 `width: 100px` 两项（都 `min-width: 0`），Chrome 62.5 / 37.5px，Weft 50 / 50px。
+  - **反向主轴上的 `start`、`end`**：`row-reverse` 里 `justify-content: start` 应靠书写方向的起点（左），现在映射成 `flex-start`（右）；`end` 相反。
+  - **列里的百分比 `max-height`**：`height: 90px; max-height: 50%` 的项目旁边 `height: 30px` 的兄弟（两项都 `min-height: 0`），在 100px 高的列里 Chrome 30px，Weft 50px（Yoga，改动前后相同）。
+  - **px 宽度上的尺寸关键词**：`width: 60px; min-width: min-content`（内容 160px）Chrome 160px，Weft 60px；`width: 200px; max-width: max-content`（内容 80px）Chrome 80px，Weft 200px。
+  - **自动最小高度里的行数**：带 px 宽度的文字盒、`flex: 1` 项目里换行的 flex 行都只算一行。
+  - **可换行文字的 flex 基准**：Yoga 把它收缩适配到容器宽度，CSS 取最大内容宽度。150px 的行里 10 个字符宽 200px 的文字与 `width: 100px` 的项目，Chrome 100 / 50px，Weft 90 / 60px。
+
+开发者工具第二阶段：热重载、资源走开发连接、和 Chrome 对比（2026-11-10，`devtools` 分支）。用法和设计见[开发者工具](devtools.md#热重载)。
+- **实现**（只在开发版里）：
+  - `src/view`：`View::inspect_restyle` 先用新样式表把场景做出来，成功才换，图片和字体随之重读；工具送来的文件按解析后的路径盖住宿主的读取器；View 记住最近一次加载的页面；`inspect_adopt` 让顶替的 View 接过时间、`sessionStorage`、剪贴板文本和工具日志。
+  - `src/core`：`reload_view` 在一个新的 View 里试加载页面，加载成功并发布出第一帧后才替换旧的。失败时恢复引擎通道的检查点（`EngineChannel::checkpoint` / `restore`），旧页面的调用和排队的输入都还在。宿主再次加载同一页（按 `base`）时，由工具送来的页面顶替。
+  - `src/devtools`：`CSS.setStyleTexts`（样式表）、`setStyleSheetText`、`setRuleSelector`、`addRule`、`createStyleSheet`、`styleSheetChanged`；注释里的声明读成停用项；`Page.reload`；`Weft.getPage`、`setPage`、`setStyleSheet`、`setResources`、`getSnapshot`。监听所有网卡时同时接受 IPv6，入站消息上限提到 64 MB。
+  - 新工具：`tools/devtools_watch.mjs`（监视页面文件夹并推送）、`tools/devtools_compare.mjs`（同一份文档在 Chrome 里重排，逐元素比较盒子）。
+- **发布版也有的改动**：
+  - 图片读不到时的诊断里，长路径保留末尾 64 个字符而不是开头。文件名在末尾，原来的写法在路径长的平台上（iOS 的包路径）看不到是哪个文件。
+  - `runtime.cpp` 里创建 View 的代码提成了函数，行为不变。
+- **验证**（macOS 26.6，Apple M5，Release）：
+  - `ctest`：发布版 89/97，开发版 91/99（多 `devtools_protocol`、`devtools_reload`）。失败的都是那 8 项 `fixture_integrity` / `gallery_source_integrity` 哈希检查。
+  - `devtools_reload` 经 C API 确认：抛错的页面和样式表出错的页面都不加载，旧页面的脚本状态不变，它发出的引擎调用之后仍能完成；工具断开后宿主的页面恢复。
+  - 端到端（`tools/devtools_watch_check.mjs`，29 项；宿主是没有窗口的 `weft_devtools_host`，监视工具盯着一个文件夹，直接改文件、切页面）：存 CSS 后几毫秒换好样式且状态保留；存 JS 后重载；写坏的 JS 不加载并报出行号；新图片送达且页面不重载；游戏切到另一页期间存的内容只是存下，切回来才生效。
+  - Chrome 157 自带的前端里改值、停用声明、改选择器都生效。
+  - 对比工具在测试页上 0 处差异，在专门写的外边距页面上列出 3 处。
+  - 发布版仍然没有 socket 调用和工具字符串，库的大小没变（7,486,480 字节）；两版导出的 79 个符号相同；animate、effects 两个示例页两版画出的截图逐字节相同。开发版的库是 7,952,272 字节。
+- **试用时发现并修掉的漏洞**（用户在示例窗口里按数字键切了页面）：游戏切到别的页面后，监视工具再推送样式表或页面，会套到正在显示的那一页上。现在引擎按 `base` 判断：正在显示的不是被顶替的那一页时，送来的内容只存下（返回 `deferred`），宿主切回来才生效；存下的页面那时加载失败就退回宿主自己的页面。监视工具会打印游戏切走和切回，启动时页面对不上就先等。晚连上的工具可以不收之前的 Console 输出（`Runtime.discardConsoleEntries`）。
+  - 修复和 flex 的修复合在一起后重新验证：`ctest` 发布版 89/97、开发版 91/99；端到端 29 项；`runtime.cpp` 在不带工具时的预处理结果和修复前逐字节相同；两版导出的 79 个符号相同，animate、effects、img 三个示例页两版截图逐字节相同。
+- **用对比工具发现的引擎差异**：
+  - flex 项目里是固定宽度的块时，Weft 会把项目收缩到比这个块还窄，Chrome 的 `min-width: auto` 不允许。已在上面“flex 项目的自动最小尺寸”一条里修掉；修之后最小复现和 effects 示例页都是 0 处差异。
+  - `system-ui` 的文字宽度和 Chrome 不同（touch 示例页的标题 66.77px 对 62.34px），原因没有查，没有修。
+- **未验证**：iPad。开发版示例已构建成功，但设备锁定，无线安装失败，设备上的监听、推送和对比都没有跑。Windows、Linux、Android 仍未编译。
+
+开发者工具第一阶段：协议通道和元素面板（2026-11-10，`devtools` 分支）。方案和尚缺的内容见[开发者工具](devtools.md)。
+- **实现**（只在开发版里）：
+  - `src/devtools`：HTTP 和 WebSocket 服务（`server.cpp`）、Chrome DevTools Protocol（`agent.cpp`）、JSON（`json.cpp`）。
+  - `src/style`：解析时记录规则和声明的来源（注释已去掉的文本映射回原文的偏移）；`CompiledStyle::matched_rules` 用和级联相同的选择器匹配与 `@media` 判断列出命中的规则。
+  - `src/view`：`View::inspect_*`，包括工具用的诊断日志、不进 DOM 的高亮层（在发布帧时接到页面场景之后）和点选模式。
+  - 新工具：`tools/devtools_frontend_check.mjs`（用 Chrome 自带前端实测）、`tools/devtools_report.mjs`（兼容报告，可放进 CI）、`tools/browser_devtools_reference.mjs`（录制 Chrome 的结果）。
+- **验证**（macOS 26.6，Apple M5，Release）：
+  - Chrome 156 自带的前端实际连上 Weft 页面：DOM 树、命中规则（行号正确）、用户代理样式、继承、未支持的声明、Console 的警告和输出都正常显示。
+  - Metal 真实渲染的帧里有高亮的四层盒子和标签。
+  - `devtools_protocol`：DOM 与变化事件、与 Chrome 对比的 6 个元素（规则顺序、声明、值、`!important`、行列号、盒模型）、未支持的声明、控制台、高亮、点选、错误处理、拒绝其他来源的页面。
+  - 发布版仍然没有 socket 调用和工具字符串，两版导出的 79 个符号相同，同一页面两版画出的截图逐字节相同。
+  - `ctest`：发布版 89/97，开发版 90/98（多 `devtools_protocol`）。失败的都是那 8 项 `fixture_integrity` / `gallery_source_integrity` 哈希检查。
+- **发现的问题，不在这次范围内**：相邻块元素的外边距没有折叠（Chrome 会折叠）；场景根元素的宽度被视口覆盖（`#root` 写了 400px 仍按 800px 排版）。测试页已经避开这两点。
+- **未验证**：Windows、Linux、Android 上的编译和运行；iPad 上连接工具。
+
+开发者工具的两版二进制（2026-11-10，`devtools` 分支；用户要求玩家拿到的游戏不带工具开销，不预设宿主，只有 DLL 也能选）。方案和功能清单见[开发者工具](devtools.md)，协议和面板还没有做。
+- **实现**：
+  - 构建选项 `WEFT_DEVTOOLS`（默认关）决定二进制里有没有工具代码。两版的头文件和导出相同，换文件就能切换。
+  - 公开接口：`weft_get_build_info`、`weft_devtools_start`、`weft_devtools_stop`、`weft_devtools_get_info`、错误码 `WEFT_UNAVAILABLE`。发布版的三个 `weft_devtools_*` 只返回这个错误码。
+  - 开发版默认不监听，由宿主调用或环境变量 `WEFT_DEVTOOLS_LISTEN` 打开。
+  - 新的共享库目标 `weft_shared`，只导出公开头文件声明的函数（`cmake/WeftExports.cmake` 从头文件生成列表）。此前仓库里没有共享库目标，`weft.dll` 由宿主工程的脚本构建，那条路径没有变。
+- **验证**（macOS 26.6，Apple M5，Release，后端选项相同的两个构建目录）：
+  - 同一个 C 宿主（只包含 `include/weft`，编译一次）分别加载两版 `libweft.dylib`，行为符合各自的版本。
+  - 两版导出的 79 个符号相同。
+  - 发布版没有 socket 调用，也没有工具相关的字符串；开发版有 7 个 socket 调用。库大小 7,486,384 和 7,489,328 字节，现在开发版的工具代码还很少。
+  - 示例程序的代码不变，只设环境变量：开发版能用 curl 取到 `/json/version`，发布版连不上。两版在同一页面画出的截图逐字节相同。
+  - `ctest` 两版都是 89/97（新增 2 个）。失败的 8 项是 `react`、`cheetah`、`cheetah_alert`、`style`、`auto`、`flow`、`canvas_browser` 的 `fixture_integrity` 和 `gallery_source_integrity` 哈希检查，它们校验的文件这次没有动。
+- **未验证**：Windows（`.def` 导出和 Winsock 代码没有编译过，`WEFT_BUILD_SHARED` 默认关闭）；Linux 和 Android 的链接脚本；iOS 上的环境变量和静态库二选一。
 
 main 在 Windows 上的 4 个问题（2026-11-09；`80d64858` 那批改动是在 macOS 上开发的，`tests/CMakeLists.txt` 的 `if(WIN32)` 块里的测试当时没有跑）。
 - **`display:none` 的子元素**：`collect_boxes` 的混合内容分支跳过 `display:none` 的子元素，没有像另外两个分支那样清掉旧布局，增量布局与全量不同，脚本读隐藏元素的几何读到旧值（`incremental_contract`，种子 49 第 23 步）。

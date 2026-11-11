@@ -7,6 +7,7 @@
 #include "constants/bridge.hpp"
 #include "constants/canvas.hpp"
 #include "constants/core.hpp"
+#include "constants/devtools.hpp"
 #include "constants/input.hpp"
 #include "constants/layout.hpp"
 #include "constants/render.hpp"

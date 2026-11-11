@@ -57,6 +57,17 @@ namespace {
         }
 
         std::vector<weft::BoxGeometry> layout(std::optional<std::array<float, 2>> viewport = std::nullopt) const {
+            weft::LayoutOptions options;
+            options.viewport = viewport;
+            return layout(options);
+        }
+
+        std::vector<weft::BoxGeometry> layout(const weft::LayoutOptions& options) const;
+        weft::IntrinsicWidths intrinsic_widths() const;
+
+        // f with the tree's text system.
+        template <class F>
+        auto measured(F&& f) const {
             // Text never wraps unless it is wrapping text: one line, as wide as its characters.
             const auto lines = [&](std::size_t i, float available) {
                 if (!wrapping) {
@@ -88,11 +99,21 @@ namespace {
             const auto wraps = [&](std::size_t) {
                 return wrapping;
             };
-            weft::LayoutOptions options;
-            options.viewport = viewport;
-            return weft::layout_boxes(boxes, {lines, min_content, wraps}, options);
+            return f(weft::TextMeasurer{lines, min_content, wraps});
         }
     };
+
+    std::vector<weft::BoxGeometry> Tree::layout(const weft::LayoutOptions& options) const {
+        return measured([&](const weft::TextMeasurer& text) {
+            return weft::layout_boxes(boxes, text, options);
+        });
+    }
+
+    weft::IntrinsicWidths Tree::intrinsic_widths() const {
+        return measured([&](const weft::TextMeasurer& text) {
+            return weft::layout_intrinsic_widths(boxes, text);
+        });
+    }
 
     void rejected(const Tree& tree, const char* expected, const char* message) {
         bool matched{};
@@ -232,6 +253,64 @@ namespace {
             require(g[item].height == 100, framed ? "the svg's unknown height passed its 34px frame"
                                                   : "the specified size did not bound an unknown content minimum");
         }
+    }
+
+    // A block of a px size holds the flex item around it (CSS Flexbox 1 §4.5 with CSS Sizing 3 §5.1): the item's
+    // automatic minimum is its content's min-content size, to which a child of a px size contributes that size whatever
+    // it holds. The scene page that showed it (box-sizing: border-box on every box, the root the viewport's size): cards
+    // of padding 8px around blocks 140px wide, 12px apart in a row 300px wide, keep 156px and overflow the row; with
+    // min-width: 0 they share it. In a column a child's margins count. A percentage max-width of the item caps the
+    // minimum, in a row whose width only layout gives too. A root that shrinks to fit is no narrower than the block.
+    // Geometry is the Chrome fixture's (flex_browser_diff, auto-min-fixed-block and the cases after it).
+    void fixed_blocks_hold_flex_items() {
+        for (const bool zero : {false, true}) {
+            Tree t;
+            const auto root = t.add(none, {{"display", "block"}, {"box-sizing", "border-box"}});
+            const auto row = t.add(
+                root, {{"display", "flex"}, {"box-sizing", "border-box"}, {"gap", "12px"}, {"width", "300px"}});
+            std::array<std::size_t, 3> cards{};
+            for (auto& card : cards) {
+                weft::StyleValues style{{"display", "block"}, {"box-sizing", "border-box"}, {"padding", "8px"}};
+                if (zero) {
+                    style["min-width"] = "0";
+                }
+                card = t.add(row, std::move(style));
+                t.add(card, {{"display", "block"}, {"box-sizing", "border-box"}, {"width", "140px"}, {"height", "20px"}});
+            }
+            const auto g = t.layout(std::array{800.f, 500.f});
+            const float width = zero ? 92 : 156;
+            for (std::size_t i = 0; i < cards.size(); ++i) {
+                require(g[cards[i]].width == width && g[cards[i]].left == float(i) * (width + 12),
+                        zero ? "cards of min-width 0 did not share the row"
+                             : "a flex item shrank below the block of a px width in it");
+            }
+        }
+        Tree column;
+        const auto root =
+            column.add(none, {{"display", "flex"}, {"flex-direction", "column"}, {"width", "300px"}, {"height", "60px"}});
+        const auto card = column.add(root, {{"display", "block"}, {"flex", "1"}});
+        column.add(card, {{"display", "block"}, {"height", "40px"}, {"margin-top", "10px"}, {"margin-bottom", "5px"}});
+        const auto other = column.add(root, {{"display", "block"}, {"height", "50px"}});
+        const auto c = column.layout();
+        require(c[card].height == 55 && c[other].height == 5, "a child's margins are part of the item's minimum height");
+
+        Tree capped;
+        const auto outer = capped.add(none, {{"display", "flex"}, {"width", "300px"}});
+        const auto mid = capped.add(outer, {{"display", "flex"}, {"flex", "1"}, {"min-width", "0"}});
+        const auto item = capped.add(mid, {{"display", "block"}, {"max-width", "80%"}});
+        capped.add(item, {{"display", "block"}, {"width", "300px"}, {"height", "10px"}});
+        capped.add(outer, {{"display", "block"}, {"width", "100px"}, {"height", "20px"}});
+        const auto p = capped.layout();
+        require(p[mid].width == 200 && p[item].width == 160, "a percentage max-width did not cap the item's minimum");
+
+        Tree fit;
+        const auto box = fit.add(none, {{"display", "block"}, {"padding-left", "5px"}, {"padding-right", "5px"}});
+        fit.add(box, {{"display", "block"}, {"width", "140px"}, {"height", "10px"}});
+        weft::LayoutOptions options;
+        options.fit_width = 100;
+        const auto widths = fit.intrinsic_widths();
+        require(fit.layout(options)[box].width == 150 && widths.min == 150 && widths.max == 150,
+                "a root that shrinks to fit is narrower than the block of a px width in it");
     }
 
     // A block whose children are all inline-level places them on one top-aligned line.
@@ -375,6 +454,7 @@ int main() {
         grid_places_visible_children();
         grid_diagnostics();
         unknown_sizes_stop_at_px_boxes();
+        fixed_blocks_hold_flex_items();
         inline_children_share_a_line();
         svg_sizes_from_attributes_and_ratio();
         transform_forms_containing_block();

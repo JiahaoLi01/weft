@@ -196,6 +196,52 @@ namespace weft {
         std::string unicode_range;
     };
 
+#if WEFT_DEVTOOLS
+    // What the developer tools read of style sheets (docs/devtools.md). The release build keeps none of it.
+    //
+    // A declaration as a sheet wrote it: its name, its value without !important and its whole text; whether the engine
+    // takes it and why not when it does not; the longhands it stands for (name and value, itself when it is one); and
+    // where it is in the text, [start, end).
+    struct WrittenDeclaration {
+        std::string name;
+        std::string value;
+        std::string text;
+        bool important{};
+        bool supported{};
+        std::string reason;
+        std::vector<std::pair<std::string, std::string>> longhands;
+        std::size_t start{};
+        std::size_t end{};
+    };
+
+    // A style rule as a sheet wrote it, shared by the rules of its selector list: the list (with its nesting resolved),
+    // its place in the text, what is between its braces, and its declarations. located is false for declarations gathered
+    // from several places (those directly in a nested at-rule), which have no one place.
+    struct RuleSource {
+        std::string selector;
+        bool located{};
+        std::size_t selector_start{};
+        std::size_t selector_end{};
+        std::size_t body_start{};
+        std::size_t body_end{};
+        std::vector<WrittenDeclaration> declarations;
+    };
+
+    // A rule that matches an element: where it is written, the selector of its list that matched, and whether it is the
+    // user agent's sheet's.
+    struct MatchedRule {
+        std::shared_ptr<const RuleSource> source;
+        std::string selector;
+        bool user_agent{};
+    };
+
+    // What a sheet's parser could not take other than a declaration (a selector, an at-rule...), and where.
+    struct SheetProblem {
+        std::string message;
+        std::size_t offset{};
+    };
+#endif
+
     class CompiledStyle {
     public:
         CompiledStyle(std::string author_stylesheet, StyleProfile profile);
@@ -239,6 +285,24 @@ namespace weft {
         // sheet changed its outcome: the next cascade is to start over (without a previous document), as the rules
         // that match changed.
         bool set_viewport(float width, float height, const InputDevices& devices = {});
+
+#if WEFT_DEVTOOLS
+        // The sheet as it was given.
+        const std::string& source_text() const;
+        // The rules that match an element of root under the viewport this cascade last read, lowest in the cascade
+        // first: the same selector matching and @media conditions as the cascade. Nothing for a node root does not hold.
+        std::vector<MatchedRule> matched_rules(const DomSnapshot& root, NodeIdentity element) const;
+        // Every author rule's source once, in the sheet's order.
+        std::vector<std::shared_ptr<const RuleSource>> rule_sources() const;
+        // The author rules with a declaration the engine does not take that match each element of root: the element
+        // and the rule's source, in tree order.
+        std::vector<std::pair<NodeIdentity, std::shared_ptr<const RuleSource>>>
+        unsupported_matches(const DomSnapshot& root) const;
+        // A declaration list (a style attribute, a rule's block) as this sheet's profile takes it: its comments go as
+        // a sheet's do, and the places are those of the text given.
+        std::vector<WrittenDeclaration> written_declarations(std::string_view text) const;
+        const std::vector<SheetProblem>& sheet_problems() const;
+#endif
 
     private:
         struct Impl;

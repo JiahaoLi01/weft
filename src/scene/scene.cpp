@@ -5446,6 +5446,12 @@ namespace weft {
         impl_->text = &text;
     }
 
+#if WEFT_DEVTOOLS
+    const CompiledStyle& SceneSolver::compiled_style() const {
+        return *impl_->compiled;
+    }
+#endif
+
     std::vector<std::string> SceneSolver::take_warnings() {
         auto& i = *impl_;
         i.owner.require(Diag::SceneOwner);

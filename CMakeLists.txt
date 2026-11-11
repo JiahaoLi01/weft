@@ -11,6 +11,16 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 option(WEFT_BUILD_TESTS "Build Weft behavior tests" ON)
 option(WEFT_BUILD_PROBES "Build architecture probes" ON)
 option(WEFT_BUILD_SAMPLES "Build host samples (Windows, where the engine host also needs the Vulkan backend; macOS and iOS with the Metal backend)" ON)
+# The two builds of the engine (docs/devtools.md): OFF is what a game ships, with no developer tools code at all; ON adds
+# them, off until asked for. The public headers and exports are the same in both.
+option(WEFT_DEVTOOLS "Build the developer tools into the engine" OFF)
+# The engine as one shared library (weft.dll, libweft.dylib), for hosts that take a binary. Only macOS has been built.
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    set(weft_shared_default ON)
+else()
+    set(weft_shared_default OFF)
+endif()
+option(WEFT_BUILD_SHARED "Build the engine as one shared library" ${weft_shared_default})
 
 if(APPLE)
     # The Metal backend and the Apple host samples are Objective-C++ (src/render/backends/metal, samples/macos-host,
@@ -36,6 +46,7 @@ include(WeftShaders)
 include(WeftSpirv)
 include(WeftMetal)
 include(WeftEffects)
+include(WeftExports)
 
 if(WEFT_BUILD_TESTS)
     enable_testing()

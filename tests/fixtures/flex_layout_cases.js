@@ -1924,7 +1924,1618 @@ globalThis.caseElephantFlexFixture = {
           }
         ]
       }
+    },
+    {
+      "id": "auto-min-fixed-block",
+      "root": {
+        "id": "root",
+        "style": {
+          "box-sizing": "border-box",
+          "display": "block",
+          "width": "800px",
+          "height": "500px"
+        },
+        "children": [
+          {
+            "id": "row",
+            "style": {
+              "box-sizing": "border-box",
+              "display": "flex",
+              "gap": "12px",
+              "width": "300px"
+            },
+            "children": [
+              {
+                "id": "card0",
+                "style": {
+                  "box-sizing": "border-box",
+                  "padding": "8px"
+                },
+                "children": [
+                  {
+                    "id": "inner0",
+                    "style": {
+                      "display": "block",
+                      "box-sizing": "border-box",
+                      "width": "140px",
+                      "height": "20px"
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "card1",
+                "style": {
+                  "box-sizing": "border-box",
+                  "padding": "8px"
+                },
+                "children": [
+                  {
+                    "id": "inner1",
+                    "style": {
+                      "display": "block",
+                      "box-sizing": "border-box",
+                      "width": "140px",
+                      "height": "20px"
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "card2",
+                "style": {
+                  "box-sizing": "border-box",
+                  "padding": "8px"
+                },
+                "children": [
+                  {
+                    "id": "inner2",
+                    "style": {
+                      "display": "block",
+                      "box-sizing": "border-box",
+                      "width": "140px",
+                      "height": "20px"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-fixed-block-min-zero",
+      "root": {
+        "id": "root",
+        "style": {
+          "box-sizing": "border-box",
+          "display": "block",
+          "width": "800px",
+          "height": "500px"
+        },
+        "children": [
+          {
+            "id": "row",
+            "style": {
+              "box-sizing": "border-box",
+              "display": "flex",
+              "gap": "12px",
+              "width": "300px"
+            },
+            "children": [
+              {
+                "id": "card0",
+                "style": {
+                  "box-sizing": "border-box",
+                  "padding": "8px",
+                  "min-width": "0"
+                },
+                "children": [
+                  {
+                    "id": "inner0",
+                    "style": {
+                      "display": "block",
+                      "box-sizing": "border-box",
+                      "width": "140px",
+                      "height": "20px"
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "card1",
+                "style": {
+                  "box-sizing": "border-box",
+                  "padding": "8px",
+                  "min-width": "0"
+                },
+                "children": [
+                  {
+                    "id": "inner1",
+                    "style": {
+                      "display": "block",
+                      "box-sizing": "border-box",
+                      "width": "140px",
+                      "height": "20px"
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "card2",
+                "style": {
+                  "box-sizing": "border-box",
+                  "padding": "8px",
+                  "min-width": "0"
+                },
+                "children": [
+                  {
+                    "id": "inner2",
+                    "style": {
+                      "display": "block",
+                      "box-sizing": "border-box",
+                      "width": "140px",
+                      "height": "20px"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-fixed-block-basis-zero",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "width": "300px"
+        },
+        "children": [
+          {
+            "id": "card0",
+            "style": {
+              "flex": "1"
+            },
+            "children": [
+              {
+                "id": "inner0",
+                "style": {
+                  "display": "block",
+                  "width": "140px",
+                  "height": "20px"
+                }
+              }
+            ]
+          },
+          {
+            "id": "card1",
+            "style": {
+              "flex": "1"
+            },
+            "children": [
+              {
+                "id": "inner1",
+                "style": {
+                  "display": "block",
+                  "width": "140px",
+                  "height": "20px"
+                }
+              }
+            ]
+          },
+          {
+            "id": "card2",
+            "style": {
+              "flex": "1"
+            },
+            "children": [
+              {
+                "id": "inner2",
+                "style": {
+                  "display": "block",
+                  "width": "140px",
+                  "height": "20px"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-width-under-fixed-block",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "width": "150px"
+        },
+        "children": [
+          {
+            "id": "card0",
+            "style": {
+              "width": "100px"
+            },
+            "children": [
+              {
+                "id": "inner0",
+                "style": {
+                  "display": "block",
+                  "width": "140px",
+                  "height": "20px"
+                }
+              }
+            ]
+          },
+          {
+            "id": "card1",
+            "style": {
+              "width": "100px"
+            },
+            "children": [
+              {
+                "id": "inner1",
+                "style": {
+                  "display": "block",
+                  "width": "140px",
+                  "height": "20px"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-width-over-fixed-block",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "width": "150px"
+        },
+        "children": [
+          {
+            "id": "card0",
+            "style": {
+              "width": "100px"
+            },
+            "children": [
+              {
+                "id": "inner0",
+                "style": {
+                  "display": "block",
+                  "width": "40px",
+                  "height": "20px"
+                }
+              }
+            ]
+          },
+          {
+            "id": "card1",
+            "style": {
+              "width": "100px"
+            },
+            "children": [
+              {
+                "id": "inner1",
+                "style": {
+                  "display": "block",
+                  "width": "40px",
+                  "height": "20px"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-max-width-under-fixed-block",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "width": "150px"
+        },
+        "children": [
+          {
+            "id": "card0",
+            "style": {
+              "max-width": "100px"
+            },
+            "children": [
+              {
+                "id": "inner0",
+                "style": {
+                  "display": "block",
+                  "width": "140px",
+                  "height": "20px"
+                }
+              }
+            ]
+          },
+          {
+            "id": "card1",
+            "style": {
+              "max-width": "100px"
+            },
+            "children": [
+              {
+                "id": "inner1",
+                "style": {
+                  "display": "block",
+                  "width": "140px",
+                  "height": "20px"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-nested-blocks",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "width": "150px"
+        },
+        "children": [
+          {
+            "id": "card",
+            "children": [
+              {
+                "id": "wrap",
+                "style": {
+                  "display": "block",
+                  "padding-left": "5px",
+                  "padding-right": "5px"
+                },
+                "children": [
+                  {
+                    "id": "inner",
+                    "style": {
+                      "display": "block",
+                      "width": "140px",
+                      "height": "20px"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "other",
+            "style": {
+              "width": "100px",
+              "height": "20px"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-nested-fixed-wrapper",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "width": "150px"
+        },
+        "children": [
+          {
+            "id": "card",
+            "children": [
+              {
+                "id": "wrap",
+                "style": {
+                  "display": "block",
+                  "width": "100px"
+                },
+                "children": [
+                  {
+                    "id": "inner",
+                    "style": {
+                      "display": "block",
+                      "width": "140px",
+                      "height": "20px"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "other",
+            "style": {
+              "width": "100px",
+              "height": "20px"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-nested-flex-row-fixed",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "width": "100px"
+        },
+        "children": [
+          {
+            "id": "card",
+            "style": {
+              "display": "flex",
+              "gap": "10px"
+            },
+            "children": [
+              {
+                "id": "a",
+                "style": {
+                  "width": "80px",
+                  "height": "20px"
+                }
+              },
+              {
+                "id": "b",
+                "style": {
+                  "width": "80px",
+                  "height": "20px"
+                }
+              }
+            ]
+          },
+          {
+            "id": "other",
+            "style": {
+              "width": "100px",
+              "height": "20px"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-nested-flex-column-fixed",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "width": "100px"
+        },
+        "children": [
+          {
+            "id": "card",
+            "style": {
+              "display": "flex",
+              "flex-direction": "column"
+            },
+            "children": [
+              {
+                "id": "a",
+                "style": {
+                  "width": "80px",
+                  "height": "10px"
+                }
+              },
+              {
+                "id": "b",
+                "style": {
+                  "width": "120px",
+                  "height": "10px"
+                }
+              }
+            ]
+          },
+          {
+            "id": "other",
+            "style": {
+              "width": "100px",
+              "height": "20px"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-nested-flex-wrap-fixed",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "width": "100px"
+        },
+        "children": [
+          {
+            "id": "card",
+            "style": {
+              "display": "flex",
+              "flex-wrap": "wrap"
+            },
+            "children": [
+              {
+                "id": "a",
+                "style": {
+                  "width": "80px",
+                  "height": "10px"
+                }
+              },
+              {
+                "id": "b",
+                "style": {
+                  "width": "120px",
+                  "height": "10px"
+                }
+              }
+            ]
+          },
+          {
+            "id": "other",
+            "style": {
+              "width": "100px",
+              "height": "20px"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-child-min-width",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "width": "150px"
+        },
+        "children": [
+          {
+            "id": "card",
+            "children": [
+              {
+                "id": "inner",
+                "style": {
+                  "display": "block",
+                  "min-width": "140px",
+                  "height": "20px"
+                }
+              }
+            ]
+          },
+          {
+            "id": "other",
+            "style": {
+              "width": "100px",
+              "height": "20px"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-child-max-width",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "width": "150px"
+        },
+        "children": [
+          {
+            "id": "card",
+            "children": [
+              {
+                "id": "inner",
+                "style": {
+                  "display": "block",
+                  "width": "140px",
+                  "max-width": "100px",
+                  "height": "20px"
+                }
+              }
+            ]
+          },
+          {
+            "id": "other",
+            "style": {
+              "width": "100px",
+              "height": "20px"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-child-min-over-width",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "width": "150px"
+        },
+        "children": [
+          {
+            "id": "card",
+            "children": [
+              {
+                "id": "inner",
+                "style": {
+                  "display": "block",
+                  "width": "40px",
+                  "min-width": "120px",
+                  "height": "20px"
+                }
+              }
+            ]
+          },
+          {
+            "id": "other",
+            "style": {
+              "width": "100px",
+              "height": "20px"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-child-margins",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "width": "150px"
+        },
+        "children": [
+          {
+            "id": "card",
+            "children": [
+              {
+                "id": "inner",
+                "style": {
+                  "display": "block",
+                  "width": "100px",
+                  "height": "20px",
+                  "margin-left": "10px",
+                  "margin-right": "20px"
+                }
+              }
+            ]
+          },
+          {
+            "id": "other",
+            "style": {
+              "width": "100px",
+              "height": "20px"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-child-padding-content-box",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "width": "150px"
+        },
+        "children": [
+          {
+            "id": "card",
+            "children": [
+              {
+                "id": "inner",
+                "style": {
+                  "display": "block",
+                  "width": "100px",
+                  "height": "20px",
+                  "padding-left": "10px",
+                  "padding-right": "10px"
+                }
+              }
+            ]
+          },
+          {
+            "id": "other",
+            "style": {
+              "width": "100px",
+              "height": "20px"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-child-padding-border-box",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "width": "150px"
+        },
+        "children": [
+          {
+            "id": "card",
+            "children": [
+              {
+                "id": "inner",
+                "style": {
+                  "display": "block",
+                  "box-sizing": "border-box",
+                  "width": "100px",
+                  "height": "20px",
+                  "padding-left": "10px",
+                  "padding-right": "10px"
+                }
+              }
+            ]
+          },
+          {
+            "id": "other",
+            "style": {
+              "width": "100px",
+              "height": "20px"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-child-border-box-under-padding",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "width": "150px"
+        },
+        "children": [
+          {
+            "id": "card",
+            "children": [
+              {
+                "id": "inner",
+                "style": {
+                  "display": "block",
+                  "box-sizing": "border-box",
+                  "width": "10px",
+                  "height": "10px",
+                  "padding-left": "30px",
+                  "padding-right": "30px"
+                }
+              }
+            ]
+          },
+          {
+            "id": "other",
+            "style": {
+              "width": "140px",
+              "height": "20px"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-text-child-width",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "width": "150px"
+        },
+        "children": [
+          {
+            "id": "card",
+            "children": [
+              {
+                "id": "t",
+                "style": {
+                  "display": "block",
+                  "width": "60px"
+                },
+                "text": "XXXXXXXX"
+              }
+            ]
+          },
+          {
+            "id": "other",
+            "style": {
+              "width": "100px",
+              "height": "20px"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-text-child-max-width",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "width": "150px"
+        },
+        "children": [
+          {
+            "id": "card",
+            "children": [
+              {
+                "id": "t",
+                "style": {
+                  "display": "block",
+                  "max-width": "60px"
+                },
+                "text": "XXXXXXXX"
+              }
+            ]
+          },
+          {
+            "id": "other",
+            "style": {
+              "width": "100px",
+              "height": "20px"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-percent-width",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "width": "150px"
+        },
+        "children": [
+          {
+            "id": "card",
+            "style": {
+              "width": "80%"
+            },
+            "children": [
+              {
+                "id": "inner",
+                "style": {
+                  "display": "block",
+                  "width": "140px",
+                  "height": "10px"
+                }
+              }
+            ]
+          },
+          {
+            "id": "other",
+            "style": {
+              "width": "100px",
+              "height": "20px"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-percent-width-text",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "width": "150px"
+        },
+        "children": [
+          {
+            "id": "card",
+            "style": {
+              "width": "80%"
+            },
+            "text": "XXXXXXXX"
+          },
+          {
+            "id": "other",
+            "style": {
+              "width": "100px",
+              "height": "20px"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-percent-width-border-box",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "width": "150px"
+        },
+        "children": [
+          {
+            "id": "card",
+            "style": {
+              "box-sizing": "border-box",
+              "width": "50%",
+              "padding-left": "10px",
+              "padding-right": "10px"
+            },
+            "children": [
+              {
+                "id": "inner",
+                "style": {
+                  "display": "block",
+                  "width": "140px",
+                  "height": "10px"
+                }
+              }
+            ]
+          },
+          {
+            "id": "other",
+            "style": {
+              "width": "100px",
+              "height": "20px"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-percent-max-width",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "width": "150px"
+        },
+        "children": [
+          {
+            "id": "card",
+            "style": {
+              "max-width": "50%"
+            },
+            "children": [
+              {
+                "id": "inner",
+                "style": {
+                  "display": "block",
+                  "width": "140px",
+                  "height": "10px"
+                }
+              }
+            ]
+          },
+          {
+            "id": "other",
+            "style": {
+              "width": "100px",
+              "height": "20px"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-percent-max-width-alone",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "width": "150px"
+        },
+        "children": [
+          {
+            "id": "card",
+            "style": {
+              "max-width": "100%"
+            },
+            "children": [
+              {
+                "id": "inner",
+                "style": {
+                  "display": "block",
+                  "width": "200px",
+                  "height": "10px"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-percent-max-width-flexed-row",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "width": "300px"
+        },
+        "children": [
+          {
+            "id": "mid",
+            "style": {
+              "flex": "1",
+              "display": "flex",
+              "min-width": "0"
+            },
+            "children": [
+              {
+                "id": "card",
+                "style": {
+                  "max-width": "80%"
+                },
+                "children": [
+                  {
+                    "id": "inner",
+                    "style": {
+                      "display": "block",
+                      "width": "300px",
+                      "height": "10px"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "side",
+            "style": {
+              "width": "100px",
+              "height": "20px"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-grid-items-fixed-blocks",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "grid",
+          "grid-template-columns": "auto auto",
+          "width": "100px"
+        },
+        "children": [
+          {
+            "id": "a",
+            "children": [
+              {
+                "id": "b",
+                "style": {
+                  "display": "block",
+                  "width": "80px",
+                  "height": "10px"
+                }
+              }
+            ]
+          },
+          {
+            "id": "c",
+            "children": [
+              {
+                "id": "d",
+                "style": {
+                  "display": "block",
+                  "width": "70px",
+                  "height": "10px"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "min-content-width-fixed-block",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "width": "300px"
+        },
+        "children": [
+          {
+            "id": "card",
+            "style": {
+              "width": "min-content"
+            },
+            "children": [
+              {
+                "id": "inner",
+                "style": {
+                  "display": "block",
+                  "width": "80px",
+                  "height": "10px"
+                }
+              },
+              {
+                "id": "t",
+                "style": {
+                  "display": "block"
+                },
+                "text": "XX XX"
+              }
+            ]
+          },
+          {
+            "id": "other",
+            "style": {
+              "width": "100px",
+              "height": "20px"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-column-fixed-block",
+      "root": {
+        "id": "root",
+        "style": {
+          "box-sizing": "border-box",
+          "display": "block",
+          "width": "800px",
+          "height": "500px"
+        },
+        "children": [
+          {
+            "id": "col",
+            "style": {
+              "box-sizing": "border-box",
+              "display": "flex",
+              "flex-direction": "column",
+              "gap": "12px",
+              "width": "300px",
+              "height": "100px"
+            },
+            "children": [
+              {
+                "id": "card0",
+                "style": {
+                  "box-sizing": "border-box",
+                  "padding": "8px"
+                },
+                "children": [
+                  {
+                    "id": "inner0",
+                    "style": {
+                      "display": "block",
+                      "box-sizing": "border-box",
+                      "width": "140px",
+                      "height": "40px"
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "card1",
+                "style": {
+                  "box-sizing": "border-box",
+                  "padding": "8px"
+                },
+                "children": [
+                  {
+                    "id": "inner1",
+                    "style": {
+                      "display": "block",
+                      "box-sizing": "border-box",
+                      "width": "140px",
+                      "height": "40px"
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "card2",
+                "style": {
+                  "box-sizing": "border-box",
+                  "padding": "8px"
+                },
+                "children": [
+                  {
+                    "id": "inner2",
+                    "style": {
+                      "display": "block",
+                      "box-sizing": "border-box",
+                      "width": "140px",
+                      "height": "40px"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-column-fixed-block-min-zero",
+      "root": {
+        "id": "root",
+        "style": {
+          "box-sizing": "border-box",
+          "display": "block",
+          "width": "800px",
+          "height": "500px"
+        },
+        "children": [
+          {
+            "id": "col",
+            "style": {
+              "box-sizing": "border-box",
+              "display": "flex",
+              "flex-direction": "column",
+              "gap": "12px",
+              "width": "300px",
+              "height": "100px"
+            },
+            "children": [
+              {
+                "id": "card0",
+                "style": {
+                  "box-sizing": "border-box",
+                  "padding": "8px",
+                  "min-height": "0"
+                },
+                "children": [
+                  {
+                    "id": "inner0",
+                    "style": {
+                      "display": "block",
+                      "box-sizing": "border-box",
+                      "width": "140px",
+                      "height": "40px"
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "card1",
+                "style": {
+                  "box-sizing": "border-box",
+                  "padding": "8px",
+                  "min-height": "0"
+                },
+                "children": [
+                  {
+                    "id": "inner1",
+                    "style": {
+                      "display": "block",
+                      "box-sizing": "border-box",
+                      "width": "140px",
+                      "height": "40px"
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "card2",
+                "style": {
+                  "box-sizing": "border-box",
+                  "padding": "8px",
+                  "min-height": "0"
+                },
+                "children": [
+                  {
+                    "id": "inner2",
+                    "style": {
+                      "display": "block",
+                      "box-sizing": "border-box",
+                      "width": "140px",
+                      "height": "40px"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-column-fixed-block-basis-zero",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "flex-direction": "column",
+          "width": "300px",
+          "height": "90px"
+        },
+        "children": [
+          {
+            "id": "card0",
+            "style": {
+              "flex": "1"
+            },
+            "children": [
+              {
+                "id": "inner0",
+                "style": {
+                  "display": "block",
+                  "width": "140px",
+                  "height": "40px"
+                }
+              }
+            ]
+          },
+          {
+            "id": "card1",
+            "style": {
+              "flex": "1"
+            },
+            "children": [
+              {
+                "id": "inner1",
+                "style": {
+                  "display": "block",
+                  "width": "140px",
+                  "height": "40px"
+                }
+              }
+            ]
+          },
+          {
+            "id": "card2",
+            "style": {
+              "flex": "1"
+            },
+            "children": [
+              {
+                "id": "inner2",
+                "style": {
+                  "display": "block",
+                  "width": "140px",
+                  "height": "40px"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-column-child-margins",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "flex-direction": "column",
+          "width": "300px",
+          "height": "60px"
+        },
+        "children": [
+          {
+            "id": "card",
+            "style": {
+              "flex": "1"
+            },
+            "children": [
+              {
+                "id": "inner",
+                "style": {
+                  "display": "block",
+                  "height": "40px",
+                  "margin-top": "10px",
+                  "margin-bottom": "5px"
+                }
+              }
+            ]
+          },
+          {
+            "id": "other",
+            "style": {
+              "height": "50px"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-column-child-min-height",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "flex-direction": "column",
+          "width": "300px",
+          "height": "60px"
+        },
+        "children": [
+          {
+            "id": "card",
+            "style": {
+              "flex": "1"
+            },
+            "children": [
+              {
+                "id": "inner",
+                "style": {
+                  "display": "block",
+                  "min-height": "40px"
+                }
+              }
+            ]
+          },
+          {
+            "id": "other",
+            "style": {
+              "height": "50px"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-column-child-max-height",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "flex-direction": "column",
+          "width": "300px",
+          "height": "60px"
+        },
+        "children": [
+          {
+            "id": "card",
+            "style": {
+              "flex": "1"
+            },
+            "children": [
+              {
+                "id": "inner",
+                "style": {
+                  "display": "block",
+                  "height": "100px",
+                  "max-height": "40px"
+                }
+              }
+            ]
+          },
+          {
+            "id": "other",
+            "style": {
+              "height": "50px"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-column-height-over-margined-block",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "flex-direction": "column",
+          "width": "300px",
+          "height": "40px"
+        },
+        "children": [
+          {
+            "id": "a",
+            "style": {
+              "height": "30px"
+            },
+            "children": [
+              {
+                "id": "b",
+                "style": {
+                  "display": "block",
+                  "height": "12px",
+                  "margin-top": "6px"
+                }
+              }
+            ]
+          },
+          {
+            "id": "c",
+            "style": {
+              "height": "30px"
+            },
+            "children": [
+              {
+                "id": "d",
+                "style": {
+                  "display": "block",
+                  "height": "28px",
+                  "margin-top": "6px"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-column-row-item-margins",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "flex-direction": "column",
+          "width": "300px",
+          "height": "60px"
+        },
+        "children": [
+          {
+            "id": "card",
+            "style": {
+              "flex": "1",
+              "display": "flex"
+            },
+            "children": [
+              {
+                "id": "a",
+                "style": {
+                  "width": "10px",
+                  "height": "30px",
+                  "margin-top": "8px"
+                }
+              },
+              {
+                "id": "b",
+                "style": {
+                  "width": "10px",
+                  "height": "36px"
+                }
+              }
+            ]
+          },
+          {
+            "id": "other",
+            "style": {
+              "height": "50px"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "auto-min-column-percent-max-height",
+      "root": {
+        "id": "root",
+        "style": {
+          "display": "flex",
+          "flex-direction": "column",
+          "width": "300px",
+          "height": "100px"
+        },
+        "children": [
+          {
+            "id": "card",
+            "style": {
+              "flex": "1",
+              "max-height": "50%"
+            },
+            "children": [
+              {
+                "id": "inner",
+                "style": {
+                  "display": "block",
+                  "height": "80px"
+                }
+              }
+            ]
+          },
+          {
+            "id": "other",
+            "style": {
+              "height": "30px"
+            }
+          }
+        ]
+      }
     }
   ],
-  "input_sha256": "779e495e2941057b1bc2e8f54db4962ed74d141c16759a8aeea8945df43a86b6"
+  "input_sha256": "87ad7e3473ec943f4279e0a408fceffeba3735f79dac77ed7f6d400d3aeef696"
 };

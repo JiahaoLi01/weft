@@ -119,6 +119,36 @@ xcrun xctrace record --template 'Metal System Trace' --device <UDID> --time-limi
 `samples/ios-host`（`weft_ios_demo.app`）：与 macOS 示例共用引擎、Metal 与页面的部分（`samples/macos-host` 的 `engine.hpp`、`gpu.hpp`、`page.hpp`），UIKit 场景里的 CAMetalLayer 随 CADisplayLink 绘制（ProMotion 上最高 120 Hz），View 铺满整块屏幕（引擎的世界画到边缘），系统的安全区经 `weft_view_set_safe_area` 交给页面，HUD 用 `env(safe-area-inset-*)` 让开摄像头开孔与 Home 条；手机横屏，转屏、换屏（iPhone Duo 合上与展开）时跟着改。一个触点是指针：移到触点、按下、抬起，然后离开（点过不留悬停）；被系统取消的触点只离开，不点击。页面在那里没有可交互元素时，触点伤害那里的单位。右上的 Next page 依次换成 logo 的四个版本；左上一行是页面、帧率、每帧 CPU 与 GPU 时间和这一秒里显示上最长的帧间隔；stdout 每秒打印这些、最慢一帧的 CPU 与 GPU 时间和没显示出来的帧，以及每个触点（Xcode 的控制台、`simctl launch --console-pty` 或 `devicectl device process launch --console`）。HUD 以外的页面没有引擎的世界，示例不单独清屏，由 View 的 pass 清（`clear_target`）：苹果的分块 GPU 上每个 render pass 都把整个目标写出、下一个再读回。Metal 后端的编码器带标签（`weft out`、`weft group`、`weft uploads` 等），在 Metal System Trace 与 GPU 帧捕获里按名字看。页面随包复制到 `examples/`（真机读不到源码目录）。系统字体与 macOS 一样经 CoreText 列出（`weft::platform_macos` 在 iOS 上也构建）。
 
 
+## 开发者工具与共享库（2026-11-10）
+
+引擎分发布版和开发版两份二进制，见[开发者工具](devtools.md)。选项：
+
+- `WEFT_DEVTOOLS`：默认 `OFF`。打开后把 `src/devtools` 编进引擎。
+- `WEFT_BUILD_SHARED`：构建共享库 `weft_shared`（`bin/libweft.dylib`、`bin/weft.dll`），导出公开头文件声明的 C 函数，不导出其他符号。macOS 上默认打开，其他平台没有验证过，默认关闭。
+
+两版放在不同的构建目录，除 `WEFT_DEVTOOLS` 外选项要相同，否则导出列表不同，不能互换：
+
+```sh
+cmake -S . -B build/macos-release -G Ninja -DCMAKE_BUILD_TYPE=Release <后端选项>
+cmake -S . -B build/macos-dev -G Ninja -DCMAKE_BUILD_TYPE=Release <后端选项> -DWEFT_DEVTOOLS=ON
+```
+
+测试：`devtools_mode` 是一个用 C11 写的宿主，只包含 `include/weft`，按构建检查接口行为；`devtools_binary` 在库文件里查找工具的字符串，开发版必须有，发布版不能有；`devtools_protocol`（只在开发版、非 Windows 上构建）通过 socket 测试协议，并与 `tests/fixtures/devtools/chrome-results.json` 对比，这份结果由 `tools/browser_devtools_reference.mjs` 从 Chrome 录制。
+
+`devtools_reload`（同样只在开发版、非 Windows 上构建）经 C API 测试从工具重载页面。
+
+热重载的端到端检查（启动一个没有窗口的宿主和监视工具，改文件、切页面，逐项核对）。`weft_devtools_host` 是 `tests/devtools_host.c`，只在开发版、非 Windows 上构建：
+
+```sh
+node tools/devtools_watch_check.mjs build/macos-dev/bin/weft_devtools_host
+```
+
+用 Chrome 自带的前端看一个运行中的开发版页面，并写出截图和前端报的错：
+
+```sh
+node tools/devtools_frontend_check.mjs 127.0.0.1:9230 out elements
+```
+
 ## 固定依赖与离线构建
 
 固定 QuickJS-NG 0.17.0、Yoga 3.2.1、FreeType 2.13.3、HarfBuzz 11.2.1 与 Ahem 测试字体，源码位于各 `third_party` 目录。D3 7.9.0 原版 UMD 仅作为兼容性输入。来源、版本、commit、archive SHA256、逐文件 SHA256 与许可见 `third_party/manifest.json` 和依赖 metadata。只有 Yoga 的 CalculateLayout.cpp 有已保存的小补丁，其他上游源码未修改；构建不使用 FetchContent，也不追踪可变分支。

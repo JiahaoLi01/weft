@@ -1,0 +1,6 @@
+{
+  "scripts": ["page.js"],
+  "stylesheet": "page.css",
+  "forgivingCss": true,
+  "webPlatform": true
+}

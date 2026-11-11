@@ -30,7 +30,9 @@ typedef enum weft_result {
      * say what. */
     WEFT_SCRIPT_ERROR = 10,
     /* A resource limit ended the View's page: load a page again or destroy the View. */
-    WEFT_FAULTED = 11
+    WEFT_FAULTED = 11,
+    /* This binary was built without the feature (weft_get_build_info says which binary it is). */
+    WEFT_UNAVAILABLE = 12
 } weft_result;
 
 /* Runtime flags: the platform's installed fonts (Windows, Android, macOS, iOS) with its generic families and
@@ -734,6 +736,53 @@ typedef void (*weft_diagnostic_fn)(void* user, weft_view_handle view, const weft
  * dropped past the View's bound. */
 weft_result weft_view_drain_diagnostics(weft_runtime* runtime, weft_view_handle view, weft_diagnostic_fn fn, void* user,
                                         uint32_t* out_dropped);
+
+/* ---- Which binary this is, and its developer tools (docs/devtools.md). ---- */
+
+/* The engine comes as two binaries with this same header and the same exports: the release build, which has no developer
+ * tools in it, and the dev build, which has them. A host is compiled once and takes either file; it needs no
+ * preprocessor switch of its own. */
+#define WEFT_BUILD_DEVTOOLS 1u
+
+typedef struct weft_build_info {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint32_t flags; /* WEFT_BUILD_* */
+    uint32_t reserved;
+} weft_build_info;
+
+/* Any thread; no runtime needed. */
+weft_result weft_get_build_info(weft_build_info* out_info);
+
+/* Listen on every network interface (IPv4 and IPv6) instead of this machine's alone, for a page on another device. */
+#define WEFT_DEVTOOLS_ALL_INTERFACES 1u
+
+typedef struct weft_devtools_desc {
+    uint32_t struct_size;
+    uint32_t flags; /* WEFT_DEVTOOLS_* */
+    uint32_t port;  /* 0: the first free port from 9230 */
+    uint32_t reserved;
+} weft_devtools_desc;
+
+typedef struct weft_devtools_info {
+    uint32_t struct_size;
+    uint32_t port; /* the port listened on, 0 when not listening */
+} weft_devtools_info;
+
+/* In the release build each of these only returns WEFT_UNAVAILABLE, so a host may call them unconditionally.
+ *
+ * In the dev build the tools are off until asked for: by these calls, or, with no change to the host, by the environment
+ * variable WEFT_DEVTOOLS_LISTEN=[address:]port read when a runtime is created (address 127.0.0.1, or 0.0.0.0 for every
+ * interface, those of IPv6 too; port 0 for the first free one from 9230, an occupied port moving on to the next free
+ * one; what it could not do goes to stderr).
+ *
+ * Owner thread. A NULL desc selects defaults: this machine alone, the first free port. WEFT_BUSY when already listening,
+ * or when the desc's port is taken. */
+weft_result weft_devtools_start(weft_runtime* runtime, const weft_devtools_desc* desc);
+/* Stops listening, if it was. Owner thread. */
+weft_result weft_devtools_stop(weft_runtime* runtime);
+/* Owner thread. */
+weft_result weft_devtools_get_info(weft_runtime* runtime, weft_devtools_info* out_info);
 
 #ifdef __cplusplus
 }
