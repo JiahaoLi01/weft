@@ -69,7 +69,9 @@ namespace weft {
         };
 
         Sizing sizing_keyword(std::string_view v) {
-            v = css::trim(v);
+            // The trimmed text is a string of its own: a view of it must not outlive it.
+            const std::string trimmed = css::trim(v);
+            v = trimmed;
             if (v.starts_with("-webkit-")) {
                 v.remove_prefix(std::string_view("-webkit-").size());
             }
