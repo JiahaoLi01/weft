@@ -1,6 +1,6 @@
 # Weft 当前状态
 
-更新日期：2026 年 11 月 10 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG 与移动尚未实现（键盘与焦点、文本框与输入法、手柄与空间导航已在 `input` 分支），仍未达到 M0 全部退出条件。
+更新日期：2026 年 11 月 11 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG 与移动尚未实现（键盘与焦点、文本框与输入法、手柄与空间导航已在 `input` 分支），仍未达到 M0 全部退出条件。
 
 ## 待办
 
@@ -16,6 +16,22 @@
 - **Android 示例应用与模拟器、真机运行**（2026-10-12）：需要下载 Android SDK 命令行工具、模拟器与系统镜像；NDK r30 已安装，交叉编译已验证。
 
 ## 本次已实现
+
+`sizing_keyword` 读已销毁的字符串（2026-11-11，`sizing-keyword-view` 分支；合并开发者工具那一批时在本机的构建输出里看到 clang 的警告，用户要求修掉）。
+- **问题**：`src/layout/flex.cpp` 的 `sizing_keyword(std::string_view v)` 开头是 `v = css::trim(v);`。`css::trim` 返回 `std::string`，这个临时对象在这一句结束时销毁，`v` 却留着指向它的视图：后面的 `starts_with("-webkit-")` 与三个关键词的比较读的是已销毁的对象（未定义行为）。这一行出自 94be01f9（2026-11-01，KaTeX 那一条加尺寸关键词时）。经过它的不只是关键词：`length` 对每个不是空、`auto`、`none` 的长度值都先调它。
+- **各处读到什么**：
+  - macOS、iOS、Android（libc++）：22 个字符以内的字符串存在对象自己里面，析构不改这些字节，读到的还是原来的字。本机修复前后的测试结果相同。
+  - Windows，Release：读到的也是原来的字。依据是 11-01 的 `katex_browser_reference` 通过（`katex.css` 的 `width: min-content`，认不出就报 `WEFT_UNSUPPORTED_UNIT`）。
+  - Windows，Debug（**推断，没有运行**）：MSVC 的标准库在析构里把字符串重置为空，往对象里的缓冲区的第一个字节写 0（查了 microsoft/STL 的 `xstring`：`~basic_string` 调 `_Tidy_deallocate`）。不优化时这次写入留着，`min-content` 读成第一个字节是 0 的 11 个字节，三个关键词都认不出，`width: min-content` 应当像 11-01 之前那样报 `WEFT_UNSUPPORTED_UNIT`。11-01 以来记录里 Windows 上的运行都是 Release，Debug 写着没跑。
+  - `-webkit-` 别名（19 个字符）在 MSVC 与 libstdc++ 上超过对象里放得下的 15 个字符，放在堆上，读的是已释放的内存（同样是推断）。`katex.css` 里别名后面跟着不带前缀的一条，仓库的测试没有单独用到别名。
+- **实现**：修剪后的字符串放进局部变量 `trimmed`，视图指向它，活到函数返回。函数只返回枚举，没有视图带出去。
+- **别处有没有同样的写法**：
+  - 本机编译的 149 个项目源文件（`build/macos-dev` 的全部编译命令，只跑编译器前端）：警告 0 条。同样的命令对 main 上的 `flex.cpp` 报出这一条（`-Wdangling-assignment-gsl`，72:17），这一遍查得到它。
+  - 本机不编译的 82 个源文件（D3D11、D3D12、Vulkan 后端，D2D 的参考光栅与画布，Windows 与 Android 的系统字体，以及这两个构建不编的 60 个测试源文件，多数只在 Windows 上注册）编译器看不到，只做了文本搜索：`string_view` 的声明 45 处，由函数调用初始化、或同名变量被函数调用赋值的 10 行逐行看过（同名的 `std::string`、浮点数与图层指针，原始字符串字面量），没有同样的写法。这条警告是 clang 的，这些文件没有被它查过。
+- **验证**（macOS 26.6，Apple M5，Apple clang 21，Release）：两版重建，编译器的警告 0 条（链接器原有的重复库提示不算）。全量 `ctest -j6`：`build/macos-release` 89/97，`build/macos-dev` 91/99，失败的是原来那 8 项 fixture 检查，与修复前相同；用到关键词的 `box_layout_contract`、`flex_adapter_contract`、`flex_browser_diff` 通过。
+- **没有加测试**：本机上修复前后结果相同，测试分不出来。推断会出错的构建（Windows Debug）上，已有的测试就用到这些关键词：上面三项，以及只在 Windows 上注册的 `katex_browser_reference`、`scene_inline_contract`、`scene_absolute_browser_contract`。
+- **未验证**：Windows（Release 与 Debug 都没有构建，Debug 的结论是推断）、Linux、Android、iOS。
+- **没有做**（用户 2026-11-11 定：先不用）：clang 的构建把 `-Wdangling-gsl`、`-Wdangling-assignment-gsl` 升为错误（`cmake/WeftTargets.cmake`），让这类写法在 macOS、iOS、Android 上编译不过。
 
 flex 项目的自动最小尺寸：项目里固定尺寸的块（2026-11-10，与开发者工具同在 `devtools` 分支的检出里；对比工具在示例页上发现，见下一条，所有页面受影响）。范围与仍是近似的部分见[兼容范围](compatibility.md#样式和布局)。
 - **问题**：flex 项目里是固定宽度的块时，项目被收缩到比这个块还窄。300px 宽、间距 12px 的行里三张内边距 8px、内含 140px 块的卡片，Weft 各 92px（在 0、104、208），Chrome 各 156px（在 0、168、336，溢出这一行）；给卡片写 `min-width: 0` 后两边都是 92px。
