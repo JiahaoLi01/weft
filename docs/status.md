@@ -1,6 +1,6 @@
 # Weft 当前状态
 
-更新日期：2026 年 11 月 9 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG 与移动尚未实现（键盘与焦点、文本框与输入法、手柄与空间导航已在 `input` 分支），仍未达到 M0 全部退出条件。
+更新日期：2026 年 11 月 10 日。当前是 **M0 部分交付**：C++20 核心和风险探针已落地，真实 React/Vite 页面已贯通 native DOM、inline CSS、Flex、字体与 D3D11，并接入 HWND/swapchain 主鼠标窗口。flow 的 inline/Unicode 换行、同步几何/滚动和圆角裁剪现已接上 paint-order/分片命中及 HWND wheel 消息；可见样例使用 4K/FPS、有界固定资产缓存和最多两帧在途，滚动吞吐采样已完成，并增加可见的连续 DOM 运动与 30 Hz 对照。一般 HTML/CSS 页面加载、通用 SVG 与移动尚未实现（键盘与焦点、文本框与输入法、手柄与空间导航已在 `input` 分支），仍未达到 M0 全部退出条件。
 
 ## 待办
 
@@ -16,6 +16,58 @@
 - **Android 示例应用与模拟器、真机运行**（2026-10-12）：需要下载 Android SDK 命令行工具、模拟器与系统镜像；NDK r30 已安装，交叉编译已验证。
 
 ## 本次已实现
+
+开发者工具第二阶段：热重载、资源走开发连接、和 Chrome 对比（2026-11-10，`devtools` 分支）。用法和设计见[开发者工具](devtools.md#热重载)。
+- **实现**（只在开发版里）：
+  - `src/view`：`View::inspect_restyle` 先用新样式表把场景做出来，成功才换，图片和字体随之重读；工具送来的文件按解析后的路径盖住宿主的读取器；View 记住最近一次加载的页面；`inspect_adopt` 让顶替的 View 接过时间、`sessionStorage`、剪贴板文本和工具日志。
+  - `src/core`：`reload_view` 在一个新的 View 里试加载页面，加载成功并发布出第一帧后才替换旧的。失败时恢复引擎通道的检查点（`EngineChannel::checkpoint` / `restore`），旧页面的调用和排队的输入都还在。宿主再次加载同一页（按 `base`）时，由工具送来的页面顶替。
+  - `src/devtools`：`CSS.setStyleTexts`（样式表）、`setStyleSheetText`、`setRuleSelector`、`addRule`、`createStyleSheet`、`styleSheetChanged`；注释里的声明读成停用项；`Page.reload`；`Weft.getPage`、`setPage`、`setStyleSheet`、`setResources`、`getSnapshot`。监听所有网卡时同时接受 IPv6，入站消息上限提到 64 MB。
+  - 新工具：`tools/devtools_watch.mjs`（监视页面文件夹并推送）、`tools/devtools_compare.mjs`（同一份文档在 Chrome 里重排，逐元素比较盒子）。
+- **发布版也有的改动**：
+  - 图片读不到时的诊断里，长路径保留末尾 64 个字符而不是开头。文件名在末尾，原来的写法在路径长的平台上（iOS 的包路径）看不到是哪个文件。
+  - `runtime.cpp` 里创建 View 的代码提成了函数，行为不变。
+- **验证**（macOS 26.6，Apple M5，Release）：
+  - `ctest`：发布版 89/97，开发版 91/99（多 `devtools_protocol`、`devtools_reload`）。失败的都是那 8 项 `fixture_integrity` / `gallery_source_integrity` 哈希检查。
+  - `devtools_reload` 经 C API 确认：抛错的页面和样式表出错的页面都不加载，旧页面的脚本状态不变，它发出的引擎调用之后仍能完成；工具断开后宿主的页面恢复。
+  - 端到端（`tools/devtools_watch_check.mjs`，29 项；宿主是没有窗口的 `weft_devtools_host`，监视工具盯着一个文件夹，直接改文件、切页面）：存 CSS 后几毫秒换好样式且状态保留；存 JS 后重载；写坏的 JS 不加载并报出行号；新图片送达且页面不重载；游戏切到另一页期间存的内容只是存下，切回来才生效。
+  - Chrome 157 自带的前端里改值、停用声明、改选择器都生效。
+  - 对比工具在测试页上 0 处差异，在专门写的外边距页面上列出 3 处。
+  - 发布版仍然没有 socket 调用和工具字符串，库的大小没变（7,486,480 字节）；两版导出的 79 个符号相同；animate、effects 两个示例页两版画出的截图逐字节相同。开发版的库是 7,952,272 字节。
+- **试用时发现并修掉的漏洞**（用户在示例窗口里按数字键切了页面）：游戏切到别的页面后，监视工具再推送样式表或页面，会套到正在显示的那一页上。现在引擎按 `base` 判断：正在显示的不是被顶替的那一页时，送来的内容只存下（返回 `deferred`），宿主切回来才生效；存下的页面那时加载失败就退回宿主自己的页面。监视工具会打印游戏切走和切回，启动时页面对不上就先等。晚连上的工具可以不收之前的 Console 输出（`Runtime.discardConsoleEntries`）。
+  - 修复和 flex 的修复合在一起后重新验证：`ctest` 发布版 89/97、开发版 91/99；端到端 29 项；`runtime.cpp` 在不带工具时的预处理结果和修复前逐字节相同；两版导出的 79 个符号相同，animate、effects、img 三个示例页两版截图逐字节相同。
+- **用对比工具发现的引擎差异**：
+  - flex 项目里是固定宽度的块时，Weft 会把项目收缩到比这个块还窄，Chrome 的 `min-width: auto` 不允许。已在上面“flex 项目的自动最小尺寸”一条里修掉；修之后最小复现和 effects 示例页都是 0 处差异。
+  - `system-ui` 的文字宽度和 Chrome 不同（touch 示例页的标题 66.77px 对 62.34px），原因没有查，没有修。
+- **未验证**：iPad。开发版示例已构建成功，但设备锁定，无线安装失败，设备上的监听、推送和对比都没有跑。Windows、Linux、Android 仍未编译。
+
+开发者工具第一阶段：协议通道和元素面板（2026-11-10，`devtools` 分支）。方案和尚缺的内容见[开发者工具](devtools.md)。
+- **实现**（只在开发版里）：
+  - `src/devtools`：HTTP 和 WebSocket 服务（`server.cpp`）、Chrome DevTools Protocol（`agent.cpp`）、JSON（`json.cpp`）。
+  - `src/style`：解析时记录规则和声明的来源（注释已去掉的文本映射回原文的偏移）；`CompiledStyle::matched_rules` 用和级联相同的选择器匹配与 `@media` 判断列出命中的规则。
+  - `src/view`：`View::inspect_*`，包括工具用的诊断日志、不进 DOM 的高亮层（在发布帧时接到页面场景之后）和点选模式。
+  - 新工具：`tools/devtools_frontend_check.mjs`（用 Chrome 自带前端实测）、`tools/devtools_report.mjs`（兼容报告，可放进 CI）、`tools/browser_devtools_reference.mjs`（录制 Chrome 的结果）。
+- **验证**（macOS 26.6，Apple M5，Release）：
+  - Chrome 156 自带的前端实际连上 Weft 页面：DOM 树、命中规则（行号正确）、用户代理样式、继承、未支持的声明、Console 的警告和输出都正常显示。
+  - Metal 真实渲染的帧里有高亮的四层盒子和标签。
+  - `devtools_protocol`：DOM 与变化事件、与 Chrome 对比的 6 个元素（规则顺序、声明、值、`!important`、行列号、盒模型）、未支持的声明、控制台、高亮、点选、错误处理、拒绝其他来源的页面。
+  - 发布版仍然没有 socket 调用和工具字符串，两版导出的 79 个符号相同，同一页面两版画出的截图逐字节相同。
+  - `ctest`：发布版 89/97，开发版 90/98（多 `devtools_protocol`）。失败的都是那 8 项 `fixture_integrity` / `gallery_source_integrity` 哈希检查。
+- **发现的问题，不在这次范围内**：相邻块元素的外边距没有折叠（Chrome 会折叠）；场景根元素的宽度被视口覆盖（`#root` 写了 400px 仍按 800px 排版）。测试页已经避开这两点。
+- **未验证**：Windows、Linux、Android 上的编译和运行；iPad 上连接工具。
+
+开发者工具的两版二进制（2026-11-10，`devtools` 分支；用户要求玩家拿到的游戏不带工具开销，不预设宿主，只有 DLL 也能选）。方案和功能清单见[开发者工具](devtools.md)，协议和面板还没有做。
+- **实现**：
+  - 构建选项 `WEFT_DEVTOOLS`（默认关）决定二进制里有没有工具代码。两版的头文件和导出相同，换文件就能切换。
+  - 公开接口：`weft_get_build_info`、`weft_devtools_start`、`weft_devtools_stop`、`weft_devtools_get_info`、错误码 `WEFT_UNAVAILABLE`。发布版的三个 `weft_devtools_*` 只返回这个错误码。
+  - 开发版默认不监听，由宿主调用或环境变量 `WEFT_DEVTOOLS_LISTEN` 打开。
+  - 新的共享库目标 `weft_shared`，只导出公开头文件声明的函数（`cmake/WeftExports.cmake` 从头文件生成列表）。此前仓库里没有共享库目标，`weft.dll` 由宿主工程的脚本构建，那条路径没有变。
+- **验证**（macOS 26.6，Apple M5，Release，后端选项相同的两个构建目录）：
+  - 同一个 C 宿主（只包含 `include/weft`，编译一次）分别加载两版 `libweft.dylib`，行为符合各自的版本。
+  - 两版导出的 79 个符号相同。
+  - 发布版没有 socket 调用，也没有工具相关的字符串；开发版有 7 个 socket 调用。库大小 7,486,384 和 7,489,328 字节，现在开发版的工具代码还很少。
+  - 示例程序的代码不变，只设环境变量：开发版能用 curl 取到 `/json/version`，发布版连不上。两版在同一页面画出的截图逐字节相同。
+  - `ctest` 两版都是 89/97（新增 2 个）。失败的 8 项是 `react`、`cheetah`、`cheetah_alert`、`style`、`auto`、`flow`、`canvas_browser` 的 `fixture_integrity` 和 `gallery_source_integrity` 哈希检查，它们校验的文件这次没有动。
+- **未验证**：Windows（`.def` 导出和 Winsock 代码没有编译过，`WEFT_BUILD_SHARED` 默认关闭）；Linux 和 Android 的链接脚本；iOS 上的环境变量和静态库二选一。
 
 main 在 Windows 上的 4 个问题（2026-11-09；`80d64858` 那批改动是在 macOS 上开发的，`tests/CMakeLists.txt` 的 `if(WIN32)` 块里的测试当时没有跑）。
 - **`display:none` 的子元素**：`collect_boxes` 的混合内容分支跳过 `display:none` 的子元素，没有像另外两个分支那样清掉旧布局，增量布局与全量不同，脚本读隐藏元素的几何读到旧值（`incremental_contract`，种子 49 第 23 步）。

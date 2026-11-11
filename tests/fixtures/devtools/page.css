@@ -1,0 +1,72 @@
+/* The developer tools' page (tests/devtools_protocol_tests.cpp, tools/browser_devtools_reference.mjs).
+   A comment before the first rule: offsets in the sheet are not those of its text without comments. */
+@layer base, theme;
+
+* { box-sizing: border-box; }
+
+#root {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 400px;
+  height: 300px;
+}
+
+@layer base {
+  .box {
+    color: rgb(1, 2, 3);
+    padding: 4px;
+  }
+}
+
+@layer theme {
+  .box { color: rgb(4, 5, 6); }
+}
+
+/* Between rules. */ .box { margin: 2px 6px; }
+
+#one.box, .unused {
+  padding: 8px 10px;
+}
+
+.box.strong {
+  color: rgb(7, 8, 9) !important;
+  border: 1px solid rgb(10, 11, 12);
+}
+
+div.box {
+  width: 100px; /* inside a block */
+  height: 20px;
+}
+
+@media (min-width: 200px) {
+  .box { font-size: 14px; }
+}
+
+@media (min-width: 5000px) {
+  .box { font-size: 40px; }
+}
+
+.parent {
+  width: 200px;
+  height: 50px;
+  & .child {
+    width: 40px;
+    height: 30px;
+  }
+}
+
+.child:first-child {
+  margin-left: 3px;
+}
+
+.multi {
+  width: 80px;
+  height: 16px;
+  column-count: 2;
+  not-a-property: 1;
+}
+
+.only-unknown {
+  also-not-a-property: 2;
+}

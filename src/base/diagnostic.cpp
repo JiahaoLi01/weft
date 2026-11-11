@@ -53,6 +53,12 @@ namespace weft {
                 return "WEFT_SCENE_OWNER";
             case Diag::SceneRasterOwner:
                 return "WEFT_SCENE_RASTER_OWNER";
+#if WEFT_DEVTOOLS
+            case Diag::DevtoolsPortInUse:
+                return "WEFT_DEVTOOLS_PORT_IN_USE";
+            case Diag::DevtoolsSocket:
+                return "WEFT_DEVTOOLS_SOCKET";
+#endif
         }
         return "WEFT_UNKNOWN_DIAGNOSTIC";
     }

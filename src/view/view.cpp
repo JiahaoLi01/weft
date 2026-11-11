@@ -4,6 +4,9 @@
 #include "bridge/bridge_value.hpp"
 #include "constants/input.hpp"
 #include "constants/view.hpp"
+#if WEFT_DEVTOOLS
+#include "constants/devtools.hpp"
+#endif
 #include "dom/focus_rules.hpp"
 #include "dom/node.hpp"
 #include "scene/scene_values.hpp"
@@ -284,6 +287,81 @@ namespace weft {
         std::uint64_t published_revision{};
         std::array<float, 3> published_size{};
         bool published{};
+#if WEFT_DEVTOOLS
+        // The developer tools (View::inspect_*): pages loaded, the log, the overlay's solver and scene, whether the
+        // next publish must show a change of it, and what the pointer did while picking.
+        std::uint64_t inspect_loads{};
+        std::string inspect_sheet;
+        std::deque<InspectLogEntry> inspect_entries;
+        std::uint64_t inspect_sequence{};
+        std::optional<SceneNode> overlay;
+        bool overlay_changed{};
+        bool inspect_mode{};
+        InspectPointer inspect_pointer;
+        // The page last loaded and the keyframes the scene has now (View::inspect_restyle).
+        ViewPage inspect_page;
+        std::string inspect_keyframes;
+        // The host's reader, and the files the tools supply in its place by resolved path: `reader` is the host's
+        // alone while there are none, so that a View without them reads as a release build's does.
+        ViewResourceReader host_reader;
+        std::map<std::string, std::vector<std::uint8_t>, std::less<>> inspect_resources;
+
+        void refresh_reader() {
+            if (inspect_resources.empty()) {
+                reader = host_reader;
+                return;
+            }
+            reader = [this](std::string_view path) -> std::optional<std::vector<std::uint8_t>> {
+                if (const auto found = inspect_resources.find(path); found != inspect_resources.end()) {
+                    return found->second;
+                }
+                return host_reader ? host_reader(path) : std::nullopt;
+            };
+        }
+
+        void log(ViewDiagnostic::Kind kind, const std::string& message, bool sheet) {
+            inspect_entries.push_back({++inspect_sequence, {kind, message}, sheet});
+            if (inspect_entries.size() > constants::devtools::max_log_entries) {
+                inspect_entries.pop_front();
+            }
+        }
+
+        // A sheet's fonts as load_fonts makes them, not yet the View's: for a sheet that is tried first.
+        struct TriedFonts {
+            std::shared_ptr<const FontCatalog> fonts;
+            std::unique_ptr<SceneText> text;
+            std::unique_ptr<SceneGeometry> geometry;
+        };
+
+        TriedFonts try_fonts(SceneSolver& solver, const std::string& base) {
+            auto faces = view_font_faces(solver.font_faces(), base, reader, [this](std::string message) {
+                diagnose(ViewDiagnostic::Kind::Scene, std::move(message));
+            });
+            TriedFonts out;
+            if (faces.empty()) {
+                out.fonts = runtime_fonts;
+                out.geometry = std::make_unique<SceneGeometry>(runtime_text);
+                solver.set_text(runtime_text);
+                return out;
+            }
+            out.fonts = std::make_shared<const FontCatalog>(view_page_catalog(*runtime_fonts, std::move(faces)));
+            out.text = std::make_unique<SceneText>(*out.fonts);
+            out.geometry = std::make_unique<SceneGeometry>(*out.text);
+            solver.set_text(*out.text);
+            return out;
+        }
+
+        void inspect_input(float x, float y, bool press) {
+            if (!std::isfinite(x) || !std::isfinite(y) || !loaded || faulted || !try_flush()) {
+                return;
+            }
+            take_anchors();
+            inspect_pointer.hovered = hit_test(x, y);
+            if (press) {
+                inspect_pointer.picked = inspect_pointer.hovered;
+            }
+        }
+#endif
 
         Impl(View& owner, std::shared_ptr<const FontCatalog> catalog, SceneText& scene_text, float w, float h, float s)
             : view(owner),
@@ -317,6 +395,10 @@ namespace weft {
         }
 
         void diagnose(ViewDiagnostic::Kind kind, std::string message) {
+#if WEFT_DEVTOOLS
+            // Before the host's bound: a host that never drains its diagnostics still has them in the tools.
+            log(kind, message, false);
+#endif
             if (diagnostics.size() >= constants::view::max_diagnostics) {
                 ++dropped;
                 return;
@@ -495,7 +577,13 @@ namespace weft {
 
         void publish() {
             const std::array<float, 3> size{width, height, scale};
-            if (published && current.revision && current.revision == published_revision && size == published_size) {
+#if WEFT_DEVTOOLS
+            const bool overlay_moved = std::exchange(overlay_changed, false);
+#else
+            const bool overlay_moved = false;
+#endif
+            if (published && current.revision && current.revision == published_revision && size == published_size &&
+                !overlay_moved) {
                 return;
             }
             auto scene_copy = std::make_shared<SceneFrame>();
@@ -503,6 +591,13 @@ namespace weft {
             scene_copy->animated = current.animated;
             scene_copy->time_ms = current.time_ms;
             scene_copy->revision = current.revision;
+#if WEFT_DEVTOOLS
+            if (overlay) {
+                scene_copy->root.children.push_back(*overlay);
+                // The solver did not make this content.
+                scene_copy->revision = 0;
+            }
+#endif
             view.shared_->publish(std::make_shared<const ViewFrame>(
                 ViewFrame{std::move(scene_copy), width, height, scale, fonts, runtime_fonts, view.shared_->anchors()}));
             published_revision = current.revision;
@@ -521,6 +616,66 @@ namespace weft {
                 }
             }
             diagnose(ViewDiagnostic::Kind::Script, "WEFT_VIEW_TASKS: tasks kept scheduling tasks");
+        }
+
+        // An element's values as getComputedStyle reads them.
+        std::map<std::string, std::string> computed_values(const SceneNode& n) {
+            // getComputedStyle reads names and texts.
+            std::map<std::string, std::string> s;
+            for (const auto& [property, value] : n.style) {
+                s.emplace_hint(s.end(), std::string(property_name(property)), value.text());
+            }
+            // A text field's values as its author gave them, not as it lays out and draws itself.
+            if (n.field) {
+                for (const auto& [property, value] : n.field->authored) {
+                    if (value) {
+                        s[std::string(property_name(property))] = *value;
+                    } else {
+                        s.erase(std::string(property_name(property)));
+                    }
+                }
+            }
+            // A color an animation or a transition interpolated (rgb() or rgba() of fractional
+            // channels), as Chrome serializes one: whole channels, and rgb() when it is opaque.
+            for (auto& [property, value] : s) {
+                if (!value.starts_with("rgb") || !value.ends_with(')')) {
+                    continue;
+                }
+                const auto open = value.find('(');
+                auto parts = css::split(std::string_view(value).substr(open + 1, value.size() - open - 2), ',').parts;
+                if (parts.size() != 3 && parts.size() != 4) {
+                    continue;
+                }
+                std::array<double, 4> v{0, 0, 0, 1};
+                bool numbers = true;
+                for (std::size_t k = 0; k < parts.size(); ++k) {
+                    const auto n = css::parse_number<double>(std::string(css::trim(parts[k])));
+                    numbers = numbers && n.has_value();
+                    v[k] = n.value_or(0);
+                }
+                if (!numbers) {
+                    continue;
+                }
+                std::string channels;
+                for (unsigned k = 0; k < 3; ++k) {
+                    channels += (k ? ", " : "") + number_text(std::clamp(std::floor(v[k] + .5), 0.0, 255.0));
+                }
+                value = v[3] >= 1 ? "rgb(" + channels + ")"
+                                  : "rgba(" + channels + ", " + number_text(std::clamp(v[3], 0.0, 1.0)) + ")";
+            }
+            s["width"] = number_text(n.box[2]) + "px";
+            s["height"] = number_text(n.box[3]) + "px";
+            if (!s.contains("transform") || s["transform"].empty() || s["transform"] == "none") {
+                s["transform"] = "none";
+            } else {
+                const auto m = geometry->transform_matrix(n);
+                s["transform"] = "matrix(";
+                for (unsigned i = 0; i < 6; ++i) {
+                    s["transform"] += (i ? "," : "") + number_text(m[i]);
+                }
+                s["transform"] += ")";
+            }
+            return s;
         }
 
         void install_hosts() {
@@ -592,64 +747,7 @@ namespace weft {
                 sync_read(*root_of(document));
                 const auto find = [&](auto&& self, const SceneNode& n) -> std::map<std::string, std::string> {
                     if (n.identity == identity) {
-                        // getComputedStyle reads names and texts.
-                        std::map<std::string, std::string> s;
-                        for (const auto& [property, value] : n.style) {
-                            s.emplace_hint(s.end(), std::string(property_name(property)), value.text());
-                        }
-                        // A text field's values as its author gave them, not as it lays out and draws itself.
-                        if (n.field) {
-                            for (const auto& [property, value] : n.field->authored) {
-                                if (value) {
-                                    s[std::string(property_name(property))] = *value;
-                                } else {
-                                    s.erase(std::string(property_name(property)));
-                                }
-                            }
-                        }
-                        // A color an animation or a transition interpolated (rgb() or rgba() of fractional
-                        // channels), as Chrome serializes one: whole channels, and rgb() when it is opaque.
-                        for (auto& [property, value] : s) {
-                            if (!value.starts_with("rgb") || !value.ends_with(')')) {
-                                continue;
-                            }
-                            const auto open = value.find('(');
-                            auto parts = css::split(std::string_view(value).substr(open + 1, value.size() - open - 2),
-                                                    ',').parts;
-                            if (parts.size() != 3 && parts.size() != 4) {
-                                continue;
-                            }
-                            std::array<double, 4> v{0, 0, 0, 1};
-                            bool numbers = true;
-                            for (std::size_t k = 0; k < parts.size(); ++k) {
-                                const auto n = css::parse_number<double>(std::string(css::trim(parts[k])));
-                                numbers = numbers && n.has_value();
-                                v[k] = n.value_or(0);
-                            }
-                            if (!numbers) {
-                                continue;
-                            }
-                            std::string channels;
-                            for (unsigned k = 0; k < 3; ++k) {
-                                channels += (k ? ", " : "") +
-                                            number_text(std::clamp(std::floor(v[k] + .5), 0.0, 255.0));
-                            }
-                            value = v[3] >= 1 ? "rgb(" + channels + ")"
-                                              : "rgba(" + channels + ", " + number_text(std::clamp(v[3], 0.0, 1.0)) + ")";
-                        }
-                        s["width"] = number_text(n.box[2]) + "px";
-                        s["height"] = number_text(n.box[3]) + "px";
-                        if (!s.contains("transform") || s["transform"].empty() || s["transform"] == "none") {
-                            s["transform"] = "none";
-                        } else {
-                            const auto m = geometry->transform_matrix(n);
-                            s["transform"] = "matrix(";
-                            for (unsigned i = 0; i < 6; ++i) {
-                                s["transform"] += (i ? "," : "") + number_text(m[i]);
-                            }
-                            s["transform"] += ")";
-                        }
-                        return s;
+                        return computed_values(n);
                     }
                     for (const auto& c : n.children) {
                         auto s = self(self, c);
@@ -2212,6 +2310,15 @@ namespace weft {
 
     void View::load(const ViewPage& page) {
         auto& i = *impl_;
+#if WEFT_DEVTOOLS
+        // The tools see every load, one that fails too, and keep what it was given to load it again.
+        ++i.inspect_loads;
+        i.inspect_page = page;
+        i.inspect_keyframes = page.keyframes;
+        i.inspect_sheet = page.base;
+        i.overlay.reset();
+        i.overlay_changed = true;
+#endif
         i.vm.reset_document();
         i.forget_scene();
         i.loaded = false;
@@ -2232,7 +2339,17 @@ namespace weft {
         }
         // Geometry reads take the View's own (ensure_geometry).
         i.scene->set_element_geometry(false);
+#if WEFT_DEVTOOLS
+        const auto before_sheet = i.inspect_sequence;
+#endif
         i.take_style_warnings();
+#if WEFT_DEVTOOLS
+        for (auto& entry : i.inspect_entries) {
+            if (entry.sequence > before_sheet) {
+                entry.sheet = true;
+            }
+        }
+#endif
         // A page's images anew each load: the files may have changed.
         i.image_base = page.base;
         i.images = std::make_unique<ViewImages>(page.base, i.reader, [&i](std::string message) {
@@ -2430,6 +2547,14 @@ namespace weft {
 
     bool View::pointer(const PointerInput& input) {
         auto& i = *impl_;
+#if WEFT_DEVTOOLS
+        if (i.inspect_mode) {
+            if (input.kind != PointerKind::Leave && input.kind != PointerKind::Wheel) {
+                i.inspect_input(input.x, input.y, input.kind == PointerKind::Down);
+            }
+            return true;
+        }
+#endif
         if (i.faulted) {
             throw ViewError("WEFT_VIEW_FAULTED: load the page again");
         }
@@ -2615,6 +2740,16 @@ namespace weft {
 
     bool View::touch(const TouchInput& input) {
         auto& i = *impl_;
+#if WEFT_DEVTOOLS
+        if (i.inspect_mode) {
+            for (const auto& point : input.points) {
+                if (point.phase != TouchPhase::Cancelled) {
+                    i.inspect_input(point.x, point.y, point.phase == TouchPhase::Ended);
+                }
+            }
+            return true;
+        }
+#endif
         if (i.faulted) {
             throw ViewError("WEFT_VIEW_FAULTED: load the page again");
         }
@@ -3174,6 +3309,13 @@ namespace weft {
         if (!i.loaded || i.faulted || !i.try_flush()) {
             return out;
         }
+#if WEFT_DEVTOOLS
+        // A host that sends the page only the input over its elements still has to send it all while the tools pick.
+        if (i.inspect_mode) {
+            out.element = i.root_id;
+            return out;
+        }
+#endif
         i.take_anchors();
         const auto target = i.hit_test(x, y);
         const auto path = i.chain(target);
@@ -3191,6 +3333,261 @@ namespace weft {
         }
         return out;
     }
+
+#if WEFT_DEVTOOLS
+    std::uint64_t View::inspect_loads() const {
+        return impl_->inspect_loads;
+    }
+
+    const std::string& View::inspect_sheet_name() const {
+        return impl_->inspect_sheet;
+    }
+
+    const CompiledStyle* View::inspect_style() const {
+        return impl_->scene ? &impl_->scene->compiled_style() : nullptr;
+    }
+
+    namespace {
+        constexpr std::string_view document_element = "html";
+    } // namespace
+
+    std::optional<DomSnapshot> View::inspect_document() {
+        auto& i = *impl_;
+        if (!i.loaded || i.faulted) {
+            return std::nullopt;
+        }
+        return i.vm.snapshot_subtree(i.vm.node_identity(document_element));
+    }
+
+    std::uint64_t View::inspect_document_revision() {
+        auto& i = *impl_;
+        if (!i.loaded || i.faulted) {
+            return 0;
+        }
+        return i.vm.subtree_revision(i.vm.node_identity(document_element));
+    }
+
+    const DomSnapshot* View::inspect_scene_dom() {
+        auto& i = *impl_;
+        if (!i.loaded || i.faulted || !i.try_flush() || !i.last_dom) {
+            return nullptr;
+        }
+        return &*i.last_dom;
+    }
+
+    std::map<std::string, std::string> View::inspect_computed(NodeIdentity element) {
+        auto& i = *impl_;
+        if (!i.loaded || i.faulted || !i.try_flush()) {
+            return {};
+        }
+        const auto path = i.chain(element);
+        return path.empty() ? std::map<std::string, std::string>{} : i.computed_values(*path.back());
+    }
+
+    std::optional<ElementGeometry> View::inspect_geometry(NodeIdentity element) {
+        auto& i = *impl_;
+        if (!i.loaded || i.faulted || !i.try_flush()) {
+            return std::nullopt;
+        }
+        i.ensure_geometry();
+        for (const auto& e : i.current.elements) {
+            if (e.identity == element) {
+                return e;
+            }
+        }
+        return std::nullopt;
+    }
+
+    NodeIdentity View::inspect_hit(float x, float y) {
+        auto& i = *impl_;
+        if (!i.loaded || i.faulted || !i.try_flush()) {
+            return {};
+        }
+        i.take_anchors();
+        return i.hit_test(x, y);
+    }
+
+    std::vector<InspectLogEntry> View::inspect_log(std::uint64_t after) const {
+        std::vector<InspectLogEntry> out;
+        for (const auto& entry : impl_->inspect_entries) {
+            if (entry.sequence > after) {
+                out.push_back(entry);
+            }
+        }
+        return out;
+    }
+
+    void View::inspect_overlay(const std::optional<DomSnapshot>& boxes) {
+        auto& i = *impl_;
+        i.overlay_changed = true;
+        if (!boxes) {
+            i.overlay.reset();
+            return;
+        }
+        // Text is laid out with the fonts the frames carry. What the overlay cannot make, it does not show: the tools
+        // must not disturb the page.
+        try {
+            SceneSolver solver("", "", i.page_text ? *i.page_text : i.runtime_text, false, true);
+            solver.set_element_geometry(false);
+            i.overlay = solver.frame(*boxes, i.width, i.height, i.time).root;
+        } catch (const std::exception&) {
+            i.overlay.reset();
+        }
+    }
+
+    void View::inspect_pointer_mode(bool on) {
+        impl_->inspect_mode = on;
+        impl_->inspect_pointer = {};
+    }
+
+    InspectPointer View::inspect_take_pointer() {
+        auto out = impl_->inspect_pointer;
+        impl_->inspect_pointer.picked = {};
+        return out;
+    }
+
+    const ViewPage& View::inspect_page() const {
+        return impl_->inspect_page;
+    }
+
+    const std::string& View::inspect_keyframes() const {
+        return impl_->inspect_keyframes;
+    }
+
+    std::optional<std::string> View::inspect_restyle(const std::string& stylesheet, const std::string& keyframes,
+                                                     bool quiet) {
+        auto& i = *impl_;
+        if (!i.loaded || i.faulted || !i.scene) {
+            return "WEFT_VIEW_EMPTY: no page";
+        }
+        std::unique_ptr<SceneSolver> next;
+        std::unique_ptr<ViewImages> images;
+        Impl::TriedFonts fonts;
+        SceneFrame frame;
+        std::vector<std::string> dropped;
+        try {
+            // The document as a flush reads it, whatever became of the scene the sheet in place makes of it.
+            if (!i.root_id.generation) {
+                i.root_id = i.vm.node_identity(i.root_selector);
+            }
+            if (!i.last_dom) {
+                i.last_dom = i.vm.snapshot_subtree(i.root_id);
+            } else {
+                try {
+                    i.vm.refresh_snapshot(i.root_id, *i.last_dom);
+                } catch (...) {
+                    i.last_dom.reset();
+                    throw;
+                }
+            }
+            i.dom_revision = i.vm.subtree_revision(i.root_id);
+            // The new sheet's scene of it, as load sets a scene up: the page's files are read again.
+            next = std::make_unique<SceneSolver>(stylesheet, keyframes, i.runtime_text, true,
+                                                 i.inspect_page.forgiving_css);
+            next->set_element_geometry(false);
+            dropped = next->take_warnings();
+            images = std::make_unique<ViewImages>(i.image_base, i.reader, [&i](std::string message) {
+                i.diagnose(ViewDiagnostic::Kind::Scene, std::move(message));
+            });
+            next->set_images(images.get());
+            next->set_effects(i.effects);
+            next->set_safe_area(i.safe_area);
+            next->set_input_devices(i.devices);
+            fonts = i.try_fonts(*next, i.image_base);
+            next->update(*i.last_dom, frame, i.width, i.height, i.time);
+            if (quiet) {
+                next->take_warnings();
+            }
+        } catch (const std::exception& e) {
+            return std::string(e.what());
+        }
+        if (!quiet) {
+            for (const auto& warning : dropped) {
+                const auto message = "WEFT_STYLE_DROPPED: " + warning;
+                // What the sheet's parser dropped, as a load marks it.
+                const auto logged = i.inspect_sequence;
+                i.diagnose(ViewDiagnostic::Kind::Scene, message);
+                if (i.inspect_sequence != logged) {
+                    i.inspect_entries.back().sheet = true;
+                }
+            }
+        }
+        // The old scene goes before the images and the text it reads.
+        i.scene = std::move(next);
+        i.images = std::move(images);
+        i.geometry = std::move(fonts.geometry);
+        i.page_text = std::move(fonts.text);
+        i.fonts = std::move(fonts.fonts);
+        i.current = std::move(frame);
+        i.geometry_valid = false;
+        i.hits.reset();
+        i.elements.clear();
+        i.elements_valid = false;
+        i.last_scene_width = i.width;
+        i.last_scene_height = i.height;
+        i.last_scene_safe_area = i.safe_area;
+        i.last_scene_devices = i.devices;
+        i.last_scene_time = i.time;
+        // Scripts read layout anew.
+        i.cache_time = -1;
+        i.inspect_keyframes = keyframes;
+        return std::nullopt;
+    }
+
+    void View::inspect_set_resource(std::string path, std::vector<std::uint8_t> bytes) {
+        impl_->inspect_resources.insert_or_assign(std::move(path), std::move(bytes));
+        impl_->refresh_reader();
+    }
+
+    void View::inspect_clear_resources() {
+        impl_->inspect_resources.clear();
+        impl_->refresh_reader();
+    }
+
+    void View::inspect_adopt(const View& earlier) {
+        auto& i = *impl_;
+        const auto& e = *earlier.impl_;
+        i.time = e.time;
+        i.session_storage = e.session_storage;
+        i.own_clipboard = e.own_clipboard;
+        i.inspect_entries = e.inspect_entries;
+        i.inspect_sequence = e.inspect_sequence;
+        i.inspect_loads = e.inspect_loads;
+        i.inspect_resources = e.inspect_resources;
+        i.refresh_reader();
+    }
+
+    std::uint64_t View::inspect_log_end() const {
+        return impl_->inspect_sequence;
+    }
+
+    void View::inspect_append_log(const std::vector<InspectLogEntry>& entries) {
+        for (const auto& entry : entries) {
+            impl_->log(entry.diagnostic.kind, entry.diagnostic.message, entry.sheet);
+        }
+    }
+
+    const std::vector<ElementGeometry>* View::inspect_geometries() {
+        auto& i = *impl_;
+        if (!i.loaded || i.faulted || !i.try_flush()) {
+            return nullptr;
+        }
+        i.ensure_geometry();
+        return &i.current.elements;
+    }
+
+    std::array<float, 3> View::inspect_viewport() const {
+        return {impl_->width, impl_->height, impl_->scale};
+    }
+
+    std::array<float, 4> View::inspect_safe_area() const {
+        return impl_->safe_area;
+    }
+
+    bool View::inspect_animated() const {
+        return impl_->current.animated;
+    }
+#endif
 
     std::vector<ViewDiagnostic> View::take_diagnostics(std::size_t* dropped) {
         auto& i = *impl_;
@@ -3218,7 +3615,12 @@ namespace weft {
     }
 
     void View::set_resource_reader(ViewResourceReader reader) {
+#if WEFT_DEVTOOLS
+        impl_->host_reader = std::move(reader);
+        impl_->refresh_reader();
+#else
         impl_->reader = std::move(reader);
+#endif
     }
 
     void View::set_local_storage(std::shared_ptr<WebStorage> storage) {

@@ -215,6 +215,24 @@ namespace weft {
         std::string message;
     };
 
+#if WEFT_DEVTOOLS
+    // What the pointer did while the developer tools pick an element (View::inspect_pointer_mode): the element under it
+    // now, and the one it pressed since the last take, if any.
+    struct InspectPointer {
+        NodeIdentity hovered;
+        NodeIdentity picked;
+    };
+
+    // A diagnostic with its place in the View's log, which runs on from the first page: what the tools show of earlier
+    // diagnostics when they connect late, and what they have not sent yet.
+    struct InspectLogEntry {
+        std::uint64_t sequence{};
+        ViewDiagnostic diagnostic;
+        // What the parser of the page's sheet dropped, which the tools have with its place in the sheet.
+        bool sheet{};
+    };
+#endif
+
     // A page's script threw while it loaded (the View is empty again), or the View faulted.
     struct ViewError : std::runtime_error {
         using std::runtime_error::runtime_error;
@@ -324,6 +342,64 @@ namespace weft {
         // The fonts its frames carry: the runtime's, or its page's catalog (@font-face).
         std::shared_ptr<const FontCatalog> fonts() const;
         ScriptDom& script();
+
+#if WEFT_DEVTOOLS
+        // The developer tools' reach into the page (src/devtools, docs/devtools.md). Owner thread.
+        //
+        // Counts the pages loaded: a new document, sheet and VM state.
+        std::uint64_t inspect_loads() const;
+        // The stylesheet's name (the page's base) and the compiled sheet; null without a scene.
+        const std::string& inspect_sheet_name() const;
+        const CompiledStyle* inspect_style() const;
+        // The whole document from its element (none before a page), and the revision of its subtree.
+        std::optional<DomSnapshot> inspect_document();
+        std::uint64_t inspect_document_revision();
+        // The DOM the scene was last cascaded from (the root's subtree); null before the first scene.
+        const DomSnapshot* inspect_scene_dom();
+        // The element's values as getComputedStyle reads them; empty for one that is not in the scene.
+        std::map<std::string, std::string> inspect_computed(NodeIdentity element);
+        // The element's geometry; none for one that is not in the scene.
+        std::optional<ElementGeometry> inspect_geometry(NodeIdentity element);
+        // The topmost node at a point of the View, whatever it is (the root included).
+        NodeIdentity inspect_hit(float x, float y);
+        // The log since a sequence number (0: all that is kept).
+        std::vector<InspectLogEntry> inspect_log(std::uint64_t after) const;
+        // Tree of boxes the frames show over the page, which no script, cascade or hit test sees; none takes them away.
+        void inspect_overlay(const std::optional<DomSnapshot>& boxes);
+        // While on, pointer and touch input pick an element for the tools instead of reaching the page.
+        void inspect_pointer_mode(bool on);
+        InspectPointer inspect_take_pointer();
+
+        // Reloading and restyling (docs/devtools.md, "热重载").
+        //
+        // The page the View was last loaded with, and the keyframes its scene has now (that page's, or the last
+        // restyle's).
+        const ViewPage& inspect_page() const;
+        const std::string& inspect_keyframes() const;
+        // Replaces the page's style sheet and keyframes and reads its images and fonts again: the document and the
+        // scripts' state stay. The scene is made with the new sheet first; when it cannot be, nothing changes and
+        // what went wrong is returned. quiet keeps what the sheet drops out of the diagnostics (an edit under way).
+        std::optional<std::string> inspect_restyle(const std::string& stylesheet, const std::string& keyframes,
+                                                   bool quiet);
+        // A file the page names that the tools supply in place of the host's reader, by its resolved path; and none
+        // of them any more. The page reads its files at a load or a restyle.
+        void inspect_set_resource(std::string path, std::vector<std::uint8_t> bytes);
+        void inspect_clear_resources();
+        // Before its first load, a View that is to stand in for another takes over what that one keeps across its
+        // page loads: its time, session storage and clipboard text, and the tools' log, load count and resources.
+        void inspect_adopt(const View& earlier);
+        // The sequence number of the log's last entry; and entries of another View's log added to this one's (those of
+        // a page tried in place of this View's that did not load).
+        std::uint64_t inspect_log_end() const;
+        void inspect_append_log(const std::vector<InspectLogEntry>& entries);
+        // Every element's geometry in tree order; null without a scene.
+        const std::vector<ElementGeometry>* inspect_geometries();
+        // The View's width and height in CSS px and its device scale; its safe area (top, right, bottom, left); and
+        // whether its scene is animating.
+        std::array<float, 3> inspect_viewport() const;
+        std::array<float, 4> inspect_safe_area() const;
+        bool inspect_animated() const;
+#endif
 
     private:
         struct Impl;

@@ -740,6 +740,11 @@ namespace weft {
         // bursts before an update.
         void emit_particles(NodeIdentity element, std::string_view name, const SceneBurst& burst);
 
+#if WEFT_DEVTOOLS
+        // The compiled sheet, for the developer tools (docs/devtools.md).
+        const CompiledStyle& compiled_style() const;
+#endif
+
         struct Work {
             std::size_t style_evaluations{};
             std::size_t layout_evaluations{};

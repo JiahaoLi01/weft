@@ -12,6 +12,10 @@
 #include <view/view_abi.hpp>
 #include <view/view_images.hpp>
 #include <view/view_keys.hpp>
+#if WEFT_DEVTOOLS
+#include <devtools/agent.hpp>
+#include <devtools/server.hpp>
+#endif
 #if defined(_WIN32)
 #include <platform/win32/system_fonts.hpp>
 #elif defined(__ANDROID__)
@@ -27,6 +31,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <limits>
@@ -56,6 +61,10 @@ namespace {
         // What other threads reach; the View, once a page loaded.
         std::shared_ptr<weft::ViewShared> shared;
         std::unique_ptr<weft::View> view;
+#if WEFT_DEVTOOLS
+        // The developer tools' side of the View, while they listen.
+        std::unique_ptr<weft::devtools::Agent> agent;
+#endif
         std::vector<HostFunction> functions;
         // The host's reader of the files pages name; none until it sets one.
         weft_resource_fn reader{};
@@ -122,6 +131,10 @@ struct weft_runtime {
     std::unique_ptr<weft::SceneText> text;
     // The UI shader effects the host registered; every View's scenes read them.
     weft::SceneEffects effects;
+#if WEFT_DEVTOOLS
+    // Listening, when the host or the environment asked for it. Empty otherwise.
+    std::shared_ptr<weft::devtools::Server> devtools;
+#endif
 };
 
 struct weft_value_writer {
@@ -366,6 +379,9 @@ extern "C" weft_result weft_runtime_create(const weft_runtime_desc* desc, weft_r
         runtime->views = weft::GenerationalSlots<ViewEntry>(max_views);
         runtime->shared.resize(max_views);
         runtime->system_fonts = flags & WEFT_RUNTIME_SYSTEM_FONTS;
+#if WEFT_DEVTOOLS
+        runtime->devtools = weft::devtools::start_from_environment();
+#endif
         *out_runtime = runtime.release();
         return WEFT_OK;
     } catch (const std::bad_alloc&) {
@@ -397,6 +413,84 @@ extern "C" weft_result weft_runtime_get_info(weft_runtime* runtime, weft_runtime
                  static_cast<uint32_t>(runtime->views.size())};
     return WEFT_OK;
 }
+
+extern "C" weft_result weft_get_build_info(weft_build_info* out_info) {
+    if (!out_info || out_info->struct_size < sizeof(weft_build_info)) {
+        return WEFT_INVALID_ARGUMENT;
+    }
+    *out_info = {sizeof(weft_build_info), WEFT_ABI_VERSION, WEFT_DEVTOOLS ? WEFT_BUILD_DEVTOOLS : 0u, 0};
+    return WEFT_OK;
+}
+
+#if WEFT_DEVTOOLS
+extern "C" weft_result weft_devtools_start(weft_runtime* runtime, const weft_devtools_desc* desc) {
+    if (const auto error = validate_owner(runtime); error != WEFT_OK) {
+        return error;
+    }
+    if (desc && (desc->struct_size < sizeof(weft_devtools_desc) || (desc->flags & ~WEFT_DEVTOOLS_ALL_INTERFACES) ||
+                 desc->port > std::numeric_limits<uint16_t>::max())) {
+        return WEFT_INVALID_ARGUMENT;
+    }
+    if (runtime->devtools) {
+        return WEFT_BUSY;
+    }
+    weft::devtools::Listen listen;
+    if (desc) {
+        listen.all_interfaces = desc->flags & WEFT_DEVTOOLS_ALL_INTERFACES;
+        if (desc->port != 0) {
+            listen.first_port = static_cast<uint16_t>(desc->port);
+            listen.attempts = 1;
+        }
+    }
+    try {
+        auto server = weft::devtools::Server::start(listen);
+        if (!server) {
+            return server.error().code == weft::Diag::DevtoolsPortInUse ? WEFT_BUSY : WEFT_INTERNAL_ERROR;
+        }
+        runtime->devtools = std::move(*server);
+        return WEFT_OK;
+    } catch (const std::bad_alloc&) {
+        return WEFT_OUT_OF_MEMORY;
+    } catch (...) {
+        return WEFT_INTERNAL_ERROR;
+    }
+}
+
+extern "C" weft_result weft_devtools_stop(weft_runtime* runtime) {
+    if (const auto error = validate_owner(runtime); error != WEFT_OK) {
+        return error;
+    }
+    if (runtime->devtools) {
+        runtime->devtools->stop();
+        runtime->devtools.reset();
+    }
+    return WEFT_OK;
+}
+
+extern "C" weft_result weft_devtools_get_info(weft_runtime* runtime, weft_devtools_info* out_info) {
+    if (const auto error = validate_owner(runtime); error != WEFT_OK) {
+        return error;
+    }
+    if (!out_info || out_info->struct_size < sizeof(weft_devtools_info)) {
+        return WEFT_INVALID_ARGUMENT;
+    }
+    *out_info = {sizeof(weft_devtools_info), runtime->devtools ? runtime->devtools->port() : 0u};
+    return WEFT_OK;
+}
+#else
+// The release build has no developer tools: these are all that is left of them.
+extern "C" weft_result weft_devtools_start(weft_runtime*, const weft_devtools_desc*) {
+    return WEFT_UNAVAILABLE;
+}
+
+extern "C" weft_result weft_devtools_stop(weft_runtime*) {
+    return WEFT_UNAVAILABLE;
+}
+
+extern "C" weft_result weft_devtools_get_info(weft_runtime*, weft_devtools_info*) {
+    return WEFT_UNAVAILABLE;
+}
+#endif
 
 extern "C" weft_result weft_runtime_add_font(weft_runtime* runtime, const weft_font_face* face) {
     if (const auto error = font_owner(runtime); error != WEFT_OK) {
@@ -669,6 +763,30 @@ extern "C" weft_result weft_view_record_tick(weft_runtime* runtime, weft_view_ha
     return record_time(entry->info, time_seconds);
 }
 
+namespace {
+    // A View of an entry with what the host gave the entry: its functions, reader, clipboard, storage, focus, safe
+    // area and input devices.
+    std::unique_ptr<weft::View> new_view(weft_runtime& runtime, ViewEntry& entry) {
+        freeze_fonts(runtime);
+        auto view = std::make_unique<weft::View>(runtime.fonts, *runtime.text, entry.info.logical_width,
+                                                 entry.info.logical_height, entry.info.device_scale, entry.shared);
+        for (auto& function : entry.functions) {
+            view->install_function(function.name, engine_function(entry, function));
+        }
+        view->set_resource_reader(resource_reader(entry));
+        view->set_clipboard(view_clipboard(entry));
+        view->set_local_storage(entry.storage);
+        view->set_effects(&runtime.effects);
+        if (!entry.focused) {
+            view->set_focus(false);
+        }
+        const auto& [top, right, bottom, left] = entry.safe_area;
+        view->set_safe_area(top, right, bottom, left);
+        view->set_input_devices(entry.devices, entry.max_touch_points);
+        return view;
+    }
+} // namespace
+
 extern "C" weft_result weft_view_load(weft_runtime* runtime, weft_view_handle view, const weft_page_desc* page) {
     ViewEntry* entry{};
     if (const auto error = find_idle(runtime, view, entry); error != WEFT_OK) {
@@ -716,28 +834,95 @@ extern "C" weft_result weft_view_load(weft_runtime* runtime, weft_view_handle vi
         content.web_platform = page->flags & WEFT_PAGE_WEB_PLATFORM;
         content.spatial_navigation = page->flags & WEFT_PAGE_SPATIAL_NAVIGATION;
         if (!entry->view) {
-            freeze_fonts(*runtime);
-            entry->view =
-                std::make_unique<weft::View>(runtime->fonts, *runtime->text, entry->info.logical_width,
-                                             entry->info.logical_height, entry->info.device_scale, entry->shared);
-            for (auto& function : entry->functions) {
-                entry->view->install_function(function.name, engine_function(*entry, function));
-            }
-            entry->view->set_resource_reader(resource_reader(*entry));
-            entry->view->set_clipboard(view_clipboard(*entry));
-            entry->view->set_local_storage(entry->storage);
-            entry->view->set_effects(&runtime->effects);
-            if (!entry->focused) {
-                entry->view->set_focus(false);
-            }
-            const auto& [top, right, bottom, left] = entry->safe_area;
-            entry->view->set_safe_area(top, right, bottom, left);
-            entry->view->set_input_devices(entry->devices, entry->max_touch_points);
+            entry->view = new_view(*runtime, *entry);
         }
+#if WEFT_DEVTOOLS
+        // A page the tools supply in the place of this one (docs/devtools.md). One that does not load leaves the host
+        // its own page: the tools say why.
+        if (entry->agent) {
+            if (const auto* supplied = entry->agent->supplied_page(content)) {
+                try {
+                    entry->view->load(*supplied);
+                    return WEFT_OK;
+                } catch (const weft::ViewError&) {
+                }
+            }
+        }
+#endif
         entry->view->load(content);
         return WEFT_OK;
     });
 }
+
+#if WEFT_DEVTOOLS
+namespace {
+    // A page tried in a new View in the place of the entry's (docs/devtools.md, "热重载"): the new View is the entry's
+    // once the page loaded and showed a frame; a page that does not leaves the old View and its page as they were,
+    // with the engine's calls and what waited for it, and the tools' log says why. The new View, or null and why.
+    weft::View* reload_view(weft_runtime& runtime, ViewEntry& entry, const weft::ViewPage& page, std::string& error) {
+        const auto engine = entry.shared->engine();
+        auto checkpoint = engine->checkpoint();
+        const auto shown = entry.shared->frame();
+        const auto logged = entry.view->inspect_log_end();
+        auto fresh = new_view(runtime, entry);
+        fresh->inspect_adopt(*entry.view);
+        try {
+            fresh->load(page);
+        } catch (const std::exception& e) {
+            error = e.what();
+        }
+        auto entries = fresh->inspect_log(logged);
+        if (error.empty() && entry.shared->frame() == shown) {
+            // Its scripts ran, and its styles make no scene: what a host's load would leave showing the last page.
+            error = "the page's styles make no scene";
+            for (const auto& made : entries) {
+                if (made.diagnostic.kind == weft::ViewDiagnostic::Kind::Scene && !made.sheet) {
+                    error = made.diagnostic.message;
+                }
+            }
+        }
+        if (!error.empty()) {
+            fresh.reset();
+            engine->restore(std::move(checkpoint));
+            entry.view->inspect_append_log(entries);
+            return nullptr;
+        }
+        entry.view = std::move(fresh);
+        return entry.view.get();
+    }
+
+    // The tools take their turn after the View's: the page is at a safe point, its frame published.
+    void pump_devtools(weft_runtime& runtime, weft_view_handle handle, ViewEntry& entry) {
+        const bool current =
+            entry.agent && entry.agent->server() == runtime.devtools && entry.agent->view() == entry.view.get();
+        if (entry.agent && !current) {
+            if (entry.agent->view() == entry.view.get()) {
+                entry.agent->detach();
+            }
+            entry.agent.reset();
+        }
+        if (!runtime.devtools) {
+            return;
+        }
+        if (!entry.agent) {
+            weft::devtools::AgentHost host;
+            host.reload = [&runtime, handle](const weft::ViewPage& page, std::string& error) -> weft::View* {
+                auto* found = runtime.views.find(handle.slot - 1, handle.generation);
+                return found && found->view ? reload_view(runtime, *found, page, error) : nullptr;
+            };
+            entry.agent = std::make_unique<weft::devtools::Agent>(
+                *entry.view, runtime.devtools, std::to_string(handle.slot) + "-" + std::to_string(handle.generation),
+                std::move(host));
+        }
+        // What goes wrong in the tools is no failure of the host's call.
+        try {
+            entry.agent->pump();
+        } catch (const std::exception& e) {
+            std::fprintf(stderr, "[weft devtools] %s\n", e.what());
+        }
+    }
+} // namespace
+#endif
 
 extern "C" weft_result weft_view_advance(weft_runtime* runtime, weft_view_handle view, double time_seconds) {
     ViewEntry* entry{};
@@ -751,6 +936,9 @@ extern "C" weft_result weft_view_advance(weft_runtime* runtime, weft_view_handle
     return guarded([&] {
         if (entry->view) {
             entry->view->advance(std::max(time_seconds * 1000, entry->view->time()));
+#if WEFT_DEVTOOLS
+            pump_devtools(*runtime, view, *entry);
+#endif
         }
         entry->info = info;
         return WEFT_OK;
@@ -1548,6 +1736,8 @@ extern "C" const char* weft_result_string(weft_result result) {
             return "page script error";
         case WEFT_FAULTED:
             return "view faulted";
+        case WEFT_UNAVAILABLE:
+            return "not in this build";
     }
     return "unknown result";
 }

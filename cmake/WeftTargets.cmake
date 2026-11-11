@@ -22,6 +22,9 @@ function(weft_add_library module)
     add_library(${target} STATIC ${arg_SOURCES})
     add_library(weft::${module} ALIAS ${target})
     weft_project_options(${target})
+    # The build of the engine this is (docs/devtools.md). Public: internal structs may differ between the two builds, so
+    # whatever links a module has to see the same value. Hosts use the C ABI, which is the same in both, and never test it.
+    target_compile_definitions(${target} PUBLIC WEFT_DEVTOOLS=$<BOOL:${WEFT_DEVTOOLS}>)
     if(arg_PUBLIC)
         target_link_libraries(${target} PUBLIC ${arg_PUBLIC})
     endif()

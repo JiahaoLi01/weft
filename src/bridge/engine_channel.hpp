@@ -81,6 +81,20 @@ namespace weft::bridge {
 
         std::size_t open_calls() const;
 
+#if WEFT_DEVTOOLS
+        // What the channel holds for a page, for the developer tools' reload (docs/devtools.md): a page tried in the
+        // place of another resets the channel as any page does, and the other gets it back when the new one does not load.
+        struct Checkpoint {
+            std::vector<EngineInput> inputs;
+            std::map<std::string, std::map<std::string, std::vector<std::uint8_t>, std::less<>>, std::less<>> models;
+            std::unordered_set<std::uint64_t> open;
+        };
+
+        Checkpoint checkpoint() const;
+        // The checkpoint's open calls, and what waited then before what was given since. Calls opened since close.
+        void restore(Checkpoint checkpoint);
+#endif
+
     private:
         mutable std::mutex mutex_;
         std::vector<EngineInput> inputs_;

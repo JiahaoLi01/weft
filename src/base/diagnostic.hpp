@@ -43,6 +43,11 @@ namespace weft {
         StyleMemoOwner,
         SceneOwner,
         SceneRasterOwner,
+#if WEFT_DEVTOOLS
+        // The developer tools' listening socket (devtools/server.hpp).
+        DevtoolsPortInUse,
+        DevtoolsSocket,
+#endif
     };
 
     // Stable name of a code, e.g. "WEFT_STYLE_PROFILE" or "IndexSizeError".

@@ -164,4 +164,41 @@ namespace weft::bridge {
         const std::lock_guard lock(mutex_);
         return open_.size();
     }
+
+#if WEFT_DEVTOOLS
+    EngineChannel::Checkpoint EngineChannel::checkpoint() const {
+        const std::lock_guard lock(mutex_);
+        return {inputs_, models_, open_};
+    }
+
+    void EngineChannel::restore(Checkpoint checkpoint) {
+        const std::lock_guard lock(mutex_);
+        auto since = std::move(inputs_);
+        inputs_ = std::move(checkpoint.inputs);
+        inputs_.insert(inputs_.end(), std::make_move_iterator(since.begin()), std::make_move_iterator(since.end()));
+        // A field set since is the later value.
+        for (auto& [model, fields] : models_) {
+            auto& kept = checkpoint.models[model];
+            for (auto& [field, value] : fields) {
+                kept[field] = std::move(value);
+            }
+        }
+        models_ = std::move(checkpoint.models);
+        open_ = std::move(checkpoint.open);
+        // The bytes that wait are the values', as emit, complete and set_model count them.
+        last_event_.clear();
+        bytes_ = 0;
+        for (std::size_t i = 0; i < inputs_.size(); ++i) {
+            bytes_ += inputs_[i].value.size();
+            if (inputs_[i].kind == EngineInput::Kind::Event) {
+                last_event_[inputs_[i].name] = i;
+            }
+        }
+        for (const auto& [model, fields] : models_) {
+            for (const auto& [field, value] : fields) {
+                bytes_ += value.size();
+            }
+        }
+    }
+#endif
 } // namespace weft::bridge
