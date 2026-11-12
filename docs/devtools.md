@@ -215,6 +215,7 @@ CSS 的来源信息只在开发版里保留。行号指向页面加载的那份�
 
 - 强制 `:hover` 等状态，`::before`、`::after` 的样式，每段文字实际用的字体。
 - 控制台里展开对象：结果只有一层预览，`Runtime.callFunctionOn` 还没实现。
+- `CSS.getBackgroundColors`：Styles 面板拿它算颜色对比度，没有时报一次错，其余照常。
 - 嵌套规则的选择器不能在前端里改：显示的是展开后的选择器，和文件里写的不同。它的声明可以改。
 - source map：行号指向页面加载的那份样式表，打包过的页面就是打包后的文件。
 
@@ -247,6 +248,13 @@ CSS 的来源信息只在开发版里保留。行号指向页面加载的那份�
 - 对比工具：协议测试页 0 处差异；根元素带外边距、内边距、边框和绝对定位子元素的页面 0 处差异（Chrome 里的根元素和 View 里的一致）；专门写的外边距页面列出 3 处，正是不折叠的那几处。
 - 监听 `0.0.0.0` 时 IPv4 和 IPv6 都能连上。
 
+Windows（2026-11-11，Windows 11，Visual Studio 2022 的 MSVC 14.44，Release，`WEFT_BUILD_SHARED=ON`）：
+
+- 两版都编过。发布版的 `weft.dll` 不导入 `WS2_32.dll`，开发版导入；两版导出同样的 79 个名字（发布版里三个 `weft_devtools_*` 空函数一样，被链接器的 `/OPT:ICF` 合成一个，名字都在）。
+- `devtools_mode`、`devtools_binary` 两版都过。`devtools_protocol`、`devtools_reload` 在 Windows 上也构建（测试这一端的 socket 走 Winsock，`tests/support/devtools_client.hpp`）并通过。`tools/devtools_watch_check.mjs` 29 项全过。
+- `devtools_protocol` 起初在 Windows 上失败：签出把 `tests/fixtures/devtools/page.css` 换成了 CRLF，测试按 LF 找文本，Chrome 录下的偏移也是 LF 的。`.gitattributes` 把这个目录定为 LF。
+- 在 Unreal 里（weft-unreal，UE 5.8.4，D3D12）：Chrome 157 自带的前端连上游戏里的设置页，Elements 里是页面的 DOM，选中元素后 Styles 列出命中的规则和行号，Console 里有页面抛出的错误；游戏画面上画出高亮的盒子和标签。前端调了两个 Weft 没有的方法：`Runtime.callFunctionOn`（见尚缺）和 `CSS.getBackgroundColors`（Styles 面板算对比度用），各报一次错，面板照常显示。
+
 ### 用对比工具发现的差异
 
 对比工具在示例页上找到的引擎和 Chrome 的差异：
@@ -257,6 +265,6 @@ CSS 的来源信息只在开发版里保留。行号指向页面加载的那份�
 
 ### 未验证
 
-- Windows：`.def` 导出和 Winsock 代码没有编译过，`WEFT_BUILD_SHARED` 在 Windows 上默认关闭。`devtools_protocol`、`devtools_reload` 只用 POSIX socket，Windows 上不构建。
+- Windows：`WEFT_BUILD_SHARED` 默认仍关（打开后编过、测过）。监听 `0.0.0.0` 没有在 Windows 上试（会弹防火墙的询问）。
 - Linux 和 Android：链接脚本没有编译过。
 - iPad：开发版示例已经构建成功，二进制里有工具代码。但 iPad 处于锁定状态，无线安装一直失败，所以设备上的监听、从 Mac 推送页面、和设备上的页面对比都没有跑过。

@@ -12,12 +12,43 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#else
 #include <time.h>
 #include <unistd.h>
+#endif
 
 #define MAX_PAGES 8
 #define MAX_SCRIPTS 8
 #define FRAME_MICROSECONDS 4000
+
+/* Seconds on a monotonic clock, and a frame's sleep. */
+#ifdef _WIN32
+static double seconds_now(void) {
+    LARGE_INTEGER count;
+    LARGE_INTEGER frequency;
+    QueryPerformanceCounter(&count);
+    QueryPerformanceFrequency(&frequency);
+    return (double)count.QuadPart / (double)frequency.QuadPart;
+}
+
+static void sleep_frame(void) {
+    Sleep(FRAME_MICROSECONDS / 1000);
+}
+#else
+static double seconds_now(void) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (double)now.tv_sec + (double)now.tv_nsec / 1e9;
+}
+
+static void sleep_frame(void) {
+    usleep(FRAME_MICROSECONDS);
+}
+#endif
 
 typedef struct page {
     char* sheet;
@@ -68,6 +99,12 @@ static weft_result read_resource(void* user, const char* path, size_t path_size,
 
 static const char* file_name(const char* path) {
     const char* slash = strrchr(path, '/');
+#ifdef _WIN32
+    const char* backslash = strrchr(path, '\\');
+    if (backslash && (!slash || backslash > slash)) {
+        slash = backslash;
+    }
+#endif
     return slash ? slash + 1 : path;
 }
 
@@ -111,7 +148,7 @@ int main(int argc, char** argv) {
     weft_runtime* runtime = NULL;
     weft_view_handle view;
     const weft_view_desc desc = {sizeof desc, 0, 800, 500, 1, 0};
-    struct timespec start;
+    double start;
     int i;
     if (argc < 3 || argc - 2 > MAX_PAGES) {
         fprintf(stderr, "usage: weft_devtools_host <control file> <sheet.css,script.js[,script.js...]>...\n");
@@ -132,12 +169,11 @@ int main(int argc, char** argv) {
         return 1;
     }
     load(runtime, view, &pages[0]);
-    clock_gettime(CLOCK_MONOTONIC, &start);
+    start = seconds_now();
     for (;;) {
-        struct timespec now;
         size_t size = 0;
         char* control = read_file(argv[1], &size);
-        clock_gettime(CLOCK_MONOTONIC, &now);
+        const double now = seconds_now();
         if (control && size < sizeof last && strcmp(control, last) != 0) {
             memcpy(last, control, size + 1);
             if (strncmp(last, "quit", 4) == 0) {
@@ -149,9 +185,8 @@ int main(int argc, char** argv) {
             }
         }
         free(control);
-        weft_view_advance(runtime, view,
-                          (double)(now.tv_sec - start.tv_sec) + (double)(now.tv_nsec - start.tv_nsec) / 1e9);
-        usleep(FRAME_MICROSECONDS);
+        weft_view_advance(runtime, view, now - start);
+        sleep_frame();
     }
     weft_view_destroy(runtime, view);
     weft_runtime_destroy(runtime);

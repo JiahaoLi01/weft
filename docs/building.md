@@ -124,7 +124,7 @@ xcrun xctrace record --template 'Metal System Trace' --device <UDID> --time-limi
 引擎分发布版和开发版两份二进制，见[开发者工具](devtools.md)。选项：
 
 - `WEFT_DEVTOOLS`：默认 `OFF`。打开后把 `src/devtools` 编进引擎。
-- `WEFT_BUILD_SHARED`：构建共享库 `weft_shared`（`bin/libweft.dylib`、`bin/weft.dll`），导出公开头文件声明的 C 函数，不导出其他符号。macOS 上默认打开，其他平台没有验证过，默认关闭。
+- `WEFT_BUILD_SHARED`：构建共享库 `weft_shared`（`bin/libweft.dylib`、`bin/weft.dll`），导出公开头文件声明的 C 函数，不导出其他符号。macOS 上默认打开；Windows 上验证过（2026-11-11，两版都编过、测试通过），但默认仍关，要用时打开；Linux、Android 没有验证过，默认关闭。
 
 两版放在不同的构建目录，除 `WEFT_DEVTOOLS` 外选项要相同，否则导出列表不同，不能互换：
 
@@ -133,14 +133,24 @@ cmake -S . -B build/macos-release -G Ninja -DCMAKE_BUILD_TYPE=Release <后端选
 cmake -S . -B build/macos-dev -G Ninja -DCMAKE_BUILD_TYPE=Release <后端选项> -DWEFT_DEVTOOLS=ON
 ```
 
-测试：`devtools_mode` 是一个用 C11 写的宿主，只包含 `include/weft`，按构建检查接口行为；`devtools_binary` 在库文件里查找工具的字符串，开发版必须有，发布版不能有；`devtools_protocol`（只在开发版、非 Windows 上构建）通过 socket 测试协议，并与 `tests/fixtures/devtools/chrome-results.json` 对比，这份结果由 `tools/browser_devtools_reference.mjs` 从 Chrome 录制。
+Windows（Visual Studio 2022）：
 
-`devtools_reload`（同样只在开发版、非 Windows 上构建）经 C API 测试从工具重载页面。
+```powershell
+cmake -S . -B build/win-release -G "Visual Studio 17 2022" -A x64 -DWEFT_BUILD_SHARED=ON -DWEFT_BUILD_PROBES=OFF -DWEFT_BUILD_SAMPLES=OFF
+cmake -S . -B build/win-dev -G "Visual Studio 17 2022" -A x64 -DWEFT_BUILD_SHARED=ON -DWEFT_BUILD_PROBES=OFF -DWEFT_BUILD_SAMPLES=OFF -DWEFT_DEVTOOLS=ON
+cmake --build build/win-dev --config Release --target weft_shared weft_devtools_mode_test weft_devtools_protocol_tests weft_devtools_reload_tests weft_devtools_host
+ctest --test-dir build/win-dev -C Release -R devtools
+```
 
-热重载的端到端检查（启动一个没有窗口的宿主和监视工具，改文件、切页面，逐项核对）。`weft_devtools_host` 是 `tests/devtools_host.c`，只在开发版、非 Windows 上构建：
+测试：`devtools_mode` 是一个用 C11 写的宿主，只包含 `include/weft`，按构建检查接口行为；`devtools_binary` 在库文件里查找工具的字符串，开发版必须有，发布版不能有；`devtools_protocol`（只在开发版上构建）通过 socket（POSIX 或 Winsock，`tests/support/devtools_client.hpp`）测试协议，并与 `tests/fixtures/devtools/chrome-results.json` 对比，这份结果由 `tools/browser_devtools_reference.mjs` 从 Chrome 录制。
+
+`devtools_reload`（同样只在开发版上构建）经 C API 测试从工具重载页面。
+
+热重载的端到端检查（启动一个没有窗口的宿主和监视工具，改文件、切页面，逐项核对）。`weft_devtools_host` 是 `tests/devtools_host.c`，只在开发版上构建：
 
 ```sh
 node tools/devtools_watch_check.mjs build/macos-dev/bin/weft_devtools_host
+node tools/devtools_watch_check.mjs build/win-dev/bin/Release/weft_devtools_host.exe
 ```
 
 用 Chrome 自带的前端看一个运行中的开发版页面，并写出截图和前端报的错：
@@ -148,6 +158,8 @@ node tools/devtools_watch_check.mjs build/macos-dev/bin/weft_devtools_host
 ```sh
 node tools/devtools_frontend_check.mjs 127.0.0.1:9230 out elements
 ```
+
+宿主有几个页面时用 `--target <id>`（`/json/list` 里的 id）指定看哪一个；Chrome 不在默认位置时用 `--chrome <可执行文件>`。
 
 ## 固定依赖与离线构建
 

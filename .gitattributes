@@ -14,3 +14,5 @@
 third_party/** -text
 # Captured bitmaps keep the bytes their sha256 manifest records.
 tests/fixtures/crpg-gallery-assets/UI/** -text
+# The developer tools' page: its offsets are compared with what Chrome reported for the same bytes.
+tests/fixtures/devtools/** text eol=lf
