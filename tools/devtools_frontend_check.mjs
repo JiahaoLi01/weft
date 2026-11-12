@@ -1,33 +1,48 @@
 // Opens Chrome's own DevTools front end on a Weft page and looks at what it made of it (docs/devtools.md).
 //
-//   node tools/devtools_frontend_check.mjs <host:port> <output directory> [panel] [selector]
+//   node tools/devtools_frontend_check.mjs <host:port> <output directory> [panel] [selector] [--target <id>]
+//                                          [--chrome <executable>]
 //
-// Starts headless Chrome, points its bundled front end at the first page the Weft dev build lists, waits for the panel,
-// and writes <panel>.png and <panel>.json (the front end's own errors and what its panel shows as text). The Weft host
-// must be running with WEFT_DEVTOOLS_LISTEN.
+// Starts headless Chrome, points its bundled front end at the first page the Weft dev build lists (or the page --target
+// names, an id of /json/list), waits for the panel, and writes <panel>.png and <panel>.json (the front end's own errors
+// and what its panel shows as text). The Weft host must be running with WEFT_DEVTOOLS_LISTEN.
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const [address, out, panel = 'elements', selector = ''] = process.argv.slice(2);
+const args = process.argv.slice(2);
+const option = (name) => {
+  const at = args.indexOf(name);
+  return at >= 0 ? args.splice(at, 2)[1] : undefined;
+};
+const wanted = option('--target');
+const executable = option('--chrome') ?? ['C:/Program Files/Google/Chrome/Application/chrome.exe',
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'].find(existsSync);
+const [address, out, panel = 'elements', selector = ''] = args;
 if (!address || !out) {
-  console.error('usage: devtools_frontend_check.mjs <host:port> <output directory> [panel] [selector]');
+  console.error('usage: devtools_frontend_check.mjs <host:port> <output directory> [panel] [selector] [--target <id>] ' +
+    '[--chrome <executable>]');
+  process.exit(2);
+}
+if (!executable) {
+  console.error('no Chrome found: --chrome <executable>');
   process.exit(2);
 }
 mkdirSync(out, { recursive: true });
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const targets = await (await fetch(`http://${address}/json/list`)).json();
-if (!targets.length) {
-  console.error('the page lists no targets');
+const page = wanted ? targets.find((target) => target.id === wanted) : targets[0];
+if (!page) {
+  console.error(wanted ? `no page ${wanted}; there are ${targets.map((target) => target.id).join(', ')}`
+    : 'the page lists no targets');
   process.exit(1);
 }
-const page = targets[0];
 const socket = page.webSocketDebuggerUrl.replace('ws://', '');
 
 const profile = mkdtempSync(join(tmpdir(), 'weft-devtools-'));
-const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', [
+const chrome = spawn(executable, [
   '--headless=new', '--no-first-run', '--disable-background-networking', '--remote-debugging-port=0',
   `--user-data-dir=${profile}`, '--window-size=1500,1000', 'about:blank',
 ], { stdio: 'ignore' });

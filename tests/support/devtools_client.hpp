@@ -3,23 +3,94 @@
 #include "devtools/json.hpp"
 #include "check.hpp"
 
-#include <arpa/inet.h>
 #include <cstdint>
 #include <functional>
-#include <netinet/in.h>
 #include <optional>
-#include <poll.h>
 #include <stdexcept>
 #include <string>
 #include <string_view>
-#include <sys/socket.h>
-#include <unistd.h>
 #include <utility>
 #include <vector>
 
-// The developer tools' socket from a tool's side (docs/devtools.md), for the tests of a dev build. POSIX sockets.
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <poll.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
+
+// The developer tools' socket from a tool's side (docs/devtools.md), for the tests of a dev build. POSIX sockets, or
+// Winsock.
 namespace weft::testing {
     using weft::devtools::Json;
+
+    // The few socket calls a tool makes, the same on both.
+    namespace devtools_socket {
+#ifdef _WIN32
+        using Socket = SOCKET;
+        constexpr Socket none = INVALID_SOCKET;
+
+        // Winsock is started once a process and left for its end, as the engine's server does.
+        inline void start() {
+            static const bool started = [] {
+                WSADATA data;
+                return WSAStartup(MAKEWORD(2, 2), &data) == 0;
+            }();
+            ::weft::testing::require(started, "WSAStartup");
+        }
+
+        inline void close(Socket socket) {
+            closesocket(socket);
+        }
+
+        // Whether a read would not block: bytes came, or the other side closed (Winsock says so apart).
+        inline bool readable(Socket socket, int ms) {
+            WSAPOLLFD entry{socket, POLLRDNORM, 0};
+            return WSAPoll(&entry, 1, ms) > 0 && (entry.revents & (POLLRDNORM | POLLHUP | POLLERR)) != 0;
+        }
+
+        inline long long send_some(Socket socket, const char* bytes, std::size_t size) {
+            return ::send(socket, bytes, int(size), 0);
+        }
+
+        inline long long receive(Socket socket, char* bytes, std::size_t size) {
+            return ::recv(socket, bytes, int(size), 0);
+        }
+#else
+        using Socket = int;
+        constexpr Socket none = -1;
+
+        inline void start() {
+        }
+
+        inline void close(Socket socket) {
+            ::close(socket);
+        }
+
+        inline bool readable(Socket socket, int ms) {
+            pollfd entry{socket, POLLIN, 0};
+            return ::poll(&entry, 1, ms) > 0 && (entry.revents & POLLIN) != 0;
+        }
+
+        inline long long send_some(Socket socket, const char* bytes, std::size_t size) {
+            return ::send(socket, bytes, size, 0);
+        }
+
+        inline long long receive(Socket socket, char* bytes, std::size_t size) {
+            return ::recv(socket, bytes, size, 0);
+        }
+#endif
+    } // namespace devtools_socket
 
     // A developer tool's connection to a dev build's socket: the WebSocket handshake and text frames, and the
     // protocol's calls and events. `step` runs the page and the tools' turn between reads: everything happens on the
@@ -43,7 +114,7 @@ namespace weft::testing {
         }
 
         ~DevtoolsClient() {
-            close(socket_);
+            devtools_socket::close(socket_);
         }
 
         const std::string& head() const {
@@ -114,8 +185,10 @@ namespace weft::testing {
             return false;
         }
 
-        static int connect_to(std::uint16_t port) {
-            const int s = socket(AF_INET, SOCK_STREAM, 0);
+        static devtools_socket::Socket connect_to(std::uint16_t port) {
+            devtools_socket::start();
+            const devtools_socket::Socket s = socket(AF_INET, SOCK_STREAM, 0);
+            ::weft::testing::require(s != devtools_socket::none, "socket");
             sockaddr_in address{};
             address.sin_family = AF_INET;
             address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
@@ -128,7 +201,7 @@ namespace weft::testing {
     private:
         void write_all(std::string_view bytes) {
             while (!bytes.empty()) {
-                const auto n = ::send(socket_, bytes.data(), bytes.size(), 0);
+                const auto n = devtools_socket::send_some(socket_, bytes.data(), bytes.size());
                 ::weft::testing::require(n > 0, "send");
                 bytes.remove_prefix(std::size_t(n));
             }
@@ -136,15 +209,16 @@ namespace weft::testing {
 
         void write_frame(const std::string& text) {
             std::string frame;
-            frame += char(0x81);
+            // FIN and a text frame; then the mask bit with the length (126: 16 bits follow, 127: 64 bits).
+            frame += '\x81';
             if (text.size() < 126) {
                 frame += char(0x80 | text.size());
             } else if (text.size() <= 0xFFFF) {
-                frame += char(0x80 | 126);
+                frame += '\xFE';
                 frame += char(text.size() >> 8);
                 frame += char(text.size() & 0xFF);
             } else {
-                frame += char(0x80 | 127);
+                frame += '\xFF';
                 for (int shift = 56; shift >= 0; shift -= 8) {
                     frame += char(std::uint64_t(text.size()) >> shift & 0xFF);
                 }
@@ -159,11 +233,9 @@ namespace weft::testing {
 
         void step() {
             step_page_();
-            pollfd entry{socket_, POLLIN, 0};
-            poll(&entry, 1, 2);
-            if (entry.revents & POLLIN) {
+            if (devtools_socket::readable(socket_, 2)) {
                 char chunk[65536];
-                const auto n = recv(socket_, chunk, sizeof chunk, 0);
+                const auto n = devtools_socket::receive(socket_, chunk, sizeof chunk);
                 if (n <= 0) {
                     closed_ = true;
                     return;
@@ -214,7 +286,7 @@ namespace weft::testing {
         }
 
         std::function<void()> step_page_;
-        int socket_{-1};
+        devtools_socket::Socket socket_{devtools_socket::none};
         std::string head_;
         std::string buffer_;
         std::vector<Json> inbox_;
@@ -224,20 +296,22 @@ namespace weft::testing {
 
     // What the socket answers a GET of a path with, head and all.
     inline std::string devtools_http_get(std::uint16_t port, std::string_view path) {
-        const int s = DevtoolsClient::connect_to(port);
+        const auto s = DevtoolsClient::connect_to(port);
         const std::string request =
             "GET " + std::string(path) + " HTTP/1.1\r\nHost: 127.0.0.1:" + std::to_string(port) + "\r\n\r\n";
-        ::weft::testing::require(::send(s, request.data(), request.size(), 0) == ssize_t(request.size()), "send");
+        ::weft::testing::require(devtools_socket::send_some(s, request.data(), request.size()) ==
+                                     static_cast<long long>(request.size()),
+                                 "send");
         std::string out;
         char chunk[4096];
         for (;;) {
-            const auto n = recv(s, chunk, sizeof chunk, 0);
+            const auto n = devtools_socket::receive(s, chunk, sizeof chunk);
             if (n <= 0) {
                 break;
             }
             out.append(chunk, std::size_t(n));
         }
-        close(s);
+        devtools_socket::close(s);
         return out;
     }
 } // namespace weft::testing

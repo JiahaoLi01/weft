@@ -17,6 +17,38 @@
 
 ## 本次已实现
 
+开发者工具在 Windows 上（2026-11-11，`devtools-windows` 分支；用户要把开发者工具接进 Unreal 插件 weft-unreal，第一步是 Windows 上两版都能编、都能测）。
+- **构建**：Windows 11，Visual Studio 2022（MSVC 14.44），Release，`WEFT_BUILD_SHARED=ON`，不编探针和示例。两版都编过，引擎代码没有要改的地方。
+  - 发布版的 `bin/Release/weft.dll` 不导入 `WS2_32.dll`，开发版导入。
+  - 两版导出同样的 79 个名字。发布版里三个 `weft_devtools_*` 空函数的函数体相同，被 `/OPT:ICF` 合成一个地址，名字都在。
+- **改动**：
+  - `tests/support/devtools_client.hpp`：测试这一端的 socket 在 Windows 上走 Winsock；`devtools_protocol` 去掉 POSIX 头。
+  - `tests/devtools_host.c`：Windows 的单调时钟与睡眠，脚本名认反斜杠路径。
+  - `tests/CMakeLists.txt`：
+    - `devtools_protocol`、`devtools_reload`、`weft_devtools_host` 在 Windows 上也构建。
+    - C 目标加 `/utf-8`（`weft.h` 是 UTF-8，936 代码页下报 C4819）。
+    - 监听端口的三个测试加 `RESOURCE_LOCK weft_devtools_ports`。`ctest -j` 下，一个测试刚放开的端口会被另一个立刻占去，`devtools_mode` 的“放开后没人应答”就会失败；Windows 上第一次 `-j 4` 跑出来过。
+  - `src/devtools/server.cpp` 的两处警告：C4310 的 `char(0x80)`，C4996 的 `getenv`（Windows 上用 `_dupenv_s`）。
+  - `.gitattributes`：`tests/fixtures/devtools/**` 定为 LF。Windows 签出的 CRLF 让 `devtools_protocol` 失败：测试按 LF 找文本，Chrome 录下的偏移也是 LF 的。
+  - `tools/devtools_frontend_check.mjs`：找 Windows 上的 Chrome；新增 `--target <id>`（宿主有几个页面时）、`--chrome`。
+  - 文档：[开发者工具](devtools.md)的验证与尚缺，[构建](building.md)的 Windows 命令。
+- **验证**：
+  - `ctest -R devtools`：开发版 4 项、发布版 2 项全过；`-j 4` 连跑三轮 7/7。
+  - `node tools/devtools_watch_check.mjs <build>/bin/Release/weft_devtools_host.exe`：29 项全过。
+  - 全量 ctest：发布版 133/152，开发版 134/154，两版失败的是同样的 19 项（开发版多出的 `devtools_mode` 就是上面那个端口竞争，加锁后通过）。这 19 项是此前 Windows 上就有的：
+    - 12 项夹具散列校验（CRLF 签出；含 `scene_cluster_browser_contract`，它先校验散列）；
+    - 4 项没构建：`effects/crpg_smoke.hpp` 不编探针和示例时不生成；
+    - `scene_transition_browser_contract`、`scene_background_contract` 两项预期过时；
+    - `scene_text_browser_diff` 原因未查。
+  - 在 Unreal 里（weft-unreal，UE 5.8.4，D3D12，插件的两个 DLL 由 `Native/` 链接同一份源码）：
+    - Chrome 157 自带的前端连上游戏里的设置页，Elements 里是 DOM，选中元素后 Styles 列出命中的规则和行号，Console 里有页面抛出的错误。
+    - 游戏画面上画出高亮的盒子和标签。
+    - 前端调了 `Runtime.callFunctionOn`、`CSS.getBackgroundColors` 两个没有的方法，各报一次错，面板照常显示。
+- **未验证**：
+  - Windows 上监听 `0.0.0.0`（会弹防火墙的询问）。
+  - `WEFT_BUILD_SHARED` 在 Windows 上默认仍关。
+- **下一步**：weft-unreal 已按构建配置挑两个 DLL，Shipping 默认用发布版；开发版里加了开关命令、日志类别和 View 的表（那边的 README）。
+
 `sizing_keyword` 读已销毁的字符串（2026-11-11，`sizing-keyword-view` 分支；合并开发者工具那一批时在本机的构建输出里看到 clang 的警告，用户要求修掉）。
 - **问题**：`src/layout/flex.cpp` 的 `sizing_keyword(std::string_view v)` 开头是 `v = css::trim(v);`。`css::trim` 返回 `std::string`，这个临时对象在这一句结束时销毁，`v` 却留着指向它的视图：后面的 `starts_with("-webkit-")` 与三个关键词的比较读的是已销毁的对象（未定义行为）。这一行出自 94be01f9（2026-11-01，KaTeX 那一条加尺寸关键词时）。经过它的不只是关键词：`length` 对每个不是空、`auto`、`none` 的长度值都先调它。
 - **各处读到什么**：

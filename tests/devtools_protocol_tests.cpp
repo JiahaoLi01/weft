@@ -9,16 +9,11 @@
 #include "support/files.hpp"
 #include "view/view.hpp"
 
-#include <arpa/inet.h>
 #include <algorithm>
 #include <cmath>
 #include <functional>
 #include <iostream>
-#include <netinet/in.h>
-#include <poll.h>
 #include <string>
-#include <sys/socket.h>
-#include <unistd.h>
 #include <vector>
 
 namespace {

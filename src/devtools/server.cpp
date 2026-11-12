@@ -130,7 +130,7 @@ namespace weft::devtools {
         std::array<std::uint8_t, 20> sha1(std::string_view text) {
             std::array<std::uint32_t, 5> h{0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0};
             std::string data(text);
-            data += char(0x80);
+            data += '\x80';
             while (data.size() % 64 != 56) {
                 data += char(0);
             }
@@ -666,14 +666,27 @@ namespace weft::devtools {
 
     std::shared_ptr<Server> start_from_environment() noexcept {
         try {
-            const char* value = std::getenv(constants::devtools::listen_variable);
-            if (!value || !*value) {
+            // The variable's value, empty when it is not set (MSVC's CRT deprecates getenv for _dupenv_s).
+            std::string value;
+#ifdef _WIN32
+            char* found = nullptr;
+            std::size_t size = 0;
+            if (_dupenv_s(&found, &size, constants::devtools::listen_variable) == 0 && found) {
+                value = found;
+            }
+            std::free(found);
+#else
+            if (const char* found = std::getenv(constants::devtools::listen_variable)) {
+                value = found;
+            }
+#endif
+            if (value.empty()) {
                 return nullptr;
             }
             const auto listen = parse_listen(value);
             if (!listen) {
                 std::fprintf(stderr, "[weft devtools] %s=%s is not [127.0.0.1:|0.0.0.0:]port\n",
-                             constants::devtools::listen_variable, value);
+                             constants::devtools::listen_variable, value.c_str());
                 return nullptr;
             }
             auto server = Server::start(*listen);
