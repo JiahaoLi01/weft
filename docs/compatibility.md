@@ -1,383 +1,80 @@
-# Weft HTML CSS DOM 兼容范围
+# Web 标准与前端生态兼容参考
 
-本表规定目标范围，不代表已经实现。当前状态见 [证据记录](status.md)。P0 对应计划的 M0 架构探针，M1 是桌面原型；v0.1 只有 M0 到 M5 的必需项全部退出后才是可用版本，包括 M3 移动真机验收。后续能力只有完成实现、反例测试和平台验证后才能改为支持。
+Weft 面向实时游戏界面精选并实现了现代 Web 核心标准子集，所有特性均以 **Chrome 行为作为语义基准** 并通过自动化契约测试校验。对于超出支持范围的语法或属性，Weft 提供明确的诊断反馈，而非静默渲染错位。
 
-支持标准属性时沿用其标准语义。主动限制一个功能，必须同时限制相关值与组合，给出源码诊断；不能只统计属性名称数量。
-
-## 能力与阶段对应
+## 1. 严格模式与宽容模式
 
-| 范围 | 必需阶段 |
-| --- | --- |
-| 依赖、GC roots、布局语义、文字、颜色和资源退休探针 | M0 |
-| 基础 HTML/native DOM、层叠、盒模型、Flex、简单 block/inline、基础图片和绘制、D3 SVG 图表基础 | M1 |
-| JS DOM 包装、query/样式/几何 API、事件、焦点、资源动态更新与增量 | M2 |
-| touch、移动上的输入法与软键盘、文字以外的输入控件、移动生命周期与平台后端（桌面的文本框、composition 与 beforeinput 见下文“文本框与输入法”） | M3 |
-| 虚拟列表、聊天、背包、HUD、动画、固定 Preact 与 D3 真实应用 | M4 |
-| 检查、trace、兼容诊断、打包与干净构建 | M5 |
-| var、media queries、更宽 CSSOM 与其他未被首批场景依赖的能力 | 可选扩展，不作为 v0.1 退出必需项 |
-| 固定 CRPG gallery 的 72 例中的 70 例，含 Canvas2D、第三方动画与所需 CSS/SVG/交互；两例 Three.js 于 2026-10-12 移出需求，2026-10-13 起画廊窗口以 CRPG UI 的嵌套提示页面（UI 着色器烟雾）取代这两例 | 新增 workload 承诺；逐例执行/像素/交互/性能验收，尚未完整实现 |
-| 锚点（`data-anchor*` 属性，Weft 扩展） | 新增目标（2026-10-14，第 13 步），设计见 [与引擎通信](engine-communication.md#5-锚点)。已实现（13.1）：scene 页面的 `data-anchor`、`-pivot`、`-scale`、`-offscreen`（hide、show、clamp 与 `-margin`）、`-missing`（hide、stay），D3D11 与 Vulkan 的 scene 渲染器按锚点画（帧不变时由 GPU 移动，13.1b），owner 的命中与几何读取按锚点算，不合法的值是场景诊断。浏览器忽略这些属性，元素停在布局的位置。C 接口 `weft_view_write_anchors`（13.3a）。尚未实现：文档页面、D2D 参考光栅（不画锚点元素）、锚点行内盒与透视平面里的锚点元素（整帧回退）。限制：锚点子树里有背景模糊、粒子、透视平面或效果时每帧在 CPU 上放置；GPU 移动的 SVG 路径在小数像素位置上边缘略软 |
-| 引擎桥接（`weft.engine.*`，Weft 扩展）与 CRPG 兼容层 | 新增目标（2026-10-14，第 13 步），设计见 [与引擎通信](engine-communication.md#6-桥接)。已实现（13.2，内部 C++ 接口与平台模块 `Engine`、`CrpgBridge`）：`on`、`once`、`onAny`、`send`、`call`（Promise 与超时）、`invoke`（同步函数）、`model`（`{name, value, subscribe}`）；值的类型映射（±(2^53−1) 以内的整数是 Number，之外与 uint64 是 BigInt；字节是 Uint8Array；toJSON 与 Proxy 包着的数组同 JSON.stringify；孤立代理项变成 U+FFFD）；CRPG 的 `window.ue.sendEvent`、`window.__ue_dispatch` 与 `window.__vm_update`（视图模型 `vm`）。与 JSON.stringify 不同：函数与 symbol 成员被拒绝（不省略），非有限数被拒绝（不变成 null）。C ABI（13.3a）：`weft_view_emit`、`weft_view_complete_call`、`weft_view_set_model`（MessagePack 或 JSON）、`weft_view_drain_messages`、`weft_view_register_function`。尚未实现：零拷贝 ArrayBuffer（技术路线 6.5）、不经 JS 的数据绑定 |
-| 对外 View 与它的 C ABI（Weft 宿主接口） | 新增目标（2026-10-14，第 13 步），设计见 [与引擎通信](engine-communication.md#8-对外-view133)。已实现（13.3a）：scene 页面的加载、推进、调整大小，指针输入（移动、按下、抬起、滚轮、离开，合成 pointer、mouse、over/out、enter/leave 与 click），命中查询（元素与它继承来的 `cursor`），任意线程取不可变的帧，诊断与 Faulted。已实现（13.3b）：渲染 View 的帧的 C 接口 `weft_renderer_prepare_scene`，内置的 D3D11（encode 时画在设备的立即上下文上）与 Vulkan（录进宿主的命令缓冲）后端用宿主的设备，画在宿主目标的内容之上（可选先清屏），目标为 UNORM 的 BGRA8（D3D11 另有 RGBA8）；模拟引擎的宿主样例（Windows，D3D11 WARP 与 RTX 5090 上的 Vulkan）。已实现（13.3c）：页面显示引擎的纹理（见下一行）。尚未实现：D3D12 与 UE RHI 后端（M5）、D3D11 延迟上下文录制 View 的帧、sRGB 目标（键盘、文本框与输入法、手柄与空间导航见下三行）、页面效果与粒子的注册接口、从内存加载字体、图片等资源的宿主回调（scene 页面本来就不画 `<img>`） |
-| 键盘与焦点（宿主的键盘输入、Tab 导航、`:focus-visible`） | 新增目标（2026-10-21，用户提出：两个引擎里的页面都能收到键盘事件，行为照 Chrome），设计与 C ABI 见 [与引擎通信](engine-communication.md#8-对外-view133)“键盘与焦点”。已实现（scene 页面，严格与宽松）：`weft_view_key`、`weft_view_text`、`weft_view_set_focus`、`weft_keyboard_key`、`weft_keyboard_code`；keydown、keypress、keyup 发给焦点元素，字段同 Chrome（key、code、location、repeat、修饰键、keyCode/which/charCode、getModifierState）；Tab 顺序（tabindex、禁用与不显示的元素、键盘可聚焦的滚动容器、点击处与移除处的起点，末尾回绕）；按钮、按钮类 input、复选框与单选框、链接的 Enter 与空格；方向键、翻页键、空格、Home/End 滚动 `overflow: auto/scroll` 容器；按下鼠标给焦点；focus() 滚进视野、`scrollIntoView()`；`:focus-visible` 按 Blink 的规则，宽松页面有 Chrome 的默认焦点环（`outline-style: auto`）；焦点元素被移除前的 blur；宿主焦点进出 View。`KeyboardEvent`、`FocusEvent`、`focus()`、`blur()`、`activeElement`、`tabIndex` 对所有页面（此前只在 `WEFT_PAGE_WEB_PLATFORM` 里，且只能由页面派发）。与 Chrome 155 在同一页上的九个场景逐事件对照一致（`keyboard_contract`）。与 Chrome 不同：Tab 到末尾回绕（Chrome 交给浏览器界面）；在文字上点击后 Shift+Tab 从被点的元素算起；键盘滚动一步到位（Chrome 默认平滑）。文本框与输入法、手柄与空间导航见下两行。尚未实现：`accesskey`、`inert`、`<dialog>` 与 `popover` 的焦点范围、Shadow DOM 的委托焦点、焦点元素变得不可聚焦（`display: none`）时的修正、DOMFocusIn/Out 以外的旧事件、AltGr 键的 key 值（右 Alt 一律是 `Alt`） |
-| 文本框与输入法（`<input>` 的文字类型、`<textarea>`、IME 的组合串） | 新增目标（2026-10-22，用户提出：中文输入法能在文本框里用，候选窗在光标处，行为照 Chrome），设计与 C ABI 见 [与引擎通信](engine-communication.md#8-对外-view133)“文本框与输入法”。已实现（scene 页面，严格与宽松）：值、选区与组合串在原生 DOM 里；HTML 的文本框 API（`value`、`defaultValue`、`selectionStart/End/Direction`、`setSelectionRange`、`select`、`setRangeText`、`type`、`placeholder`、`readOnly`、`disabled`、`maxLength`、`textLength`）；`InputEvent`、`CompositionEvent`、beforeinput 与 input 的 inputType、change、select、selectionchange；Windows 上 Chrome 的编辑键（字符、词、行、全选、删除、search 的 Esc）与鼠标（放光标、Shift、双击选词、三击、拖选）、dblclick 与 `detail` 的连击数；只读、禁用、maxlength、被阻止的 beforeinput；密码的圆点、占位符、选区与光标的绘制，`::placeholder`、`::selection`、`caret-color`、`:placeholder-shown`、`:read-only`、`:read-write`；光标闪烁、文字随光标滚动；宽松页面有 Chrome 的文本框外观与固有大小；`weft_view_text_input`、`weft_view_composition`、`weft_view_commit_text`。与 Chrome 155 在同一页上的十一个场景逐事件对照一致，十张截图相近（`text_field_contract`）。与 Chrome 不同：中文按连续的汉字算一个词（Chrome 用词典分词）；不做字距调整（长文字末端差 1 px）；回退字体撑高的行，textarea 显示光标时多滚 2 px。剪贴板、撤销与重做自 2026-11-08 起支持（copy/cut/paste 事件与 `DataTransfer`、文档级撤销历史、平台快捷键、`navigator.clipboard`、`execCommand`、`weft_view_set_clipboard`，见 [与引擎通信](engine-communication.md)，与 Chrome 156 逐事件一致）。尚未实现：拖放文字、混排文字里按视觉移动的方向键（从右到左的文字自 2026-11-07 起支持，见 [文字方向与复杂文字](bidi-text.md)）、拼写检查、数字与日期等控件的外观与步进、自动填充与表单提交、textarea 的滚动条与滚轮滚动、移动上的软键盘 |
-| 触摸与多点触控（触摸指针、Touch Events、点按、平移、惯性、`touch-action`、指针捕获） | 新增目标（2026-11-07，用户提出：移动端要能触摸操作，行为照 Chrome），设计与 C ABI 见 [与引擎通信](engine-communication.md#8-对外-view133)“触摸与多点触控”。已实现（scene 页面，严格与宽松）：`weft_view_touch`；每个触点一个 touch 指针（over、enter、down、move、up、cancel、out、leave，隐式捕获）与 `TouchEvent`/`Touch`/`TouchList`；15 px 阈值、可取消性、点按的兼容鼠标事件与 click/dblclick、悬停与短暂 `:active`；按 `touch-action`（`auto`、`manipulation`、`none`、`pan-x`、`pan-y`，不继承，求交）平移最近能滚的滚动容器；Chrome 的松手速度算法与惯性曲线；`setPointerCapture`、`releasePointerCapture`、`hasPointerCapture`（鼠标与触点）。与 Chrome 156 在 16 个场景 84 步上逐事件对照一致（`touch_contract`）。与 Chrome 不同：快速平移时不做 Chrome 的重采样预测（内容严格跟手）；平移期间每次移动都发不可取消的 touchmove；enter/leave 不到 document、html、body。宿主声明输入设备（`weft_view_set_input_devices`，2026-11-07）：`pointer`、`any-pointer`、`hover`、`any-hover`（`@media` 与 `matchMedia`）、`navigator.maxTouchPoints` 与 `ontouchstart` 等处理器属性随之变化，与 Chrome 在桌面与触摸模拟下的结果一致；`matchMedia` 列表结果实时并有 change 事件。尚未实现：双指缩放、长按菜单、滚动链与回弹、触摸选字手柄、移动端软键盘 |
-| 从右到左与复杂文字（`direction`、`unicode-bidi`、`dir`、`bdi`、`bdo`；阿拉伯文、希伯来文、泰文、天城文等） | 新增目标（2026-11-07，用户在列出的缺口里选了这一项），设计与证据见 [文字方向与复杂文字](bidi-text.md)。已实现（scene 页面，严格与宽松）：`direction`、`unicode-bidi` 的六个值；`dir` 的 ltr、rtl、auto（auto 按第一个强方向字符，子孙继承），`bdi`、`bdo`；行内格式化上下文按 UAX #9（SheenBidi）求层级、插入双向控制字符、每行按层级重排并拆分行内盒片段，`text-align: start/end` 按行方向；塑形前按文字系统切分（UAX #24），HarfBuzz 按段的方向与文字系统塑形；系统后备字体按文字系统挑（macOS 用 CoreText，Windows、Android 未验证）。第二阶段：块、flex、网格、绝对定位按方向排（Yoga 的方向，网格区域镜像，过约束时按包含块的方向取舍 inset）；从右到左的滚动容器向左溢出，`scrollLeft` 为负；从右到左行上的省略号；文本框的从右到左排版、光标（层级交界处站在较低层级一侧）、选区与左右方向键。第三阶段：同字体的相邻行内元素一起塑形，带段落上下文，阿拉伯文跨 `<span>` 连写、拉丁文跨元素字距与 Chrome 相同。与 Chrome 156 对照：文字 241 个用例（含 200 个随机）逐片段、逐字符一致，盒子 166 个用例（含 150 棵随机树）逐元素一致，文本框 96 项一致。尚未实现：泰文等按词典断行、`lang` 对塑形的影响、混排文本框里按视觉移动的方向键、表格列序、竖排 |
-| 手柄与空间导航（Gamepad API、方向键在元素间移动焦点） | 新增目标（2026-10-22，用户提出：手柄能操作界面，行为照 Chrome；用户 2026-10-21 定：手柄导航用页面标志开启），设计与 C ABI 见 [与引擎通信](engine-communication.md#8-对外-view133)“手柄与空间导航”。已实现（scene 页面，严格与宽松）：`weft_view_gamepad`（每帧每个手柄的标准布局状态）；所有页面的 `navigator.getGamepads()`、`Gamepad`、`GamepadButton`、`GamepadEvent`、`gamepadconnected`/`gamepaddisconnected`，照 Chrome 在用户手势之前不显示手柄、Gamepad 是快照；`WEFT_PAGE_SPATIAL_NAVIGATION` 页面上 Blink 的空间导航（Chrome 的 `--enable-spatial-navigation`：方向键按距离、对齐与可见性选目标，滚动容器先滚再移，文本框里光标先走，Escape 失焦或把指针移出页面，指针随焦点走；有 click、按键、mouseover/mouseenter 监听器或自己设了 `cursor: pointer` 的元素也能拿焦点，Tab 也停；Enter 按下时焦点元素 `:active`，Enter 与空格的 keypress 点击不自己处理这些键的焦点元素），以及手柄的 D-pad、左摇杆、A、B 作为方向键、Enter、Escape（按住的方向 0.5 s 后每 0.1 s 重复）。与开了空间导航的 Chrome 155 在同一页上的十五个场景 127 步逐事件对照一致（`spatial_navigation_contract`）。与 Chrome 不同：Chrome 不把手柄变成键（weft 在页面标志下这样做）；`vibrationActuator` 为 null（没有震动）；body 与 html 不在场景里，有监听器也不拿焦点、不被 Enter 与空格点击；显式的 `cursor: inherit` 算元素自己设的。尚未实现：Blink 给弹出层的优先级、行内元素按行盒收缩与多片段、iframe、`focusgroup`、css-nav-1 的脚本 API、手柄的震动与触摸板、非标准布局的手柄 |
-| 引擎的纹理（`background-image: -weft-texture(name)`，Weft 扩展） | 新增目标（2026-10-14，第 13 步），设计见 [与引擎通信](engine-communication.md#8-对外-view133)。已实现（13.3c，2026-10-15 补齐四项限制）：scene 页面的 `-weft-texture(name)`（也可写在 `background` 简写里），名字不合法是 scene 诊断；宿主每帧按名字绑定外部纹理扩展的租约（`weft_render_scene_frame::textures`），D3D11 与 Vulkan 的内置 View 后端按页面的方式合成（线性预乘转成 sRGB 编码值）；像 CSS 画背景图那样铺排：`background-size`（长度、百分比、`auto`、`cover`、`contain`，纹理的自然大小是它的像素）、`background-position`（一到四个值）、`background-repeat`（`repeat`、`no-repeat`、`space`、`round`，两个轴各自）、`background-origin`、`background-clip`；在背景色之上、边框之下，裁剪盒的圆角里，对齐设备像素；行从底部开始的纹理翻转；没绑定的名字什么也不画；live 纹理（引擎每帧在同一队列上重写）与冻结纹理；线性 RGBA8、BGRA8、RGBA16F、RGBA32F（设备能过滤时）与 sRGB 的 RGBA8、BGRA8 视图；mip（`mip_levels`，缩小时在层间采样）；D2D 参考光栅画宿主给的像素；Vulkan 上宿主给出图像时拒绝画进帧绑定的纹理（同 D3D11）；D3D11 上别的设备或图形 API（如 D3D12）共享的纹理，同步由宿主的共享 fence 负责。尚未实现：文档页面（没有任何背景图片）、Vulkan 的跨 API 导入（宿主可自己导入，未测）、D3D12 与 UE 的 RHI 后端（M5）、`background-attachment: fixed` 与 `local`、多层背景 |
-| 页面文件里的图片（`background-image: url()`） | 新增目标（2026-10-16，用户提出：界面的共享纹理放在页面的文件夹里），设计见 [与引擎通信](engine-communication.md#8-对外-view133)。已实现：scene 页面的 `url()`（引号或不带引号，也可写在 `background` 简写里），相对页面的基准（`weft_page_desc::base`，样式表的路径）解析，宿主的资源回调（`weft_view_set_resource_reader`）同步读字节，每次页面加载每个路径一次；`data:` URL（百分号与 base64，2026-11-08）；按文件头识别格式：PNG（lodepng 解码，任何颜色类型与位深，颜色按 sRGB）、JPEG（libjpeg-turbo，照 Blink 的设置，Exif 方向，2026-11-08）、WebP（libwebp，动画只取第一帧，2026-11-08），见 [图片元素](img.md#第二阶段格式与来源)，至多 1024 × 1024 像素、边长 4096，一次加载至多 256 张、共 64 MiB；像 `-weft-texture()` 一样按 CSS 铺排（`background-size`、`-position`、`-repeat`、`-origin`、`-clip`），自然大小是图片的像素；D3D11、D3D12、Vulkan 的 scene pass 与 D2D 参考光栅都画；没有文件、不是能解码的图片、超界是 scene 诊断，背景不画图；文件头给出尺寸而数据解不出的（12 位或算术编码的 JPEG）与 Chrome 一样画成透明。尚未实现：文档页面（没有任何背景图片）、GIF、SVG 图片、AVIF、ICC 颜色管理、`image-set()`、多层背景、mip（缩得很小时会闪烁）、`background-attachment: fixed` 与 `local` |
-| 图片元素（`<img>`、`HTMLImageElement`、`object-fit`、`object-position`、`aspect-ratio`、`image-rendering`） | 新增目标（2026-11-08，用户在列出的缺口里选了这一项），设计与证据见 [图片元素](img.md)。已实现（scene 页面，严格与宽松）：`src` 经宿主资源回调读取或为 `data:` URL（与 `url()` 共用，PNG、JPEG、WebP）；替换元素的尺寸（CSS 2 §10.3.2、§10.4、§10.6.2），`width`/`height` 属性映射为样式与 `aspect-ratio: auto w / h`，`aspect-ratio`（只作用于 img），`box-sizing`；行内（原子行内）、块级、flex 项（基准尺寸与自动最小尺寸）、网格项、绝对定位；`object-fit` 五个值与 `object-position`，内容盒内圆角裁剪，各 GPU pass 与背景图共用着色器；`HTMLImageElement`、`new Image()`、`complete`、`naturalWidth/Height`、`currentSrc`、`width/height`、`decode()`、`onload`/`onerror`，`load`/`error` 在下一帧定时器之后派发。与 Chrome 156 对照：140 个排版用例中 129 个逐元素一致，35 个 `object-fit` 用例 1 px 内，脚本 34 步一致。与 Chrome 不同：换 `src` 后立即按新图排版；读不到的图片不画破图图标与 `alt`；`flex: 1` 从 0 增长、绝对定位的 `auto` 外边距与部分嵌套 flex 的差别属于通用适配层。缩放与 Chrome 一致（第三阶段，Metal 上 38 个用例对照通过）：在预乘的编码 sRGB 值上过滤；mip 各级按 Skia 的方式生成，三线性选级，级别比导数低 0.5；平铺的背景图不用 mip；`image-rendering` 的 `pixelated`、`crisp-edges` 取最近纹素，可继承。Metal、D3D11 上传全部级别（D3D11 未验证），D3D12、Vulkan 只有第 0 级。尚未实现：GIF 与动画播放、SVG 图片、ICC 颜色管理、`srcset`/`<picture>`、`loading`、文档页面、D2D 参考光栅 |
-| 视觉效果（`clip-path`、`mask-image`、`mix-blend-mode`、`isolation`） | 新增目标（2026-11-08，用户在列出的缺口里选了这一项），设计与证据见 [视觉效果](visual-effects.md)。已实现（第一阶段，scene 页面）：`clip-path` 与 `-webkit-clip-path` 的 `inset()`、`rect()`、`xywh()`（可带 `round`）、`circle()`、`ellipse()`、`polygon()`、`path()`（`nonzero`/`evenodd`），参考盒 `border-box`、`padding-box`、`content-box`、`margin-box`（`fill-box`、`stroke-box`、`view-box` 按 HTML 元素的规则），只写参考盒时按其圆角形状；裁剪元素自身（含阴影、轮廓、`filter` 之后的图像）与后代，命中同样裁剪，无面积的形状什么也不画；同类形状可过渡。与 Chrome 156 对照：34 个用例 1666 次按压的命中全部一致，Metal 上逐格像素差超过 48 级的不超过 0.2%。与 Chrome 不同：边缘抗锯齿按距离而不是面积。尚未实现：`url()` 引用 SVG `<clipPath>`（诊断，不裁剪）、跨行的行内元素、em 等单位；D2D 参考光栅遇到 `clip-path` 整帧失败；Windows 未验证。第二阶段 `mask-image`：`linear`、`radial`、`conic` 与 `repeating-*` 渐变层和一层 `url()` 图片层（PNG、JPEG、WebP、`data:` URL；自然尺寸、`contain`、`cover`、mip 规则与页面图片相同）（最多 8 层），`mask-size`、`-position`、`-repeat`（不含 `space`、`round`）、`-origin`、`-clip`（含 `no-clip`）、`-mode`（`alpha`、`luminance`）、`-composite`（四种运算），`mask`、`-webkit-mask` 简写与 `-webkit-mask-*`；作用于元素与后代合成后的整组；命中被裁到边框盒。与 Chrome 156 对照：48 个用例 2352 次按压中 2350 次一致（2 次是旋转盒子边外 1 像素内的既有命中差别），Metal 上 48 格通过、多数逐像素差不超过 1 级。尚未实现：一个元素两层以上图片遮罩（诊断，不加遮罩）、SVG 遮罩、`mask-border`、锚点元素内的遮罩；D2D 参考光栅遇到 `mask-image` 整帧失败；Windows 未验证（遮罩图片的绑定改了四个后端，只在 Metal 上运行过）。第三阶段 `mix-blend-mode`：全部 16 种模式与 `plus-lighter`，在编码后的 sRGB 值上按 Compositing and Blending 1 的公式混合；元素与后代合成后的整组与背后内容混合，层叠上下文（含 `isolation: isolate`）按 Chrome 的规则隔离；与透明度、遮罩、`clip-path`、变换组合。与 Chrome 156 对照：Metal 上 29 格通过，多数逐像素差不超过 1 到 4 级。与 Chrome 不同：帧的根不隔离（透明页面叠在游戏画面上时与画面混合）。尚未实现：`background-blend-mode`；D2D 参考光栅遇到 `mix-blend-mode` 整帧失败；Windows 未验证（背景复制与绑定改了四个后端，只在 Metal 上运行过） |
-| Web Animations（`element.animate()`、`Animation`、`KeyframeEffect`、`getAnimations()`） | 新增目标（2026-11-08，用户在列出的缺口里选了这一项），设计与证据见 [Web Animations](web-animations.md)。已实现（第一阶段，scene 页面）：数组与按属性两种关键帧写法、偏移与每帧缓动、缺端关键帧；计时的全部字段与 CSS Easing 1 的缓动；`play`、`pause`、`finish`、`cancel`、`reverse`、`updatePlaybackRate`、`persist`、`commitStyles`，`currentTime`、`startTime`、`playbackRate`，`ready`/`finished` Promise，`finish`、`cancel`、`remove` 事件；按创建顺序叠在 CSS 动画之上，被覆盖的已完成动画自动移除；计时模型在 JS，效果值由场景每帧求出。与 Chrome 156 对照：91 条日志逐条一致。尚未实现：`composite` 的 `add`/`accumulate`、`iterationComposite`、滚动与视图时间线、伪元素、`getAnimations()` 里的 CSS 动画与过渡 |
-| 边框图片（`border-image`） | 新增目标（2026-10-17，CRPG 设置页的雕花边框）。已实现：scene 页面的 `border-image-source: url()`（页面文件里的 PNG，同 `background-image: url()`）、`border-image-slice`（一到四个数或百分比，`fill`）、`border-image-width`（数为边框宽度的倍数、px、百分比、`auto`；相对两边超出时一起缩小）、`border-image-outset`（数或 px）、`border-image-repeat`（`stretch`）；九块代替边框样式，画在背景与内阴影之上（`fill` 才画中间），边框宽度仍决定布局；显示列表每块是图片的一个切片（`uv`）按适配图片画、对齐设备像素，D3D11、D3D12、Vulkan 的 scene pass 与 D2D 参考光栅都画。宽松页面画不出的值（渐变、`-weft-texture()`、em 长度）丢掉并诊断，边框样式照画；严格页面是 scene 诊断。尚未实现：`repeat`、`round`、`space`（按 `stretch` 画并诊断）、`border-image` 简写、行内元素的分段、文档页面 |
-| 生成内容与装饰（`::before`/`::after`、`outline`、`visibility`、ruby、`text-decoration`） | 新增目标（2026-10-17，CRPG 页面的标签下划线与角标、焦点环、`invisible`、字幕的振假名与下划线）。已实现（scene 页面；`::before`/`::after` 只在宽松页面，严格 profile 的选择器不接受伪元素）：生成盒（声明 `content` 的规则决定有无，文字来自字符串、转义与 `attr()`；原元素的第一个与最后一个子项，像元素一样布局与绘制，命中算原元素，过渡与动画照常，元素几何不列出）；`outline` 简写与分量（环在边框盒外 `outline-offset` 处，负值在里面，圆角随边框，画在子项之上，不占布局）；`visibility: hidden`/`collapse`（不画自己的、不接受命中，子项按自己的值，布局不变；过渡与动画中一端是 `visible` 时中间可见）；`ruby`、`rt`、`rp`（原子行内，每列注音在基文字上一行居中，列宽取较宽者，基在行的基线上）；`text-decoration` 简写与分量（下划线、上划线、删除线，颜色、粗细；传给子孙，用装饰元素的颜色）。轮廓与装饰线在显示列表里是普通的盒子，每个 scene pass 都画；测试对照的是 D3D11（WARP）与 D2D 参考光栅。尚未实现：`content` 的图片、计数器与引号，`::marker`、`::first-line` 等其他伪元素；轮廓与装饰的虚线、点线、双线、波浪线（画成实线）；`text-decoration-skip-ink`、`text-underline-offset`/`-position`；装饰的叠加（子元素自己的线替换父元素的）；`ruby-position: under`、`ruby-align` 的其他值、`rtc`、基里的元素 |
-| 换行与项目顺序（`overflow-wrap`、`word-break`、`order`） | 新增目标（2026-10-18，CRPG 面板说明文字的 `break-words`、字幕的 `word-break: break-word` 与按 `order` 叠放的字幕槽位）。已实现（scene 页面，严格与宽松）：`overflow-wrap: normal`、`break-word`、`anywhere`（旧名 `word-wrap`），`word-break: normal`、`break-all`、`keep-all` 与旧值 `break-word`（同 `overflow-wrap: anywhere`），继承；会换行的文字里，一个词独占一行仍放不下时在字形簇之间断开，每行放下尽量多的簇，放得进下一行的词先换行；`anywhere` 降低最小内容宽度（flex 项目的自动最小宽度随之收缩），`break-word` 不降；`break-all` 在字母单位之间加换行机会，`keep-all` 去掉它们（CJK 只在空格与标点处断）。`order`：flex 与网格（等列子集）的项目按（`order`，文档顺序）布局、绘制与命中，再按 `z-index`；绝对定位的子项算 0；flex 容器的基线取第一个项目；原生 pass 的补丁与参考光栅保留的绘制程序在顺序变了时重画；整数，`calc()` 的结果取整，不是数是诊断。尚未实现：跨元素边界的紧急断开、连字内部的断开、按 General Category 判断字母、`word-break: auto-phrase`、`line-break`、`hyphens`；非整数的 `order` 取整而不丢弃声明 |
-| 滤镜（`filter`） | 新增目标（2026-10-18，CRPG 字幕的光晕 `blur(10px)`、回合横幅纹章与浮动图标的 `drop-shadow()`、设置页色盲预览的 `url(#id)`）。已实现（scene 页面，严格与宽松；见 [状态](status.md)）：HTML 元素与 svg 根元素上任意个滤镜函数按顺序作用：`blur()`（px）、`drop-shadow()`（颜色与两到三个 px 或 em 长度，第三个是标准差，同 Chrome）、`brightness()`、`contrast()`、`grayscale()`、`sepia()`、`saturate()`、`invert()`、`opacity()`、`hue-rotate()`（每个函数之后钳制），以及 `url(#id)` 指向页面里只含 `feColorMatrix` 图元的 SVG `filter`（`matrix`、`saturate`、`hueRotate`、`luminanceToAlpha`；读 `SourceGraphic` 或前一个图元；`color-interpolation-filters` 为 `sRGB`、`auto`，或初始值 `linearRGB`）；`url()` 找不到滤镜元素时整个滤镜忽略。元素与子树作为一组画进离屏图像（Filter Effects 1），按函数逐个过滤，再以元素的 transform、透明度与裁剪画出；图像按元素自身空间的设备像素取范围并缓存，元素的透明度、transform 与锚点变化时不重新过滤。原生 D3D11、D3D12、Vulkan 与 D2D 参考光栅都画；svg 图标的单个 `drop-shadow()`（盒子不画、内容只有形状）仍是路径阴影。`filter` 建立固定与绝对定位后代的包含块。宽松页面丢弃画不出的滤镜并诊断（SVG 内部元素上的、不支持的函数或长度、其他图元的 `url()`）。尚未实现：SVG `filter` 的滤镜区域与图元子区域、`feColorMatrix` 以外的图元、页面外的 `url()`；锚定的后代、粒子或同一元素上的 `backdrop-filter`（整帧回退）；元素放大时重新栅格化；文档页面 |
-| 数学公式（KaTeX 0.16 的 HTML 输出）与页面字体（`@font-face`） | 新增目标（2026-11-01，CaseGinkgo 相机调参面板的公式，用户提出：weft 不支持 KaTeX 就让它支持）。已实现（scene 页面，宽松样式；见下文“样式和布局”2026-11-01 与 [状态](status.md)）：KaTeX 原样的 `katex.min.js` 与 `katex.css`（`third_party/katex`）、`output: 'html'`，行内与 display 两种模式；`document.compatMode` 为 `CSS1Compat`；`@font-face`（TrueType 与 OpenType 来源，按页面的基准路径经宿主的读取函数读）；`vertical-align` 的全部关键词与长度、百分比；`display: inline-table` 及其中的 `table-row`、`table-cell`；`min-content`、`max-content`、`fit-content` 尺寸；LayoutUnit（1/64 px）取整；重叠轮廓的 SVG 路径按非零规则只覆盖一次。与 Chrome 156 对照：2351 个元素的 client rect 都在 1/64 px 内，1 倍与 2 倍的像素在文字的阈值内（`katex_browser_reference`）。尚未实现：`output: 'mathml'` 与 `'htmlAndMathml'`（MathML 不渲染）、块级 `display: table`、外边距折叠（`.katex-display` 的 1em 外边距要包在有内边距的盒子里）、WOFF 与 WOFF2 字体、按全名找安装字体的 `local()` |
-| 网格（CSS Grid：轨道、放置与对齐） | 新增目标（2026-10-18，CRPG Pick 17 构筑页的 `repeat(auto-fill, minmax(320px, 1fr))`、Market 页的 `auto auto 1fr auto` 与 `1fr auto auto`、设置页色盲预览的 `repeat(8, 1fr)`；此前只有 1–8 个等宽 `minmax(0, 1fr)` 列）。已实现（Yoga 适配器 `layout_boxes`，scene 与文档页面，严格与宽松；见 [状态](status.md)）：`display: grid`、`inline-grid`；`grid-template-columns`、`-rows` 的 px、%、`fr`、`auto`、`min-content`、`max-content`、`minmax()`、`fit-content()`、`repeat(<整数>, …)` 与 `repeat(auto-fill | auto-fit, <固定尺寸>…)`（次数按确定尺寸，否则按 px 的 `max-*`、`min-*`，否则一次；`auto-fit` 折叠没有项目的轨道与它两侧的间隙）；`grid-auto-columns`、`-rows`（循环使用，显式网格之前倒序）；`grid-auto-flow`（`row`、`column`、`dense`）；`grid-row-start`、`-end`、`grid-column-start`、`-end` 与简写 `grid-row`、`grid-column`、`grid-area`：`auto`、行号（负数从显式网格末端数，越出显式网格生成隐式轨道）、`span n`；CSS Grid 1 §8.5 的放置（稀疏与密集）与 §11 的轨道尺寸（内在尺寸、跨轨道项目、弹性轨道、最大化、拉伸 auto 轨道；最小与最大内容约束下的尺寸供收缩适配和 flex 项目使用）；网格项的自动最小尺寸（§6.6，滚动容器为 0）；`gap`、`row-gap`、`column-gap`（px，确定尺寸的百分比）；`justify-items`、`align-items`、`place-items`、`justify-self`、`align-self`、`place-self`（`stretch`/`normal`、`start`、`end`、`center`；`align-*` 的 `baseline` 按行的第一基线对齐并计入行高）；`justify-content`、`align-content` 的分布值；`order`；绝对定位的子项（网格是包含块时在行号围出的区域或内边距盒里，否则只取静态位置）。宽松页面丢弃布局不接受的网格值并诊断（命名线与区域、px/%/`fr` 以外的单位、语法以外的值），严格页面仍是诊断。尚未实现：命名线与线名、`grid-template-areas`、`grid-template` 与 `grid` 简写、`subgrid`、`masonry`、`last baseline`、竖排（从右到左自 2026-11-07 起支持，见 [文字方向与复杂文字](bidi-text.md)）；包含块在网格之外且带 inset 的绝对定位子项（诊断）；不确定高度下的百分比行轨道按 auto |
-| UI 着色器效果（`-weft-effect()`）、UI 粒子（`-weft-particles`）、背景拷贝与 `backdrop-filter: blur()` | 新增目标（2026-10-12），设计见 [架构](architecture.md)。已实现：效果绘制项，D3D11 与 Vulkan 的显示列表渲染器可以画（11.1）；scene 页面的 `background-image: -weft-effect(name)`（也可写在 `background` 简写里），参数取自元素的自定义属性，效果注册与诊断，用时间的效果让帧持续推进，D3D11 与 Vulkan 的 scene 渲染器可以画（11.2）；粒子绘制项（发射器、流与爆发、飞向目标、柔和圆点与精灵帧），D3D11 与 Vulkan 的 scene 渲染器可以画（11.4a）；scene 页面的粒子挂接：`-weft-particles: name` 与 `--particles-*` 覆盖值、`weft.emitParticles` 与飞向元素、发射记录的生命周期与上限、按粒子可达范围的损伤（11.4b）。scene 页面的背景拷贝与 `backdrop-filter`（11.5a），与 Chrome 截图逐像素对照（11.5b）；画廊的半透明窗口组（11.5c）。读背景的效果（2026-10-18，[效果的写法](effects.md)）：清单的 `backdrop` 与 `backdropMargin`（C ABI `weft_effect_desc` 末尾的 `backdrop`、`backdrop_margin`，旧大小的结构仍可注册，效果不读背景），元素开始绘制前拷贝目标上盒子加边距的范围（不含元素自己的背景色与阴影；元素自己开组时读组外的目标，祖先的组里只读该组已画的内容，最外层含宿主目标），外壳的 `effectBackdropUV`、`effectBackdrop` 把盒子的 uv 映射到拷贝（随变换与设备缩放），拷贝之外取最近的纹素；D3D11、D3D12、Vulkan 的 scene pass 画；样例折射与热浪（`samples/effects`）。尚未实现：文档页面（它们不支持任何背景图片）、D2D 参考光栅、C ABI 显示列表的效果、粒子与背景特性位、粒子的效果外观；读背景的效果在带 `filter` 的元素与透视平面里只读到所在图像的内容 |
-| WebGL/WebGL2 | 不在目标内（用户 2026-10-12 决定，见 [决策](decisions.md)）：3D 由宿主引擎渲染、经外部纹理合成；`getContext('webgl')` 与 `getContext('webgl2')` 返回 `null` |
-
-如果固定测试应用需要额外 API，先将它作为明确的新增承诺记录，而不是悄悄扩大 v0.1 范围。完整功能列表必须在实现时标注 planned/implemented/verified 与对应测试。
-
-Windows 另有受限主鼠标 HWND/swapchain 样例，使用 actual layout hit、代际 target、MouseEvent、capture cancel 与 resize。自动测试从自己的 HWND 消息路径进入 React；实体鼠标、完整焦点/键盘/IME/PointerEvent 和移动未自动验收，见 [实际窗口范围](native-window-probe.md)。
-
-GPU 后端已有可注册的实验 C ABI 与实际 D3D11 reference/window 接入；公共层不依赖图形 API。当前四边形帧与显示列表帧（盒子、图片、圆角裁剪链、隔离组；2026-10-11）、coverage/SDF、target/capability 和生命周期合同见 [backend API](render-backend-api.md)。Vulkan/Metal API ID 和模拟接口测试不构成这些平台的实际渲染支持。2026-10-12 起有实际的 Vulkan 渲染器：Windows 上 RTX 5090（Vulkan 1.4.341）与 AMD Radeon 核显（1.4.315）离屏绘制显示列表，与 D3D11 WARP 最多差 2 级，验证层零告警。同日起有 Vulkan 的 C ABI 适配器：宿主录制、提交并报告完成 serial，两帧在途，丢弃、失败回滚与设备放弃，目标格式 sRGB RGBA8/BGRA8 与线性 RGBA16F，验证层含同步验证零告警。缓存渲染器与 D3D11 共用纹理缓存和字形 atlas 的策略（同日）。Windows 上的 Vulkan 交换链窗口已验证（RTX 5090，4K CaseCheetah 流式页面，输入、缩放与像素对照，同日）。Android arm64（API 29，NDK r30）的配置、编译与链接已验证：全部可移植模块、Vulkan 后端与 Android 平台层，零警告；模拟器与真机运行、Android 输入与 Activity 生命周期均未验证。AMD 核显上的 Vulkan 交换链窗口与 iOS 尚未验证。2026-10-12 起有 Vulkan 的 scene pass（编码空间）：gallery 的 26 CSS + 8 D3 在 RTX 5090 与 AMD 核显上通过 102 张 Chromium 参考，与 D3D11 WARP 的原生 pass 逐像素比较；同日起可以记录进宿主的命令缓冲，多帧在途，按宿主报告的提交与完成退休（三帧在途与同步绘制逐字节相同）。Windows 上的 Vulkan scene 窗口已在 RTX 5090 上验证：交换链实时显示 gallery 的 34 个 scene，每个 scene 的最后一帧与离屏绘制逐字节相同；AMD 核显上的窗口未运行。同日起 Vulkan 的 C ABI 支持宿主纹理（外部纹理扩展 v1）：线性 RGBA8、RGBA16F，以及设备能线性过滤时的 RGBA32F；显示列表帧与四边形帧都能采样，支持行从底部开始的纹理，租约随帧完成退休（RTX 5090 与 AMD 核显，验证层含同步验证零告警）。Android 设备上未运行。2026-10-17 起（`metal` 分支）定了原生 Metal 后端的 C ABI 与着色器的 MSL（构建时由同一份 HLSL 翻译，Windows 上检查绑定、记录大小与阶段接口）；Metal 适配器尚未实现：macOS 与 iOS 的配置与构建、Metal 编译这些 MSL、任何绘制均未验证。
-
-新增可选 external texture lease 扩展，通用生命周期与 D3D11 的 linear-premultiplied RGBA8/16F/32F、top/bottom origin、UV/opacity 和真实两帧退休已验证。首版同 device/queue、单 mip/采样、无 shared/CPU write；encoded sRGB/HDR/多队列/ANGLE/移动均显式未支持。这是 renderer 能力，尚没有 JS WebGL API 或新增 gallery 案例通过，见 [实际范围](external-texture-lease.md)。
-
-2026-10-09 固定 gallery 的 **26 CSS + 8 D3** 新增 native 像素验收，连同已有两个 Canvas 共 36/72，详见 [scene 实际支持与诊断](scene-gallery.md)。SceneSolver 单独支持固定 utility sheet 的有界 block/Flex/absolute、圆角/边框、三类 gradient、2D transform、group opacity、关键帧/transition 与单个 perspective/rotateY 平面子树；8 个 D3 原例所需 SVG rect/circle/line/polygon/path/g/text 已在真实 JS→native DOM→绘制链路通过。`setInterval` 增加 function-only、有界容量/暂停合并的宿主调度，full HTML timer nesting/clamp 仍未实现。
-
-这不提升完整 Tailwind/Grid、通用 SVG viewport/viewBox/clipPath、SVG geometry/hit、CSSOM/computed style、D3 drag/zoom/brush 或 gallery 的另外四例 D3 Interactive。SceneSolver 遇到未支持 CSS 属性/选择器/布局值、SVG 元素/path command、viewBox/clip-path/filter/mask、SVG descendant opacity 或 SVG text stroke 会诊断；general 3D 也在范围外（HTML 混合行内内容 11.3b 起支持）。原始 34 函数、React/D3 包、bundle 不变，固定 theme/rem/calc/logical utilities 的离线编译适配器是显式范围，运行不读取浏览器截图/几何。字体由 Windows OS DirectWrite 负责，移动/字体稳定打包与生产性能预算待验收。Windows 固定 scene 的 D2D GPU 绘制、颜色字体缓存与现有 external texture 接口已接通，沿用 102 个 Chrome reference 的阈值；没有扩大 HTML/CSS/SVG 语义范围，见 [性能证据](gallery-performance.md)。
-
-2026-10-09 固定 gallery scene 接入 owner 直接 task/rAF 调用、弱身份 mutation journal/subtree revision、API 无关数值 paint 参数与有界静态绘制参数缓存。owner/renderer 线程边界、完整 packet、group opacity/clip 和真实 completion 退休不变；同步 geometry read 仍全量 fresh layout，未实现一般增量 DOM patch、后台 UI 线程或生产 retained display list。实际接口、参考路径与限制见 [本轮合同](owner-hotpath-performance.md)。
-
-## 内容与 HTML
-
-2026-10-11 重构第 8 步：positioned、auto 与 page profile 已退役。原样 NineSlice、AlertBar（四种 CSS）、React 页面与 Canvas gallery 都由统一的文档格式化器运行，各自的浏览器对照按原阈值通过。下文按 profile 记录的范围是各自当时的证据；统一路径支持这些子集的并集，另加 flex item 的 margin、静态根元素（视口初始包含块）与 canvas 替换元素。p、button 的 UA 默认 margin/padding/border 尚未建模，作者需显式设置；ul 未显式设置会诊断。
-
-CaseCheetah 原样 NineSlice 已验证有界 author rules、类/id/type 及后代/子代选择器、层叠、明确尺寸的绝对定位、px/%/受限 calc、矩形图片裁剪及孤立层叠。它是独立 positioned profile，尚未与 Flex/inline 或一般文档/CSSOM 合并；JS 原生 DOM 的 querySelector/All 与 matches 和样式层叠共用一个选择器引擎，支持范围见下方“样式和布局”的第 9.2 步说明（D3 axis `.tick line` / `.tick text` 已验证）。完整原游戏、滚动和通用 positioned hit-test 未验收，见 [实际样本合同](casecheetah-workload.md)。
-
-已验证固定 Roboto/Noto CJK 的有界 LTR 中英回退和灰度页面，原样 AlertBar/Zustand/store/双向 UE 桥在作者预览 CSS 下运行。span/b/ul/li 仅限显式 block/positioned、normal/400、零边距和 list-style:none；已独立接原始主题块与展开规则；尚不支持整个 operations.css、一般 inline、段落换行/bidi 或 IME。浏览器状态/几何/四项字体度量与 GPU 证据见 [中文 workload](cjk-alert-probe.md)。
-
-| 能力 | 目标与边界 |
-| --- | --- |
-| 文档 | 一个 View 一个 Document；显式根容器和 viewport，首版无 iframe |
-| 基础节点 | html、head、body、div、span、p、button、img、input、textarea、style、link、script；文本与 comment；svg/g/rect/circle/line/path/text 等基础 SVG |
-| Namespace | createElementNS 与 namespaceURI/localName、NS attribute；HTML 与 SVG 的大小写和创建规则分别实现 |
-| 解析 | 首版接受定义清楚、结构正确的 HTML 子集，包括 void tag、常用实体、属性与注释；拒绝超出范围的错误恢复场景 |
-| 默认 display | 保留元素的 UA 语义；P0 页面显式写 flex，尚未实现的格式上下文报错 |
-| HTML 错误恢复 | 不承诺完整 WHATWG tree construction、隐式闭合、table foster parenting 等 |
-| 脚本加载 | 首版打包 bundle，在文档构建安全点执行；async/defer/module 的支持分别验收 |
-| 资源 | 本地打包 PNG、字体和 CSS/JS；具体编码器随依赖探针锁定 |
-| 图片 | intrinsic width/height、显式尺寸与替换元素；加载完成影响布局必须回归 |
-| 表单 | 文本输入、textarea、button 与程序性 value；checkbox 等后续逐项加入 |
-| 不在 v0.1 | 导航、远程页面、iframe、audio/video、完整 Canvas、SVG filter/foreignObject 等高级 SVG、浏览器默认表单外观 |
-
-构建工具和运行时 DOM fragment parser 必须使用同一套可接受语法规则。动态 innerHTML 不能因为绕过构建工具而得到另一套解释。解析失败保留旧子树，禁止部分替换。
-
-
-公共样式已抽到独立 value evaluator，支持有界 author/inline important、:root、属性 selector（存在、`=`、`~=`、`|=`、`^=`、`$=`、`*=`）、继承、token var、选中分支循环、CSS-wide 和 rgba。positioned/Flex 共用求值但仍是独立 formatting profile；没有 JS getComputedStyle；DOM querySelector 与它共用选择器引擎。16-case 浏览器语义、原始 theme/expanded rule 与八帧 DX11 的实际范围见 [公共样式合同](style-cascade-probe.md)。
-
-
-新自动页面 profile 已在固定 AlertBar 和 48 个 mutation 场景验证受限 block/Flex/absolute、内容高度和中英固有宽度；零 margin/border、px padding、leaf text，以及受限百分比尺寸是硬边界。仅 ASCII 空格换行，未实现一般 inline/Unicode 换行；旧 positioned API 范围不扩大。见 [自动布局实际合同](automatic-layout-probe.md)。
-
-2026-10-08 新 flow profile 单独扩大至 nested inline/span/br、匿名 block 行盒、normal/nowrap/pre-line 的有界 Unicode 换行、同步 geometry/client rects、scrollTop/Left/extent、可取消 wheel 默认滚动与椭圆圆角嵌套裁剪。27 个 mutation 场景和原样 React 八帧已进行 browser/GPU 验证，旧 auto/positioned profile 不扩张。跨源 grapheme/ligature、inline-block/replaced、inline 内 block/非零 decorations、bidi/字典分词、其他字重、soft hyphen/可见控制字形、完整 DOMRectList/scroll task 时序、实体 wheel/触摸/scrollbar 及移动仍有明确限制，见 [flow 支持值、诊断与证据](flow-layout-probe.md)。上文旧组件的 inline/滚动未验收描述只适用于各自历史 profile。
-
-后续 flow 输入阶段已实现逻辑树/paint-order 分片区域、圆角/滚动裁剪命中、完整像素 WheelEvent metadata 和 HWND mouse/wheel owner 队列。原样固定 React 长列表在隐藏窗口完成实际滚动/选中/resize，3,150 点独立 Chromium 命中中 3,130 精确、20 点在显式 2 CSS px 每轴边界容差内。该范围不扩张旧 auto/positioned API；实体设备、触摸/惯性、完整 focus/keyboard/IME/PointerEvent 和移动仍未验收。见 [实际输入合同](flow-input-window-probe.md)。
-
-## 样式和布局
-
-2026-11-10：flex 项目的自动最小尺寸（`min-width: auto`、`min-height: auto`，CSS Flexbox 1 §4.5）与盒子对父级内在尺寸的贡献（CSS Sizing 3 §5.1）；Yoga 适配器 `layout_boxes`，scene 与文档页面。此前 flex 项目里是固定宽度的块时，项目会被收缩到比这个块还窄（开发者工具的对比工具在示例页上发现）。下面 2026-10-11 第 8.2 步那段里的“自动最小尺寸不考虑百分比的指定尺寸”自此只剩本条末尾列出的情形。
-- 内容尺寸建议是项目内容的最小内容尺寸。内容里带 px 宽度或高度的盒子按这个尺寸计入，不看它里面有什么；px 的 `min-width`、`max-width`、`min-height`、`max-height` 夹住它（最小值压过最大值）；px 外边距计入，纵向外边距不折叠；`box-sizing: border-box` 的尺寸不小于内边距与边框；百分比的尺寸在这里当 `auto`。嵌套的 flex 容器：行取各项之和加间距，列与换行的行取最宽的一项。此前带 px 宽度的盒子按 min(内容, 宽度) 计入，空的固定宽度块计 0；子项的纵向外边距与 px 的最小、最大高度不计入。
-- 指定尺寸建议与最大值封顶：px 的 `width`、`height`、`max-width`、`max-height` 照旧。百分比的 `width`、`max-width`、`max-height` 在容器尺寸布局前已知时也封顶：行的内容宽度由 px 宽度、视口或块的填充得出，且这一行自己不是行里的弹性项目；列的高度是布局前已知的高度。此前百分比的宽度与上限不参与：`width: 80%` 的项目里有更长的词时被撑到词宽，`max-width: 50%` 的项目同样。
-- 同一处内在宽度也决定行内块等原子内联的收缩适配、行内表格单元格的最小内容宽和网格轨道的内容贡献：里面有固定宽度的块时不再窄于它。
-- `<img>` 不变：百分比 `width` 或 `max-width` 的图片没有最小内容宽度，`width` 属性不改变这一点。
-- 仍是近似：
-  - 行的宽度只在布局中才知道时（这一行是弹性项目、在纵向 flex 里被拉伸、或是由左右 inset 定宽的绝对定位盒子），项目的百分比 `width` 不给最小值封顶（Chrome 取内容与百分比宽度中较小的一个）；百分比 `max-width` 只在内容不能变窄、宽度与基准都是 `auto` 时精确（项目不收缩，上限由 Yoga 解析），否则不封顶。
-  - 自动最小高度里的行数按最大内容宽度算：带 px 宽度的文字盒、基准不是 `auto` 的项目里换行的 flex 行只算一行。
-- 验证：`flex_browser_diff` 新增 37 例（Chrome 157），`box_layout_contract`，对比工具在示例页上的结果，见 [状态](status.md)。
-
-2026-11-01（之二）：静止的文字落到设备像素，照 Chrome 的规则（用户定：只对齐静止上下文里的文字）。
-- Chrome（Skia）画横排的字形：基线取整到设备像素的行，笔位量化到 1/4 设备像素，都是 0.5 进位。实测：Chrome 156 里一个“H”放在 1/16 px 的 16 个相位上，纵向 16 格是同一个栅格、在相位 0.5 处整行跳；横向每个设备像素 4 种栅格；1 倍与 2 倍相同（`tests/fixtures/text-phase-reference`）。
-- weft 对静止的文字照此画：文字和它外面的元素都没有 transform（含动画的采样）、滚动位置与锚点（`paint::Raster::still`，显示列表标出）。位图放在整设备像素上，基线所在的行由位图的位置给出（位图把基线放在自己的整行上，内容与纵向位置无关）；横向按位图在像素里的位置以 1/16 像素为步长画，每个字形的笔位再取 1/4 像素（`scene_text_place`）。一行文字横着移动最多 16 张位图，纵向移动不重画。D3D11、D3D12、Vulkan 共用这套准备（`ScenePreparer`）。D2D 参考光栅的静止文字基线也取整，阴影照原生 pass 摆放；它横向本来就按 1/4 像素（与 Chrome 分组相同）。画一帧只取决于这一帧，与渲染器之前画过什么无关。
-- 不静止的文字照旧：按小数位置双线性采样，和盒子一起平滑移动，像 Chrome 的合成层动画。包括 transform 下、已滚动的容器里（滚动位置不为 0）、锚点元素里。滚回顶端（滚动位置 0）时又落到像素上。
-- 仍不同：用 `left`/`top` 逐帧移动的静止文字纵向一格一格地跳，而盒子按小数位置连续移动（Chrome 连盒子一起取整，见下一条的“盒子不对齐像素”）。显式图层里的文字在图层自己的像素上对齐，图层落在小数位置时整体双线性。横向相位量化到 1/16 后，个别字形的笔位与 Chrome 差 1/4 像素。D2D 参考光栅在 1/4 像素上的字形是 Direct2D 里 DirectWrite 的画法，与 Chrome 的不同（重心差到 0.28 像素）。
-- 验证：`text_phase_reference`（新）：原生 pass 在 1 倍与 2 倍画得一模一样的格子正是 Chrome 画得一模一样的格子，纵向在同一格整行跳，墨迹重心（减去该行的平均）与 Chrome 差至多 0.095 / 0.043 设备像素；参考光栅的格子分组也与 Chrome 相同，纵向重心差 0。同一帧里静止、transform 下、已滚动的三个标签只有第一个落到像素；横向移动 40 帧建 9 张位图、再走一遍 0 张，纵向移动 0 张；同一帧在新旧渲染器上逐像素相同。KaTeX（`katex_browser_reference`）最差行的平均差 1 倍 2.20 → 1.55、2 倍 1.15 → 0.82。
-
-2026-11-01：KaTeX 0.16.47 的 HTML 输出（CaseGinkgo 相机调参面板的公式），与它用到的 CSS。页面用宽松样式（page.json 的 `forgivingCss`），样式表是 `katex.css` 接上页面自己的样式，`katex.min.js` 在页面脚本之前。
-- `@font-face`（CSS Fonts 4 §4，宽松样式表）：`font-family`、`src`、`font-weight`（一个值）、`font-style`、`unicode-range`；`font-display` 不改变什么，其他描述符诊断。页面加载时按页面的基准路径解析 `url()`，经宿主的读取函数读（与 `url()` 图片相同）。一条规则取第一个读得出的来源：`format()` 是 `truetype`、`opentype` 或它们的 `-variations`，或没有提示而文件开头是 TrueType、OpenType 或字体集合；`woff`、`woff2`（看提示，或看文件开头）与 `local()`（不按全名找安装的字体）跳到下一个来源，与浏览器跳过它没有的格式一样。都读不出时是一条场景诊断 `WEFT_FONT_FACE: <字族>: <每个来源的原因>`，这条规则不定义字体；`unicode-range` 解析不了时诊断，字体覆盖全部码点。页面定义的字族遮住同名（ASCII 不分大小写）的安装字体；有 `@font-face` 的页面有自己的字体目录与文字系统，同一运行时里别的 View 不受影响，没有的页面用运行时的目录。严格样式表拒绝一切 at-rule，`@font-face` 也报 `at-rule/nested rule outside profile`（此前被当成选择器，报 `unsupported property src`）。
-- `document.compatMode` 为 `CSS1Compat`（无怪异模式；KaTeX 在怪异模式下拒绝渲染）。
-- `vertical-align`（行内级盒子）：`baseline`、`sub`、`super`、`text-top`、`text-bottom`、`middle`、`top`、`bottom`、长度（含 em）与百分比（相对自己的 `line-height`），按 Blink LayoutNG：`sub` 下移父元素字号的 1/5 + 1，`super` 上移父元素字号的 1/3 + 1，`middle` 对齐父元素基线之上 x 高度的一半（字体的 OS/2 sxHeight，没有时取“x”的高），`top`、`bottom` 在行高算完之后对齐行盒。`-webkit-baseline-middle` 等其他值仍报 `WEFT_SCENE_PROFILE`。
-- 行内表格：`display: inline-table` 是原子内联，里面只能是 `table-row`，行里只能是 `table-cell`（KaTeX 的 vlist 就是这样）。列宽按 CSS Tables 3 §3.10.4 与 Chrome：单元格的最小、最大内容宽（单元格给定的 `width` 不进最小内容宽），多出的宽按最大内容宽的比例分给 auto 列；`border-collapse`（collapse 时表格、单元格不能有边框）、`border-spacing`、单元格的 `vertical-align`（`top`、`middle`、`bottom`，其他值按 `baseline`，与 CSS Tables 相同）与内边距、边框；行高与行的基线：没有按基线对齐的单元格时，行的基线是单元格内容盒的底（Chrome 的做法）。表格的基线是第一行的基线（没有行时是下外边距边）。诊断（`WEFT_SCENE_PROFILE`）：块级 `display: table` 与表格外的 `table-*`、表格或行里的文字（匿名单元格）、定位的行与单元格、`colspan`/`rowspan`、表格的 `height`、行与单元格的 `min-height`/`max-height`、`table-layout: fixed`、`empty-cells: hide`、百分比的表格尺寸。
-- 尺寸关键词：`width`、`min-width`、`max-width` 的 `min-content`、`max-content`，以及 `-webkit-` 前缀写法；`fit-content` 只在根与绝对定位盒子上（其他报 `WEFT_UNSUPPORTED_UNIT`）。`max-width`、`max-height` 的 `none` 不再诊断。
-- 与 Blink 一样按 LayoutUnit（1/64 px，向零截断）取长度、偏移与外边距；平台字号截到 1/100 px（Blink 的 FontCacheKey）；每个文字节点的宽按节点向上取整到 LayoutUnit（KaTeX 一个字一个 span 的 `mop` 也是这样）；原子内联的 `position: relative` 偏移；svg 的 `width`、`height` 等表现属性里的 em（KaTeX 根号的 `width="400em"`）。
-- 边框宽度在任何缩放下都对齐设备像素（不到 1 个设备像素的取 1，否则向下取整），与 Chrome 相同：KaTeX 0.04em 的分数线在 1 倍画成 1px，2 倍画成 1 个设备像素（此前分别是 0.77、1.55 个设备像素的覆盖）。原生 pass 里没有圆角、没有旋转的盒子，像素中心不在任何有宽度的边的楔形里时，取边带覆盖它最多的那一边（此前这个像素不画边框：只有下边框、细于一个像素的分数线整条变淡）。
-- 路径：同一方向的轮廓重叠时（KaTeX 的根号把横线在根号轮廓里画一次、又作为矩形画一次），按 FreeType 对 `FT_OUTLINE_OVERLAP` 轮廓的做法在 4 × 4 子像素上光栅化再平均，重叠处只覆盖一次；此前覆盖率相加，根号横线边上的像素深一倍（1 倍下横线上一列像素的墨量：此前 351，现在 194，Chrome 173）。只对外接框相交、方向相同（偶奇规则下任意方向）的填充轮廓这样做，其他路径照旧按面积覆盖。
-- 宽松样式表：`-ms-`、`-moz-`、`-o-` 前缀的声明静默丢弃（浏览器不认的也是静默丢弃）；`counter-reset`、`counter-increment`、`counter-set` 不起作用，不诊断；`content` 里的 `counter()`、`counters()` 什么也不给，并诊断一次；`clip-path` 是 scene 不支持的值（如 `url()` 引用 SVG `<clipPath>`）时元素不裁剪地画，诊断一次（支持的形状见 [视觉效果](visual-effects.md)）；`stroke-miterlimit` 不是 4 时诊断（描边器的斜接上限是 4）。严格样式表里这些是错误。表格属性 `border-collapse`、`border-spacing`、`empty-cells`、`table-layout` 进入 scene 的样式范围。
-- 验证：`katex_browser_reference` 把 CaseGinkgo 面板的 10 个公式、希腊字母与上下标、关系符，各按行内与 display 两种模式，与 Chrome 156 对照：零诊断；2351 个元素的 client rect 全部在一个 LayoutUnit 内（最大差 0.015625 px）；原生 D3D11 pass 的每一行在 1 倍与 2 倍都在文字参照的阈值内（平均 RGB 差 3、差 32 级以上的像素 6%、5 × 5 平均后 56 级），实测最差行 1 倍 1.55 / 1.9% / 30，2 倍 0.82 / 1.0% / 56（静止的文字落到像素之后，见上一条；2 倍的 56 是 Chrome 的 2 倍排版在第 14 行单独上移了一个元素）。
-- 与 Chrome 仍不同：
-  - **设备缩放下的排版**：Chrome 在设备像素里排版（长度、LayoutUnit、字体度量都先乘设备缩放），weft 在任何缩放下都按 1 倍排版再放大。KaTeX 的 em 长度在 2 倍时取整不同，Chrome 自己 2 倍的 rect 与它 1 倍的差到 0.5 CSS px（个别 2.4 px），24 行里有 9 行的多数元素整体低 1 个设备像素。2 倍的像素对照因此按 Chrome 自己 2 倍的排版逐行对齐（参考里记了两种缩放的 rect）。
-  - **盒子不对齐像素**：分数线这样落在小数位置的边框画成两行各一半的灰（Chrome 先把边框盒对齐整像素，画成一行实的），5 × 5 平均后最大约 32 级。
-  - **文字的位置**：静止的文字已按 Chrome 的规则落到像素（上一条）；transform 下、已滚动的容器里与锚点里的文字仍按小数位置双线性采样，比 Chrome 软。
-  - **外边距不折叠**：`.katex-display` 的上下 1em 外边距在没有内边距或边框的父元素里不与父元素的折叠；display 模式的公式包在有内边距的盒子里（示例页的 `.display-row`），或用行内模式。
-  - 字形由 FreeType 按面积覆盖光栅化，Chrome 用 DirectWrite；同一个字的墨量相同，边缘像素不同（文字阈值里的差 32 级以上的像素）。
-
-2026-10-25：绝对定位盒子的收缩适配，与渐变在盒子边上的颜色（CaseGinkgo 的窗口时间轴发现）。
-- 绝对定位、宽度为 auto、水平方向至多一侧有 inset 的盒子，按 CSS 2 §10.3.7 收缩适配：min(max(最小内容宽, 可用宽), 最大内容宽)，可用宽是包含块的宽减去已给的 inset 与外边距（auto 的 inset 当 0），在块里与在横向 flex 容器里一样；可用宽不大于 0 时取最小内容宽（nowrap 的文字就是整段的宽）。此前可用宽是包含块的整个宽度，不减 inset，横向 flex 容器里不约束，盒子最窄只到可用宽：1px 宽的包含块（随时间轴移动的条带）里的盒子只有 1px，nowrap 的文字溢出盒子，`right` 定位的盒子的内容从左边排起；宽包含块里靠 inset 的文字不在 inset 处换行，`right` 定位的盒子伸出包含块的左边。与 Chrome 156 的 29 个元素 client rect 一致（1/64 px 内，`tools/browser_scene_absolute_reference.mjs`）。仍不同：四边 inset 都是 auto 的盒子的静态位置取包含块内边距盒的起点，不在它之前的流内兄弟之后（Chrome 在之后）。
-- 渐变背景：盒子的边落在设备像素中间时，那一列像素（中心在盒子外或正在边上）取盒子在这条边上的颜色，不再按瓦片取模到盒子外下一块瓦片的开头，所以从不透明渐隐到透明的盒子右边、下边不再有一道暗线；盒子里的瓦片接缝照旧。原生 pass（D3D11、D3D12、Vulkan）与 D2D 参考光栅相同。与 Chrome 156 截图对照两个用例（1 倍与 1.5 倍）：5 × 5 平均后最大差 3 与 1 级，此前 25 与 26 级。盒子的边仍按小数位置的覆盖率画（Chrome 先对齐整像素），所以落在像素中间的左边、上边，那一列比 Chrome 多一点覆盖。
-
-2026-10-11 重构第 9.2 步：DOM 查询与样式层叠共用一个选择器引擎（`src/dom/selector`）。
-- JS 的 querySelector/querySelectorAll/matches 新增：子代组合子 `>`；属性选择器（存在、`=`、`~=`、`|=`、`^=`、`$=`、`*=`，值可以加引号）；ASCII 范围的 CSS 转义；`:root`、`:hover`、`:active`。逗号列表按引号外的逗号切分。
-- 样式随之接受上述全部属性运算符；非 scene 的样式仍不接受转义和 `:hover`/`:active`。
-- 大小写按 HTML 规范：与 HTML 元素比较时，选择器里的类型名和属性名先转成小写再精确比较；SVG 等其他命名空间按原样比较。样式里的 `linearGradient`、`[viewBox]` 这类驼峰名此前被转成小写，永远匹配不上，现在能匹配。class 按 HTML 的 ASCII 空白切分（样式此前还把垂直制表符当分隔符）。
-- 标识符按 CSS 规则：未转义的数字或“连字符加数字”不能开头。`[x=1]`、`.1a` 与浏览器一样被拒绝（DOM 查询报 `WEFT_SELECTOR_SYNTAX`，样式报 `WEFT_STYLE_PROFILE`），属性值要写成 `[x="1"]`；两套旧解析器此前都接受。
-- 仍不支持：兄弟组合子 `+`/`~`、其他伪类（含 `:focus-visible`、`:not()`、`:nth-child()`）、伪元素、属性大小写标志 `i`/`s`、非 ASCII 转义、超过 16 段的链，以及 DOM 查询中超过 32 项的列表。DOM 查询遇到这些合法但未支持的选择器报 `WEFT_UNSUPPORTED_SELECTOR`，遇到不是选择器的文本报 `WEFT_SELECTOR_SYNTAX`；样式中两类都报 `WEFT_STYLE_PROFILE`（不变）。
-
-2026-10-11 重构第 8.3a 步：scene 的 transform 只有一个文法。SVG transform 属性里无单位的角度按规范当作度（此前当作弧度，gallery 的 D3 径向标签因此画错）；SVG 列表可以用逗号分隔函数，rotate 可带中心；perspective(px) rotateY() 平面也接受函数间不留空格等 CSS 合法写法。CSS transform 中无单位的角度仍按弧度接受（CSS 规定只有 0 合法）。
-
-2026-10-11 重构第 8.2 步：文档与 scene 共用一个 Yoga 适配器。scene 布局因此改用文档已有的 CSS 语义：flex item 默认收缩并有自动最小尺寸；block 的子项不 flex，align-self 不起作用；display:none 盒子的几何为 0；grid 的 display:none 子项不占格，行、列间距分别取 row-gap、column-gap。scene 也接受适配器支持的 space-between、baseline、content-box、inline-flex 等值。scene 的 102 个 Chrome 几何采集与 cluster 的 210 个采集不变。仍是近似的部分：scene 文字不换行；子项全是行内级的块按单行、顶对齐排列；自动最小尺寸不考虑百分比的指定尺寸。（前两项 11.3b 起已改，见下段；第三项 2026-10-18 起对布局前已知的高度的百分比已改，见 [状态](status.md)。）
-
-2026-10-13 重构第 11.3b 步：scene 有了内联格式化上下文，按 Blink LayoutNG 的规则排行。
-- 范围：块容器（非 flex/grid）里的文字、行内元素（可嵌套、带内边距/边框/外边距）、`<br>`，以及原子内联（`inline-block`、`inline-flex`、`inline-grid` 与 svg，按收缩适配宽度排，按其最后一行的基线对齐，没有行时按下外边距边）。
-- 空白：`white-space: normal`、`nowrap`；空格、制表、换行跨元素折叠，行首行尾空格去掉，`<br>` 之后的行首空格也去掉；软换行机会用 libunibreak（UAX 14）在整个上下文上算，两字符之间能否换行看它们最近公共祖先的 `white-space`；行内元素的起始边随后面的内容、结束边随前面的内容。
-- 行盒：根的 strut、行上每个行内框的 strut、每段文字（`line-height: normal` 时含回退字体）与原子内联的外边距盒，共用一条基线；`text-align` 支持 left、right、center、start、end，溢出时按起始对齐；各段宽度按 LayoutUnit 向上取整。
-- 行内元素按行分片：背景与边框逐片画，左边与左侧圆角只在首片、右边只在末片（`box-decoration-break: slice`）；命中与 `getClientRects` 按片，非原子行内元素的 `clientWidth/Height` 为 0，transform 不作用于它。
-- `text-align`、`white-space` 改为继承；scene 的 UA 表补上常见块元素（`p`、`h1`–`h6`、`ul`、`li`、`section` 等）为 block、`button` 为 inline-block 并居中；仍没有 UA 外边距与标题字号（页面自带，Tailwind preflight 就是这样）。
-- 画廊的原生样式表补上 Tailwind preflight 的替换元素规则（`svg` 等为 block、`vertical-align: middle`），与浏览器参照一致。
-- 验证：23 个用例（段落、富文本、嵌套框、空白、`<br>`、长词、连字符、居中/右对齐与继承、匿名 flex 项、字距、inline-block、行内 svg、中文、混合字号、行内框 strut、nowrap、回退字体、emoji）与 Chrome 的每个元素片段、每行文字与位置逐一相同（最大差 0 px）。
-- 列方向 flex 项里会换行的文字，宽度要由布局决定时，只在 flex-basis 与 height 都是 auto 时支持（自动最小高度等于 basis）；其他组合仍报 `WEFT_UNSUPPORTED_INTRINSIC`。
-- 诊断：其他 `white-space` 值、`text-align: justify`、行内级盒子的非 baseline `vertical-align`、行内元素里的块级盒子与定位元素都报 `WEFT_SCENE_PROFILE`；float 不支持。双向文字自 2026-11-07 起支持，见 [文字方向与复杂文字](bidi-text.md)。
-- 2026-11-08：块容器里行内级子元素与块级子元素混排时，每段连续的行内级子元素放进一个匿名块盒（CSS 2 §9.2.1.1），各成一个行内格式化上下文，挨着行内元素的空白保留；此前它们各自按块排。见 [图片元素](img.md#顺带修的通用布局问题)。
-
-2026-10-13 重构第 11.3c 步之一：scene 的点线与虚线边框。
-- 画法按 Chrome（`BoxBorderPainter` 与 `StyledStrokeData`）：
-  - 边框盒先对齐整数设备像素，边宽向下取整为设备像素；沿边的中线排列点或段，所以缩放 2 时 1px 点线是 2×2 设备像素的方点，与 Chrome 在设备像素比 2 时相同；
-  - 虚线的段长为边宽的 3 倍（1–2 设备像素宽）或 2 倍（更宽），间隔取让两端都是整段的值；点线 1–3 设备像素宽时为方点，两端按 Blink 的规则补整点，更宽时为圆点；
-  - 先画点线与虚线边，再画实线边；实线边在与它们相交的角上斜接。
-- 写法：
-  - `border` 与 `border-top/right/bottom/left` 简写：宽、样式、颜色顺序任意，缺样式时为 none；
-  - `border-style` 一到四个值（Tailwind 的 `border-dotted`）；`none`、`hidden` 的边宽为 0。
-- 与此前不同：scene 以前不把 `border-style` 展开到各边（被静默忽略），`border` 简写缺样式时当作 solid；现在都按 CSS。
-- 原生 scene pass 中没有圆角、没有旋转的盒子按像素面积算覆盖率（与 Skia、D2D 的矩形一致）：整像素上的盒子再小也是实的，离格盒子每个像素按所占份额混合；这类盒子带边框时，外缘那圈抗锯齿像素此前取背景色，现取边框色。旋转的带边框盒子外缘仍取背景色。
-- 验证：17 个用例（各宽度的点线与虚线、四边、竖边、小数位置、与实线相交、带背景、长圆点线、行内关键词）在缩放 1、2 下与 Chrome 截图逐像素对照：
-  - 方点与虚线在参考光栅与原生 pass 都与 Chrome 完全相同；
-  - 圆点的边缘像素按各自的抗锯齿有差异，墨量差 3% 以内，每个点的质心差不到 0.05 px。
-- 限制与诊断：
-  - 带圆角的点线、虚线边框，`double`、`groove`、`ridge`、`inset`、`outset` 报 `WEFT_SCENE_PROFILE`；
-  - 原生 pass 的圆点外有一圈约 9% 覆盖的淡晕（距离场的抗锯齿）；
-  - 实线边框宽度不按设备像素取整，离格盒子也不像 Chrome 那样对齐像素，所以离格时比 Chrome 虚一些。
-
-2026-10-13 重构第 11.3c 步之二：scene 的文字样式与相关 CSS。
-- `text-transform`（继承）：
-  - `uppercase`、`lowercase` 按 Unicode 完整大小写映射：ß → SS、ﬁ → FI、İ → i̇，小写 Σ 按 Final_Sigma；
-  - 不做语言定制；映射表来自固定版本 QuickJS-NG 的 libunicode；
-  - `capitalize`、`full-width`、`full-size-kana` 报 `WEFT_SCENE_PROFILE`。
-- `font-style`（继承）：`italic`、`oblique` 选用字体自带的斜体。字体没有斜体时，与 Chrome 一样合成倾斜：字形绕基线向右倾，水平偏移为基线以上高度的 1/4，字宽不变。原生 pass、参考光栅、SVG 文字轮廓都画出倾斜；斜体文字的图像四周多留 0.35em，倾出盒子的笔画不被裁掉。
-- `font-variant-numeric`（继承）：`lining-nums`/`oldstyle-nums`、`proportional-nums`/`tabular-nums`、`diagonal-fractions`/`stacked-fractions`、`ordinal`、`slashed-zero` 作为 OpenType 特性交给 HarfBuzz；同组两值或未知词报诊断。
-- 视口长度：
-  - `vw`、`vh`、`vmin`、`vmax` 及其 `s`/`l`/`d` 前缀形式（scene 只有一个视口，三种相同），按帧的视口换算成 px；
-  - 视口变化而 DOM 不变时，只重新展开用到它们的元素；
-  - 关键帧里的视口长度报诊断（关键帧只解析一次）。
-- 环境变量 `env()`（CSS Environment Variables 1，2026-10-23）：
-  - `env(safe-area-inset-top)`、`-right`、`-bottom`、`-left` 按宿主给的安全区换算成 px（`weft_view_set_safe_area`，View 的逻辑 px；宿主没有设时为 0）；可以写在任何值里，包括 `calc()` 与 `padding` 这类简写；
-  - 名字区分大小写；别的名字（`safe-area-max-inset-*`、`keyboard-inset-*`、`viewport-segment-*` 等）用第二个参数的后备值，后备值里也可以再写 `env()`；没有后备值时报诊断；
-  - 安全区变化而 DOM 不变时，只重新展开用到它们的元素；关键帧里的 `env()` 报诊断；
-  - 与浏览器的区别：浏览器只在页面声明 `viewport-fit=cover` 时给出非零的安全区，weft 由宿主决定（宿主让 View 铺满屏幕时才设）。
-- `overflow-x`、`overflow-y`：
-  - scene 只能两轴一起裁剪，所以一轴裁剪即整体裁剪；
-  - 如 CSS，与裁剪轴并存的 `visible` 计为 `auto`，内容须能放下；
-  - `clip`、`scroll` 仍报诊断；`overflow` 简写在层叠前展开到两轴，先后顺序按 CSS。
-- `-webkit-user-select`：接受，无效果（与 `user-select` 相同）。
-- 验证：
-  - Chrome 的行几何新增 6 个用例：大写（含 ß、ﬁ、İ）、继承的大写、斜体、Impact 的合成倾斜、Constantia 的数字变体、Segoe UI 的等宽数字。与 Chrome 逐一相同，最大差 0 px；
-  - 合成倾斜的斜率与 Chrome 截图相差不到 0.02：Chrome −0.266、参考光栅 −0.254、原生 −0.248 px/行。
-- 限制：Final_Sigma 只看同一个文字节点；没有按 `lang` 的大小写规则；`shape_with_fallback` 的文字仍限于拉丁、汉字与通用字符，希腊、西里尔等字母的文字本来就报诊断。
-
-2026-10-13 重构第 11.3d 步之一：JS 的 `Element.closest(selectors)`：元素自身或最近的匹配祖先元素，没有时为 null；与 querySelector/matches 共用选择器文法与诊断。
-
-2026-10-13 重构第 11.5c 步：画廊新增 “Translucent Windows” 一组三例（毛玻璃、普通半透明、只模糊背后），窗口为 75 例、13 组，原生绘制 71 例。每例若干叠放的窗口，按标题栏拖动并置顶，− / + 在 1–32 之间增减，背景每帧在动。与 Chrome 155 逐帧对照：窗口顺序与位置相同，整帧每通道平均差 < 1 级，窗口空白玻璃平均差 0.6–1.0 级。页面只用已有特性（`backdrop-filter`、圆角裁剪、外阴影、CSS 动画），没有新增 CSS 语义。
-
-2026-10-15 引擎纹理的限制（13.3c 之后）：scene 的背景铺排。
-- 新的属性 `background-repeat`、`background-origin`、`background-clip`、`background-attachment`（只接受 `scroll`），`background-size` 与 `background-position` 按 CSS 的完整语法解析（一到四值的位置，边缘关键字加偏移，`calc(百分比 ± 长度)`）。
-- `background` 简写（一层）按 CSS Backgrounds 3 拆成全部分量：颜色、图像、位置 `/` 尺寸、重复、`attachment`、一到两个盒子（一个时同时是 origin 与 clip），没写的分量取初始值；多层（逗号）与重复的分量是诊断。关键帧里的简写同样展开。此前简写只分颜色与图像，多出的分量随图像一起报错。
-- `-weft-texture()` 按 CSS 画背景图的方式铺排（自然大小是纹理的像素，1 个 CSS px 一个纹素）：渲染线程知道纹理的大小，着色器按它算瓦片的大小、位置与重复（`round` 一轴、另一轴 `auto` 时保持纹理的比例；`space` 放不下两块时按位置放一块）；重复的轴跨瓦片接缝过滤，不重复的轴止于边缘纹素的中心。13.3c 时纹理总是拉伸铺满边框盒，现在要铺满写 `background-size: 100% 100%`（或 `cover`）。
-- `background-clip` 也裁剪背景色（任何元素）：`padding-box`、`content-box` 时背景色是内边距盒或内容盒的一个盒子，带内圆角。
-- 2026-10-16：外阴影与内阴影的图像在设备缩放下超过 1,048,576 像素时（如 900 × 640 的面板在 150% 缩放下），按更低的缩放做成图像、由 pass 拉伸到同一个矩形，不再整帧回退（`shadow bitmap bound`）；阴影本来是模糊的，只有盒子边上的抗锯齿略宽。
-- 2026-10-16：`url()` 的图片同样铺排，自然大小是图片的像素；它是显示列表自己的资产，pass 把它当整张纹理采样（不进图集），用宿主纹理的铺排代码。
-- 渐变与 `-weft-effect()` 仍铺满边框盒并重复：它们的 `background-repeat` 不是 `repeat`、`background-origin` 与 `background-clip` 不是初始值、`background-attachment` 不是 `scroll` 时诊断。内容盒带百分比内边距时的 `content-box` 诊断。
-- 与 Chrome 155 截图对照 4 个用例（尺寸、位置、重复、盒子），原生 D3D11 WARP 与 D2D 参考光栅：平均差 0.2–0.6 级、差 32 级以上的像素 ≤ 0.8%、5 × 5 平均后最大差 13 级（Chrome 在 PNG 的编码值上过滤，scene 在线性值上过滤，放大的核也不同）。
-
-2026-10-17：宽松样式（`WEFT_PAGE_FORGIVING_CSS`，`weft-dev` 分支；CRPG 的 Tailwind v4 页面）。
-- 设了这个页面标志，样式表与关键帧按浏览器的方式处理：看不懂的规则、声明与值丢弃，页面照常加载；每个丢弃发一条 `WEFT_STYLE_DROPPED: …` 的 `WEFT_DIAGNOSTIC_SCENE`（同一消息只发一次）。没设时与此前完全相同（严格 profile，超出即不加载）。
-- 规则：`@layer`（声明、块、匿名、嵌套，未分层的样式在所有层之后，`!important` 反转层序）、`@media`（`width`/`height` 与 `min-`/`max-`、范围语法、`aspect-ratio`、`orientation`、`hover`、`any-hover`、`pointer`、`prefers-*`（减少动效等为 `no-preference`，配色为 `light`）、`and`/`or`/`not`、`only`、`screen`/`all`；视口改变时重新层叠）、`@supports`（按引擎实际接受的属性与值）、`@property`（`initial-value` 与 `inherits`，未设的注册属性取初始值）、`@keyframes`（帧里不认识的声明丢弃）、CSS 嵌套（`&`、隐式的后代）；`@font-face` 与其他 at-rule 丢弃并诊断。
-- 值：CSS Color 4/5 的 `rgb()`/`hsl()` 现代写法、`hwb()`、`lab()`/`lch()`（D50）、`oklab()`/`oklch()`、`color()`（`srgb`、`srgb-linear`、`display-p3`、`a98-rgb`、`prophoto-rgb`、`rec2020`、`xyz`）、`color-mix()`（预乘，色相插值 shorter/longer/increasing/decreasing），在计算值时换成 sRGB 并裁剪；`calc()`、`min()`、`max()`、`clamp()` 在视口单位与 em 确定后化简（`clamp(420px, 768px, 640px)` 这类常量一律化简）；`inset`、`gap`、`place-*` 等简写与逻辑属性（`inset-inline`、`margin-block-start` 等，按横排从左到右）展开到物理属性。
-- 选择器：见 status 的同日条目；`::before`/`::after` 的规则生成盒子（见上表“生成内容与装饰”一行；此前匹配但不生成内容，`content` 丢弃）。
-- 不生效但不诊断的属性：字体平滑与字体特性、`appearance`、滚动条、`color-scheme`、表格与列表样式、分页、`contain`、`writing-mode`（只有横排；`direction` 与 `unicode-bidi` 自 2026-11-07 起生效，见 [文字方向与复杂文字](bidi-text.md)）等（`scene_style_profile` 的 `ignored` 表）。
-- 尚未实现：Chrome 的逐值对照；`unicode-range` 与 `@font-face`；CSS `zoom`；相对颜色语法；`@container`、`@scope`、`@starting-style`。
-
-2026-10-17：scene 的 transition（Unity 插件的示例页面发现的两个问题）。
-- `transition` 简写：逗号分隔的若干过渡，每个是属性名（或单独的 `none`）、时长与其后的延迟、缓动函数与 `transition-behavior`，顺序任意，没写的部分取初始值（`all`、`0s`、`ease`、`0s`）；在层叠中展开为四个分量（同 `background` 简写），名字、单位与关键字转成小写；含 `var()` 时在代换后拆分，代换出的不是过渡列表时四个分量在计算值时无效。scene profile 的四个分量有了初始值（`initial`、`unset` 与无效值取它们）。JS 的 `'transition' in element.style` 为真。此前简写不在 profile 里，整个样式表被拒：`weft_view_load` 返回 `WEFT_INVALID_ARGUMENT`，没有诊断。
-- 列表的配对按 CSS Transitions 1：`transition-property` 的每一项取同一序号的时长、延迟与缓动函数，较短的列表循环、较长的截去；一个属性取最后一个点到它（或 `all`）的项；组合时长（max(时长, 0) + 延迟）大于 0 才开始过渡，所以 `0s` 加延迟在延迟之后跳变；过渡用改变之后的样式的列表。元素样式改变时，进行中的过渡若属性不再被点到、再次改变而不开始新过渡、或离开了目标样式，即结束（显示目标值）。此前每个列表只取整串文字：时长列表（`0.15s, 0.1s`）一开始过渡就是 scene 诊断，整帧被拒；延迟与缓动列表同样。
-- 诊断（`WEFT_STYLE_PROFILE`，加载时）：简写里多于两个时间、两个缓动函数或属性、列表里的 `none`、无单位的 0 与其他不是过渡部分的值、负时长、`allow-discrete`（scene 插值它过渡的每个属性，`normal` 之外的行为不在 profile 里），以及 `transition-behavior` 分量。（`WEFT_SCENE_PROFILE`，元素样式改变时，包括第一次）：分量列表里的负时长、列表里的 `none`、scene 不支持的缓动函数（`step-start`、`linear()`、`steps()` 的起始位置）。
-- 加载：样式表或关键帧超出 profile 时页面不加载，像脚本抛出一样：`weft_view_load` 返回 `WEFT_SCRIPT_ERROR`，View 为空，一条 scene 诊断说明原因（如 `WEFT_STYLE_PROFILE: unsupported property column-count`）。没有样式表会让 `weft_view_load` 因 CSS 返回 `WEFT_INVALID_ARGUMENT`。
-- 验证：与 Chrome 155 暂停的过渡对照 15 个用例、各 9 个时刻（改变之后的分量列表，不透明度、平移与背景色；最大差 4.5e-7、4.8e-5 px、0.46 级），300 组随机列表写成分量与简写各一份，与按 CSS 配对的模型逐帧对照。
-- 尚未实现：从没有声明的值（初始值）开始或到它结束的过渡（改变前后有一侧没有该属性时不过渡）；`transition-property` 里的简写名（如 `border-color`、`margin`）；反向过渡的缩短（reversing shortening factor）；不能插值的属性在一半处切换（如同 `allow-discrete`，CSS 的 `normal` 不过渡它们）；`transitionrun`、`transitionstart`、`transitionend`、`transitioncancel` 事件；文档页面的 transition。
-
-2026-10-15 第 13.4a 步：CRPG 浮动 UI（血条、伤害数字、异常状态飘字）原样组件所需的 CSS（scene 页面）。此前这些组件在 scene 中整页诊断。
-- `text-overflow: clip | ellipsis`：`overflow` 不是 `visible` 的块容器里，宽过内容盒的行按 Blink 的 LineTruncator 截断：按视觉顺序从行尾起（从右到左的行从左边起，见 [文字方向与复杂文字](bidi-text.md)），完全落在内容盒之外的文字不画；伸进内容盒的最后一段保留省略号前放得下的字符（字形簇边界），省略号紧随其后，用块容器的字体与颜色，在行的基线上，不改变行高；行首的第一个字符放不下也保留（被裁掉而不是被省略）。省略号是 U+2026，主字体没有这个字形时是三个句点（同 Blink）。几何不变：被隐藏的文字仍占原位，行宽、元素盒与命中不变。flex、grid 容器直接包含的文字不截断（Chrome 中它是与文字同宽的匿名项，不会溢出它）。其他值是诊断；截断要隐藏行内原子盒（inline-block 等）时是诊断。
-- `text-shadow`（继承）：至多 8 层，`x y [blur]`，颜色可写在长度前或后（省略为 `currentcolor`），后列的画在下面；负模糊、超过 64px、长度个数不对是诊断，SVG 文字带 `text-shadow` 是诊断。每行文字的覆盖率（彩色字形取透明度）按 σ = blur/2 高斯模糊、着色、偏移，画在该行之下、元素背景之上；与文字图像一样按内容缓存。截断的行与省略号一样带阴影。
-- `filter: drop-shadow()`（2026-10-18 起 HTML 元素与其他滤镜函数也画，见“滤镜”一行；下面是 svg 图标仍走的路径阴影）：只在 svg 根元素上，且只有一个 `drop-shadow(x y [σ])`（第三个长度是标准差，同 Chrome）。svg 画的路径与形状（rect、circle、line 画成的盒子）合成一张覆盖率，按视口裁剪，偏移、模糊、着色后画在它们之下，按内容缓存；锚点移动的 svg 在元素原点处栅格化一次，由 GPU 移动。其他滤镜函数、多个函数、HTML 元素与 SVG 内部元素上的 `filter`、画了背景、边框或外阴影的 svg、svg 里有路径与形状之外的内容（文字、组透明度）时诊断或整帧回退（列出原因）。
-- `box-shadow` 的 `inset`（写在首或尾），颜色可写在长度前或后（省略为 `currentcolor`）：内边距盒（含内圆角）以内、按 spread 缩小并偏移之后的“洞”以外，σ = blur/2，画在背景（及 `-weft-effect()`、`-weft-texture()`）之上、边框之下。内圆角是椭圆（相邻边框宽度不等）时诊断。
-- 渐变：`radial-gradient()` 的形状 `circle`、`ellipse`（缺省为椭圆，只有一个长度时为圆）、尺寸 `closest-side`、`farthest-side`、`closest-corner`、`farthest-corner`（缺省）或长度（圆一个长度，椭圆两个长度或百分比），`at` 后一个或两个值的位置；长度色标沿水平半径。此前不写形状的径向渐变按圆画，现在按标准的椭圆。`repeating-linear-gradient()` 与 `repeating-radial-gradient()`，色标不跨任何距离时整块为末色（同 Blink）。`linear-gradient(to top | right | bottom | left, …)`。空的平铺块（宽或高为 0）什么也不画（此前是诊断）。诊断：`repeating-conic-gradient()`、conic 的 `at`、指向角的 `to`、色标提示、三到四值的位置、两个长度的圆、一个长度的椭圆、百分比的圆、半径为零的形状。原生 pass 与 D2D 参考光栅共用一份解析与取色。
-- 长度与变换：`em`、`rem` 在计算值阶段换成 px（`font-size` 的 em 与百分比相对父元素的字号，其余属性的 em 相对自身字号，rem 相对 16px），关键帧的值同样处理；`inset` 一到四个值；绝对定位盒子的 inset 可写 `calc(百分比 ± 长度)`（长度部分加到同侧的 margin 上，对边框盒位置等价于标准语义；非绝对定位、该侧 margin 为 `auto` 或百分比、其他 calc 是诊断）；`transform-origin` 的关键字（一个，或两个且可交换顺序）与为 0 的第三个值；`translate3d(x, y, 0)` 与 `translateZ(0)`（有深度时是诊断）。
-- 验证：与 Chrome 155 的截图对照 11 个用例（`tools/browser_scene_paint_reference.mjs`，原生 D3D11 WARP 与 D2D 参考光栅各自比较）。形状、阴影、渐变与布局的用例 5 × 5 平均之后最大差 0–11 级；文字用例的截断位置、省略号颜色与阴影层序与 Chrome 相同，差异来自字形的光栅（FreeType 灰度对 Chrome 的子像素抗锯齿）。逐值的契约测试与变异检查见 [状态](status.md)。
-- 尚未实现：文档页面的这些特性；HTML 元素的 `filter`（需要按元素合成离屏图层）、其他滤镜函数（2026-10-18 已实现，见“滤镜”一行）；`text-overflow` 的字符串值与两个值。
-
-2026-10-13 重构第 11.5b 步：`backdrop-filter` 与 Chrome 截图逐像素对照。
-- 11 个用例：160×120 的条纹背景上，`blur(3px)`、`blur(20px)`、设备缩放 2 下的 `blur(8px)`、圆角、模糊后的 `saturate()` 与 `brightness()`、模糊前的 `grayscale()`、贴着页面边缘、透明度与内容、透明度组、嵌套、毛玻璃（缩放 2，圆角、半透明边框与底色、`blur(12px) saturate(180%)`）。Chrome 155.0.8059.40 的截图（`tools/browser_backdrop_reference.mjs`）与原生 D3D11 WARP 逐像素比较。
-- 结果：玻璃之外最大差 0 级；玻璃之内平均差 0.03–2.81 级，最大差 1–12 级；毛玻璃圆角边缘的抗锯齿有 0.08% 的像素差 16 级以上（最大 25）。
-- 宽模糊的缩小改为按面积平均，缩到 Skia 选的尺寸：原来逐级双线性 2× 降采样在奇数尺寸上丢失平均亮度，`blur(20px)` 平均差 9.16、最大 17（偏暗），改后 2.81 / 10。
-- 每个用例有平均差、最大差与大差像素比例的上限，超过则失败；截图清单记录 `cases.json` 的 SHA-256，用例改了而没有重新截图时失败。
-
-2026-10-13 重构第 11.5a 步：scene 页面的 `backdrop-filter`。
-- 值：`none`，或依次的滤镜函数：至多一个 `blur(<px>)`（标准差，0 可不带单位，至多 256px），以及 `brightness()`、`contrast()`、`grayscale()`、`invert()`、`opacity()`、`saturate()`、`sepia()`（数或百分比，省略为 1；grayscale、invert、opacity、sepia 封顶为 1）与 `hue-rotate()`（deg、rad、grad、turn）。`blur` 之前的颜色函数在模糊前施加，之后的在模糊后施加，各自合成一个矩阵：颜色在每个矩阵之后钳到 0–1，不是每个函数之后。`drop-shadow()`、`url()`、两个 `blur()`、负值、带 em 的长度给 scene profile 诊断；SVG 内部元素上也是诊断（svg 根可以）。
-- 绘制：读元素背后、元素设备外接矩形内的内容，按 Chrome（Skia）的方式模糊：σ 大于 4 个设备像素时先缩小拷贝（按面积平均，见 11.5b），边缘镜像；按圆角与裁剪画回，在元素的背景、边框与内容之下。元素透明度小于 1 或子孙也有 `backdrop-filter` 时成为隔离组，背景画在组内容之下，子孙的背景只看到组里已画的内容。在透明度组里，背景只包含组里已画的内容。
-- 元素成为固定与绝对定位子孙的包含块；有它的帧任何变化都整幅损伤。
-- D3D11 与 Vulkan 的 scene pass 可以画；Vulkan 的宿主目标没有给出图像（不可读）时，最外层的背景透明并计入原因。线性 pass、C ABI 与 D2D 参考光栅拒绝。
-- 读背景的 UI 着色器效果尚未做（2026-10-18 已实现，见“UI 着色器效果”一行与 [效果的写法](effects.md)）。
-
-2026-10-13 重构第 11.4c 步：画廊新增 UI 粒子页面（篝火、宝箱飞金币、符文光环、可调密度的微粒），窗口为 72 例、12 组，原生绘制 68 例。粒子的效果外观推迟（见重构计划 11.4 的取舍）。
-
-2026-10-13 重构第 11.4b 步：UI 粒子的 CSS 与 JS 挂接（scene 页面）。
-- 宿主按名字注册粒子（发射器与精灵）；发射区域相对元素的边框盒。
-- CSS `-weft-particles: none | <name>`：元素显示时持续发射。自定义属性可覆盖 `--particles-rate`（每秒个数）、`--particles-life` 与 `--particles-speed`（一个值或两个值的范围）、`--particles-direction` 与 `--particles-spread`（度）、`--particles-gravity`（x y，px/s²）、`--particles-scale`（尺寸因子，一个值或范围）、`--particles-color`（各关键点的颜色，各点的透明度乘它的透明度）。名字或覆盖值改变时，旧流停止并播完，新流开始；`display: none` 的元素与其子孙立即丢弃粒子，重新显示时开始新流。
-- JS `weft.emitParticles(element, name, {count = 1, duration = 0, target})`：下一帧开始的爆发；`target` 是元素（飞向其中心）或 `{x, y}`（视口 px），在开始那一帧取两者的几何（含变换），之后不再跟随。错误给 JS 异常：不是元素、未注册的名字、count 不是 1–65536 的整数、负的或非有限的 duration、既不是元素也不是有限坐标的 target。
-- 上限与诊断：一次发射 65536 个、每帧 262144 个、帧前等待 1024 次爆发；未注册的名字、写错的覆盖值、多于一个名字、SVG 内部元素上的粒子给 scene profile 诊断。
-- 损伤按粒子可达的范围（不再整幅）；透视平面里的粒子仍整幅损伤。
-- 行内元素的粒子相对其各片段的包围盒。尚未实现：粒子的效果外观、文档页面、D2D 参考光栅、C ABI。
-
-2026-10-13 重构第 11.4a 步：UI 粒子的绘制项与 scene 渲染器（尚无 CSS 与 JS 挂接，见 11.4b）。
-- 模型：无状态，每个粒子由发射的已过时间、序号与种子解析得出，不逐帧模拟、不逐帧上传；CPU 参考实现与着色器用同一组公式。
-  - 发射形状：点、矩形、圆、矩形轮廓；速度、方向与扩散、重力、线性阻力（解析解）、初始角度与自转；尺寸与颜色（线性光中插值）随寿命按四点曲线；
-  - 流（每秒若干个，可停止）与爆发（若干个，可在一段时间内随机发出）；可让粒子沿二次曲线飞向目标点，寿命结束时到达；
-  - 外观：柔和或抗锯齿的圆点，或精灵图集的帧（随寿命播放或随机），按颜色着色；
-  - 一次发射最多 65536 个粒子，精灵最多 1024 帧；长时间运行的流在 CPU 上以双精度算出最新粒子的年龄，着色器只用小数，精度不随运行时间下降。
-- 绘制：粒子在所属元素的空间里，随元素移动、变换，参与其透明度与祖先裁剪，画在元素的背景与边框之上、内容之下，不受元素自身溢出裁剪。
-- 线性显示列表 pass、C ABI 与 D2D 参考光栅不画粒子，给诊断（`UNSUPPORTED_FEATURE`、显示列表 pass 的前置检查、`WEFT_SCENE_RASTER: particles`）。
-- 带粒子的元素改变时，损伤为整个目标（粒子可以飞出元素；11.4b 起改为粒子可达的范围）。
-
-2026-10-13 重构第 11.3e 步之一：
-- 字体回退按 emoji 呈现选择系统回退字体，与 Chrome 相同：
-  - `font-family` 列表里的字体按顺序优先，不论呈现；
-  - 列表之外的系统回退中，默认按文字呈现的 emoji（如 🗡 U+1F5E1、☠ U+2620）或后跟 VS15 的取单色字体（Windows 上是 Segoe UI Symbol），默认按 emoji 呈现的（如 📜）或后跟 VS16 的取彩色字体（Segoe UI Emoji）；该类没有字体覆盖时取任一覆盖它的回退字体；
-  - Emoji 与 Emoji_Presentation 属性取自 QuickJS-NG 的 libunicode。
-- scene 的 UA 样式中 `html`、`body` 为块，scene 可以以 html 为根运行整页。
-- UI 着色器效果（`-weft-effect()`）像 Chrome 画图像与画布内容那样，画进对齐到设备像素的矩形（各边取最近的像素）；旋转、斜切或镜像的盒子不对齐。盒子的背景与边框仍按小数位置的覆盖率绘制（Chrome 也先对齐，见 11.2 的 css-19-63 记录），小数位置的 1px 边框比 Chrome 略虚。
-
-2026-10-13 重构第 11.3d 步之二：scene 的 `background` 简写在层叠中展开为 `background-color` 与 `background-image` 两个分量，各自参与层叠；值是渐变或 `-weft-effect()` 时给图像，其余给颜色，`var()` 代换后才判断。此前简写在层叠之后才拆分，会盖过优先级更高的分量（如内联的 `background-color`）。关键帧里的简写仍在展开时拆分。
-
-2026-10-13 重构第 11.3c 步之三：scene 的 `position: fixed`。
-- 包含块：视口（scene 根），或最近的带 `transform`、`will-change: transform` 的祖先。`will-change: transform` 的盒子此后也是绝对定位后代的包含块，与 Chrome 相同。
-- 布局：按绝对定位排进包含块（px 与百分比按包含块，宽高自适应时为收缩适配），再换回父元素的坐标。绘制与命中仍在它在树中的位置；z-index 仍只在兄弟之间排序（门户到 body 的浮层是 body 的子元素，不受影响）。
-- 诊断（`WEFT_SCENE_PROFILE`）：
-  - CSS 中它不受包含块与它之间那些盒子的 `overflow` 裁剪；scene 在树中位置绘制，会受这些裁剪。所以这些裁剪必须容纳包含块显示出的那部分（根上是视口，包含块裁剪时是它的内边距盒），否则报诊断（裁剪区域按内边距盒，带圆角时再内缩最大半径）。拖到视口外一半的窗口在与视口同大的裁剪盒里可以接受；
-  - 某一轴两侧 inset 都是 auto（要用静态位置）而父元素不是包含块；
-  - 在没有变换祖先的 inline-block 里。
-- 验证：
-  - Chrome 155 的 18 个元素 client rect 全部相同：视口与百分比、收缩适配的文字、变换与 `will-change` 的包含块（含静态的 `will-change` 盒子）、被容纳在裁剪内的固定盒子；
-  - 命中与原生 pass 的像素都在固定盒子所在处；三种诊断，以及两种应接受的结构。
-
-| 能力 | P0 探针 | v0.1 目标 | 后续 |
-| --- | --- | --- | --- |
-| 层叠 | UA/author/inline、important、继承与 source order | 同左，配套 CSSOM 更新 | cascade layers、复杂 at-rule |
-| 选择器 | tag/class/id/universal、descendant/child | attribute 存在和等值、hover/active/focus/disabled、selector list | sibling、structural、is/where/has |
-| 盒模型 | px、百分比、auto、min/max、padding/border、content/border box | em/rem/vw/vh | media 条件与更多相对单位和函数 |
-| Flex | row/column、grow/shrink/basis、wrap、align/justify、gap 的淘汰性用例 | 通过的值与组合，保持 Web 默认语义 | 更宽范围必须新差分 |
-| Block | 已验证受限零 margin/border normal flow 与内容高度 | 简单垂直 normal flow；普通流 block 的垂直 margin 必须为零，间距用容器 padding 等 | margin collapse、float、多列 |
-| Inline | text/span 匿名行盒探针 | 空白折叠、换行、基线、纯文本与 span；不含嵌套块或 inline replaced elements | 更复杂 inline、富文本 |
-| 定位 | static/relative/absolute 和 containing block | 同左；flex 内 margin 与 absolute 行为逐项验证 | fixed、sticky |
-| 文本 | 固定打包中文/拉丁字体、font size、line height | font weight/style、alignment、white-space、溢出与省略的具体组合 | RTL/复杂脚本、竖排、彩色 Emoji |
-| 滚动 | overflow 与 scroll extent 探针 | auto/hidden/scroll、触摸/wheel、scrollTop/Left，首版 overlay scrollbar | 浏览器式占位滚动条、scroll snap |
-| 视觉 | color/background、image、基础 border、SVG DOM 探针 | border radius、overflow clip、2D affine transform、opacity group、z-index；D3 所需基础 SVG 几何、path/fill/stroke/text/viewport | 3D、复杂 shadow、mask、blend mode、高级 SVG |
-| 动画 | 使用确定性时间验证 transform/opacity 与 D3 scheduler | 两者的 CSS transition/animation，以及真实 D3 transition 的 attr/style/transform 更新 | 更宽 SVG animated API、复杂合成动画 |
-| 自定义属性 | 暂无 | 不作为必需项，应用用显式属性和数据绑定 | var 继承、fallback、循环处理与更宽 Typed OM |
-| 不支持的布局 | 块级 table（`display: table`）、float、完整 margin collapse；grid 2026-10-18 起部分支持（见上表）；2026-11-01 起行内表格（`inline-table`）部分支持（见下文） | 同左 | 逐项扩展 |
-
-字体材质采用灰度 coverage 与可选 SDF，共用逻辑塑形/布局，不新增非标准 CSS 字体属性。目前只有独立 Windows 字体/GPU 探针完成单通道 SDF 的有限缩放和描边验收；CJK SDF、SDF 页面集成、移动与 MSDF 未验证，中文灰度的实际范围另见上述 workload。见 [SDF 实际边界](sdf-font-probe.md)，此说明不提升上表目标能力的实现状态。
-
-普通 block flow 的 margin 限制只适用于该格式上下文；不能因此删除已支持的 flex item margin。构建诊断应定位到具体布局模式和值。v0.1 的 block 范围只是有约束的子集，不能称为完整 CSS Block 支持。
-
-transform 从 none 改为有效变换可能改变 absolute containing block；opacity 会形成分组合成。它们不能被全局标为永远只影响 paint。[CSS Transforms](https://www.w3.org/TR/css-transforms-1/)、[Compositing](https://www.w3.org/TR/compositing-1/)
-
-移动安全区域和软键盘 geometry 在宿主度量中提供。标准 env 或 media 语法只有实现并测试后才列为支持；初期可以通过显式宿主数据绑定供应用使用。
-
-v0.1 设计默认在 linear-sRGB 中做 premultiplied-alpha 合成。CSS/PNG 输入编码、alpha 与输出转换均须一致，但半透明叠加可能不同于浏览器的编码空间混合。几何/DOM 兼容与浏览器逐像素颜色匹配分开声明，颜色探针必须有独立预期。[颜色决策](decisions.md)
-
-## DOM 与事件
-
-| 能力 | v0.1 目标 | 关键合同 |
-| --- | --- | --- |
-| 节点创建 | createElement、createTextNode、createDocumentFragment | 同一文档内稳定节点身份 |
-| 树操作 | appendChild、insertBefore、removeChild、replaceChild | mutation 即时可见；移动节点保持身份 |
-| 内容属性 | textContent、基础 attributes、classList、dataset、有限 innerHTML | detached 节点可继续使用；fragment 解析失败不部分写入 |
-| 查询 | getElementById、querySelector/All 支持已声明 selector | 返回集合的 live/static 规则按各 API 定义 |
-| 样式 | inline style 和支持属性、getComputedStyle 子集 | CSSStyleDeclaration 和 computed 值分别实现 |
-| 几何 | getBoundingClientRect、client/scroll 基础几何 | flush 当前布局；结果为值快照 |
-| 事件 | add/removeEventListener、dispatchEvent、capture/bubble、stopPropagation、preventDefault | 固定传播路径、listener removal 标记、默认行为规则 |
-| 输入 | pointer、wheel、key、focus/blur、input、beforeinput、composition 子集 | 事件 flags、顺序和 cancelability 按事件类型测试 |
-| 焦点 | focus/blur、tabIndex 与基本 focus navigation | 节点移除、View 暂停和 IME 会话的协调 |
-| 包装与回收 | JS wrapper identity、listener tracing、原生引用 roots | 先通过跨语言循环与销毁探针 |
-| 不在 v0.1 | Shadow DOM、custom elements、Mutation/ResizeObserver、完整 Range/Selection、HTML navigation | 不提供静默无效的 stub |
-
-输入控件内部 selection/composition 模型会早于通用 DOM Selection API；前者不表示后者完整可用。监听器在回调期间删除节点、新增监听器和重入 dispatch 必须按 [DOM 事件规范](https://dom.spec.whatwg.org/#concept-event-dispatch) 测试。
-
-## JavaScript 与前端框架
-
-QuickJS-NG 只是候选 ECMAScript VM，不提供浏览器环境。console、timers、rAF、DOM、事件、资源桥接和必要 scheduler primitives 由本项目实现，全部由 owner 驱动。默认不暴露 shell、std、os、任意文件访问或网络能力。
-
-v0.1 框架目标为固定版本 Preact 和 D3 的真实应用。D3 要覆盖原生 DOM selection/data join、SVG 图表可见绘制、坐标轴与文字、transition 及指定交互；只运行 scale 等纯数学模块或生成 SVG DOM 不能称 D3 图表支持。依赖与分级见 [第三方前端库](frontend-libraries.md)。
-
-记录 bundle、使用到的 DOM/SVG API 与缺失项。通过固定应用不等于所有插件或 React/Vue/Angular 兼容。当前 React 19.3.0/Vite 8.3.3 的一个显式 Flex/inline CSS/单行文字页面已完成 Windows native DOM 与 GPU 三帧，含 useState 和 keyed reorder；采用 owner timer 的 scheduler fallback。该 profile 的 MessageChannel/rAF、通用 DOM、HTML parser、完整 CSS 文档加载/失效、完整输入和移动保持未验证，见 [实际 profile](react-vite-probe.md)。不能为了测试通过修改第三方库或在 JS fixture 中伪造 DOM。
-
-2026-10-09 的 4K 窗口连续运动展示仅增加局部宿主时钟驱动的 JS `style.left` 更新，真实 native DOM/style/layout/GPU 与暂停、速度和生命周期通过自动场景；附带的 30 Hz 轨道是刻意采样的视觉参照。没有实现 CSS transition/animation、transform/opacity 合成、requestAnimationFrame/cancelAnimationFrame 或 D3 transition 的浏览器调度语义，以上 M4 目标与 React scheduler 边界不变。见 [演示合同与证据](flow-input-window-probe.md#连续运动展示2026-10-09)。
-
-JS source/bundle 是基础交付格式。bytecode 缓存绑定 VM 版本、字节序、构建配置和 source hash，不能用跨版本缓存代替升级测试。JS engine 的 ECMAScript 支持与本项目 Web API 支持分别列账。
-
-Gallery/rAF Foundation 历史记录：可选 rAF module 已通过 owner 批次/取消/微任务/错误/隐藏/GC/预算验证，原 React 19.2.4 与 React Spring 三例实际修改 native DOM。72 例短观察中 38 例未发现执行错误、34 例阻断；该次未运行 gallery 原生像素/交互。两例 Canvas2D 现已在可选原生 context、显式 positioned adapter 和 D3D11 中验证 64 帧/输入/缩放/退休，见 [Canvas 实际范围](gallery-canvas.md)；其余 70 例未增加像素验收，gallery 性能仍未验收。WebGL2 已于 2026-10-12 移出需求；“不在 v0.1”的完整 Canvas 仍不扩张为所有 Canvas API 的承诺。公共外部纹理首版已验证，见上方；通用宿主 viewport 与移动仍待验收。原始源码/包不分叉，详见 [gallery 范围与证据](gallery-foundation.md)。
-
-## 诊断与范围变更
-
-构建工具默认严格检查声明的 profile，静态可发现的未支持布局、值、组合与 API 给出错误及源码位置。第三方样式可显式采用 warning 策略，但构建报告必须列出受影响行为，不能默认静默成功。
-
-运行时遇到动态非法 CSS，按 CSS 的无效声明规则处理，并在开发模式发出诊断；不能为了严格模式改变属性赋值的标准异常行为。有效但超出 profile 的值同样诊断且不采用近似渲染。未支持 DOM API 不导出，已有入口的非法使用遵循对应 API 错误合同。
-
-新增能力的完成条件包括解析、computed value、布局/绘制/命中、动态失效、事件或动画语义、反例测试、兼容表与调试输出。只加 parser 分支不能算支持。
-
-区分三种证据：规范 fixture 或浏览器差分验证语义；全量与增量差分验证更新范围；目标平台真机验证输入、渲染与生命周期。三者互不替代。
-
-## 当前 Canvas 探针范围（2026-10-09）
-
-2026-10-11 重构第 9.3 步：
-- canvas 的 width/height 属性在脚本 DOM 与文档布局中由同一个函数解析（HTML 的非负整数规则）。`-0`、`-00` 现在与浏览器一样得到 0，此前回到默认的 300×150；其他负数仍用默认值。
-- getContext 读取 options 时会运行脚本。若这段脚本已经为同一 canvas 创建了 context，现在返回那一个；此前会再建一个，并泄漏先建的那个。
-
-可选 native Canvas2D、alpha/sRGB、width/height 同值重置、fillStyle/globalAlpha、fillRect/整数 clearRect、单个完整圆形的 beginPath/arc/fill，与 canvas onclick/onmousemove 已验证。支持 148 named colors、hex 与 legacy comma RGB/HSL；partial/multi path、stroke、transform、save/restore、渐变、图片/文字、JS ImageData、offscreen/worker 与 context loss 未实现。currentColor/现代空格颜色/其他色彩空间拒绝；负半径仅提供 IndexSizeError name，没有完整 DOMException 类。8 contexts、单轴 2048、32 MiB backing（含 resize 重叠）、65,536 pending commands 是明确 probe 限制，不是完整 Canvas 承诺或 RSS 上限。
-
-只有 Windows D2D 软件 adapter 已执行验证。positioned profile 支持显式 block 的 canvas 固有尺寸/比例与同步几何值，CSS 尺寸不改 backing；通用 positioned hit-test 未开放。公共样式新增纯色 background 到 background-color 的展开，保留 important/var/层叠，图片/图层/位置组合拒绝。精确支持值、诊断、视觉误差和平台未验证项见 [Canvas 合同](gallery-canvas.md)。
-
-
-此前仅Canvas的检查阶段（历史记录，当前scene进展见上方）：4K gallery 检查 shell：全部 72 个标签/分组/位置可浏览，两例原始 Canvas 同页运行；其余 70 例是诊断卡片，尚未新增像素支持。启用现有 Canvas 的短观察为 40 例执行未报错/32 例阻断，与早先无 Canvas 的 38/34 条件不同。修复 timer/rAF 精度不一致，不改变时钟单调性语义；完整 CSS/SVG/WebGL 与移动范围不变。见 [实际检查入口](gallery-preview.md)。
-
-复杂 CSS 优化仅验证既有 planar `perspective(px) rotateY(deg)`、圆环/边框与动画子集的 Windows 路径，未扩充一般 CSS 3D 或自动图层合成支持；原样例/独立 full-reference 证据见 [复杂 CSS 阶段](complex-css-performance.md)。
-
-
-CSS 中段 filled-border/scene-copy 优化不扩大支持范围。Windows 既有 scene 子集的软件全量参考与 184 个 GPU/透明重叠/越界/非均匀 scale 反例通过；相同 affinity 性能不能替代默认可见窗口或移动实机性能，完整条件见 [本轮记录](css-middle-performance.md)。
-
-
-2026-10-09 3/4/5 优化不扩大 HTML/CSS/SVG/WebGL 功能表：现有 scene 子集增加显式源图、D2D damage、API-neutral owned native paint 与 Windows D3D11 shader adapter。unsupported 圆角/变换 clip、SVG/projective 等整 scene 回退既有 reference，`render-work.json` 报告原因。2026-10-12 起，轴对齐盒子（含镜像与缩放）的圆角溢出裁剪改由显示列表的圆角裁剪链在 D3D11 原生绘制，只有旋转或斜切盒子的溢出裁剪仍整帧回退。同日 10.5b 起，scene 的溢出裁剪按 CSS 取内边距盒与内圆角（外半径减相邻边框宽度，宽度不等时为椭圆角），原生绘制、D2D 参考与命中一致。子元素圆角与父内圆角重合处两层抗锯齿相乘，Chrome 在相同几何上有时相乘、有时只取子元素覆盖率，差异在参考容差内。同日起 scene 的外阴影（`x y [blur [spread]] color`，最多 8 层，模糊与扩展不超过 64px）也由 D3D11 原生绘制，阴影图与 D2D 参考共用一份可移植 CPU 实现；内阴影报 `WEFT_SCENE_RASTER` 诊断（13.4a 起内阴影也原生绘制，见上）。10.5f 起 scene 中的 SVG（形状、描边、虚线、文字、组透明度、视口、单矩形 clip-path）由 D3D11 原生绘制，路径经可移植的 FreeType 矢量光栅，文字以字形轮廓绘制；支持范围与 D2D 参考相同，旋转下的 clip-path 与未知元素仍是可见回退。描边的斜接上限按 SVG 取 4，超过时为 bevel（D2D 参考同步修正）。10.5g 起旋转或斜切盒子的溢出裁剪、旋转下的 svg 视口与 clip-path 也原生绘制（裁剪在元素自身空间）。10.5h 起 perspective/rotateY 平面也原生绘制：内容先画进自身图像，再投影采样，scene 不再整帧回退。平面最多嵌套两层；第三层嵌套或角点在观察者身后的平面仍整帧回退，原因为 `plane nesting bound`、`plane behind the viewer`。平面内的溢出内容不画，D2D 参考端相同，Chrome 会画。10.5i 起显式图层也由原生 pass 绘制，原生路径中只有彩色字形文字仍经 D2D 参考光栅；图层里的文字与其他原生文字一样使用 FreeType 覆盖率。10.5j 起 COLRv1/COLRv0 彩色字形（含渐变与合成模式）由可移植的软件画布绘制，原生路径不再依赖 D2D。PNG/SVG 图像字形（CBDT、sbix、SVG 表）还画不了，这种文字仍走 D2D 参考光栅（Windows 默认 emoji 字体是 COLR，不受影响）；SVG 文字中的彩色字形仍整帧回退。文字复用 Windows glyph pixels，页面 SDF/一般 font atlas、Metal/Vulkan/mobile 未接入。内部 owner executor 与独立 async host 已有输入/epoch/GC/实际 retirement 验证；公开 C ABI、完整页面调度器和实际用户游戏接入仍待实现。详见 [3/4/5 实际边界](render-stages-performance.md)。
-
-
-## 当前共享簇探针（2026-10-10）
-
-此前“不支持 ResizeObserver”是早期通用 profile 范围；新可选 scene platform 已加入真实布局后 border/content size 观察器（64 observers、每个1024 targets），device pixel box、完整 resize loop 抑制和一般页面集成仍未实现。D3 Interactive/K-Line/Framer/Spring/Icons/Anime 共30原例有浏览器像素与输入对照；配合此前36例为66/72。HTMLCollection/computed-style/fragment/媒体/数字/输入、Grid 和非溢出 auto 的精确限制见 [共享簇](gallery-shared-cluster.md)。原始 Anime Throw 在两端静止单独列为原例问题；不能从66个画面通过推断该原例惯性交互或所有库 API 通过。WebGL/Lottie/移动未通过。旧历史通过计数与旧102图门槛保持。
+Weft 支持两种页面样式解析策略（通过 `weft_page_desc::flags` 配置）：
+
+- **严格模式（默认）**：要求样式表全部落在引擎支持子集内，遇到不支持的属性或规则时明确报错，适合对渲染确定性要求极高的手写界面。
+- **宽容模式（`WEFT_PAGE_FORGIVING_CSS`）**：采用与浏览器一致的渐进降级行为，遇到超出支持范围的声明、选择器或 `@` 规则时丢弃该条并输出场景诊断，其余样式照常生效；支持 Tailwind CSS、CSS-in-JS 等现代前端构建工具生成的样式表。
+
+## 2. HTML、DOM 与 SVG
+
+- **文档与元素模型**：每个 View 拥有独立 `Document`，支持常规 HTML 容器与语义节点（`div`、`span`、`p`、`button`、`img`、`input`、`textarea`、`bdi`、`bdo`、`style`、`script` 等）、文本与注释节点，以及 `createElementNS` 命名空间创建。
+- **原生 SVG 渲染**：支持 `<svg>`、`<g>`、`<rect>`、`<circle>`、`<ellipse>`、`<line>`、`<polyline>`、`<polygon>`、`<path>`、`<text>` 等矢量图元，支持描边线宽、圆头/圆角连接、`stroke-dasharray` / `stroke-dashoffset` 路径动画与坐标变换（可直接承载原版 D3 图表与动态矢量 Logo）。
+- **DOM 查询与事件模型**：统一选择器引擎驱动 `querySelector` / `querySelectorAll` / `matches` / `closest`；完整支持事件捕获/冒泡、`preventDefault`、`stopPropagation`、指针/鼠标/滚轮/触控/键盘/焦点/输入法组合与自定义事件。
+- **Web 平台 API（`WEFT_PAGE_WEB_PLATFORM`）**：提供 `console`、`localStorage`、`sessionStorage`、`element.dataset`、`getComputedStyle`、`getBoundingClientRect`、`matchMedia`、`IntersectionObserver`、`requestAnimationFrame`、`requestIdleCallback`、`performance.now()`、`navigator.getGamepads()`、`navigator.maxTouchPoints` 等常用接口。
+
+## 3. CSS 样式与布局
+
+### 选择器与层叠
+
+- 类型、类、ID、通配符、属性选择器（存在、`=`、`~=`、`|=`、`^=`、`$=`、`*=`）及后代/子代/兄弟组合器。
+- Selectors 4 伪类与伪元素：`:hover`、`:active`、`:focus`、`:focus-visible`、`:root`、`:is()`、`:where()`、`:not()`、结构伪类，以及 `::before` / `::after`。
+- `@layer` 级联层、`@media`（含 `pointer` / `hover` / `any-pointer` / `any-hover` 与视口查询）、`@supports`、`@property`、`@keyframes`、`@font-face`、CSS 嵌套、自定义属性（`--var` / `var()`）、`calc()` 与 `env(safe-area-inset-*)`。
+
+### 布局模型
+
+- **Flexbox（Yoga）**：完整弹性布局，涵盖主/交叉轴对齐、伸缩、换行、`gap`、收缩最小尺寸与替换元素比例换算。
+- **块级、行内流式与定位**：标准块级/行内格式化上下文、多行折行、匿名块盒、相对与绝对定位（支持四向 `inset` 与 `auto` 居中）、逻辑属性（`margin-inline` / `padding-block` 等，随 `direction` 自动翻转）与 `box-sizing`。
+- **Grid 布局与滚动容器**：支持网格容器布局及溢出滚动（`overflow: auto / scroll / hidden`、`scrollTop` / `scrollLeft`、滚轮与触控惯性滚动、`touch-action`）。
+
+## 4. 视觉表现与动画
+
+### 盒模型与绘制
+
+- 颜色空间与语法：十六进制、`rgb()` / `rgba()`、`hsl()` / `hsla()` 及现代 CSS Color 语法；线性与径向渐变。
+- 边框与圆角：独立四边宽度/颜色、椭圆圆角与嵌套圆角裁剪、盒阴影（`box-shadow`）。
+- 2D 变换与合成：`transform`（平移、旋转、缩放、斜切、矩阵与 `transform-origin`）、`opacity` 离屏不透明度组、`z-index` 层叠上下文。
+
+### 高级视觉特效
+
+- **`backdrop-filter`**：实时采样元素背后游戏画面或下层 UI 实现毛玻璃模糊等背景滤镜。
+- **`clip-path`**：矢量几何路径裁剪（与命中测试同步生效）。
+- **`mask-image` / `mask`**：支持多层渐变与图像遮罩（含 `-webkit-mask*` 别名与遮罩合成模式）。
+- **`mix-blend-mode`**：标准混合模式合成。
+- **自定义着色器与 UI 粒子**：`background-image: -weft-effect(name)` 接入离线编译的 HLSL 像素效果（含背景折射/热浪），以及 `weft.emitParticles(...)` 内置 UI 粒子发射接口，详见 [自定义 UI 着色器效果](effects.md)。
+
+### 动画系统
+
+- **CSS Animations & Transitions**：`@keyframes`、多属性 `transition`、`linear`、`ease*`、`cubic-bezier()` 及完整 `steps()` 缓动函数。
+- **Web Animations API**：完整支持 `element.animate()`、`KeyframeEffect`、`Animation`、`document.timeline`、`getAnimations()`、播放/暂停/反向/倍速控制、`ready` / `finished` Promise 与自动替换清理；动画插值直接在原生场景层执行，播放期间无需每帧回跳 JS。
+
+## 5. 图像与媒体资产
+
+- **解码格式**：原生集成 PNG（`lodepng`）、JPEG（`libjpeg-turbo`）与 WebP（`libwebp`），支持通过宿主资源回调加载本地/打包文件以及内联 `data:` URL。
+- **`<img>` 与背景图**：完整支持 `HTMLImageElement`、`new Image()`、`decode()`、`onload` / `onerror`、固有宽高与 `aspect-ratio` 排版、`object-fit`（`fill` / `contain` / `cover` / `none` / `scale-down`）、`object-position`、`image-rendering` 与多级 Mip 缩放质量控制。
+- **引擎实时纹理**：通过 `background-image: -weft-texture(name)` 零拷贝嵌入引擎 GPU 渲染目标。
+
+## 6. 国际化排版与双向文字（CJK & BiDi）
+
+- **复杂脚本塑形**：基于 **HarfBuzz + FreeType** 实现高质量字形塑形、连写与合体字渲染（中文、日文、韩文、阿拉伯文、希伯来文、天城文、泰文等），支持跨行内元素边界的连续塑形。
+- **双向混排（BiDi / RTL）**：集成 **SheenBidi**（Unicode 17），完整支持 `direction: ltr | rtl`、`unicode-bidi`（`normal` / `embed` / `isolate` / `bidi-override` / `isolate-override` / `plaintext`）、`dir="auto"`、RTL 盒子布局、RTL 滚动方向、RTL `text-overflow: ellipsis` 及 RTL 文本框编辑。
+- **字体发现与回退**：自动接入平台系统字体（Windows DirectWrite、macOS / iOS CoreText、Android NDK），并支持宿主注册自定义字体文件、字体集合索引（`.ttc`）与 `@font-face` `unicode-range` 分段回退。
+
+## 7. 前端库生态支持
+
+内置的 QuickJS-ng 与 DOM/CSS 兼容层已验证可直接运行未修改的主流前端工具与库：
+
+- **UI 框架**：React（函数组件、Hooks、状态驱动渲染、Vite 构建产物）
+- **状态管理**：Zustand 及自定义 `useSyncExternalStore` 引擎视图模型订阅
+- **数据可视化与公式**：D3（完整 SVG 坐标轴、折线/柱状/桑基图、过渡动画与交互）、KaTeX 数学公式排版
+
+## 8. 刻意排除的非游戏场景特性
+
+为保持极致的包体、内存与确定性帧预算，Weft 刻意不包含以下浏览器特性：
+
+- 页面导航、远程网络抓取（`fetch` / WebSocket 由宿主引擎桥接负责）、`<iframe>`、多标签页进程模型
+- 内置音视频解码器（`<audio>` / `<video>` 交由游戏音频/视频系统处理）
+- 浏览器默认控件皮肤与容错式畸形 HTML 纠错树构建

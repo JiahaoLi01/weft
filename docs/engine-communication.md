@@ -1,700 +1,139 @@
-# 与引擎通信：技术路线（第 13 步）
+# 引擎集成与宿主通信指南
 
-2026-10-14 起草。本文是第 13 步的设计合同与路线；实现状态以 [status](status.md) 与 [重构计划](refactoring-plan.md#第-13-步记录2026-10-14) 的记录为准。已实现：13.1 锚点（CPU 参考路径与 GPU 路径，2026-10-14，内部 C++ 接口）；13.2 桥接（值、事件、调用、同步函数、视图模型与 CRPG 兼容层，2026-10-14，内部 C++ 接口与 JS 平台模块）；13.3a 对外 View 与它的 C ABI（加载、推进、指针、命中、取帧、锚点与桥接，2026-10-14）；13.3b 渲染 C ABI 接 View 的帧与模拟引擎的宿主样例（2026-10-14）；13.3c 页面显示引擎的纹理（2026-10-15）；13.4 CRPG 浮动 UI 的对比（2026-10-15）；13.5a 增量管线的 owner 侧（只处理变化的节点，2026-10-15）；13.5b 渲染侧（保留的 pass 按子树补丁，2026-10-15）；13.5c 每个元素的开销与局部布局（2026-10-15）。
+本文档介绍如何通过 [`include/weft/weft.h`](../include/weft/weft.h) 将 Weft 接入游戏引擎，涵盖运行时生命周期、引擎与页面双向通信、3D 世界锚点、外部纹理导入以及全套游戏输入路由。
 
-## 摘要
+## 1. 运行时与 View 生命周期
 
-- 问题：血条、名牌、伤害数字这类元素每帧都要跟着游戏里的单位移动。现在 CRPG UI 每帧把所有实例整份推成 JSON，再由 React 全部重渲染；在 Weft 上照做，200 个血条每帧约 13 ms，400 个约 28 ms。
-- 关键发现：
-  - 传输不是瓶颈。让页面自己算出同样的值（零传输，相当于共享内存交给 JS 的理想情况）也一样慢；贵的是 JS 逐个改 DOM 之后，每个元素每帧要重新求样式、布局、生成场景（约 45 µs）。
-  - 现在每帧有一笔与改动多少无关、按整个文档算的固定开销：1,600 个节点的页面只改一个元素，UI 线程约 5 ms、渲染线程约 4 ms。这对所有页面都是问题，不只是血条。
-- 方案分三条通道：
-  1. 锚点：引擎每帧写一份紧凑数组（共享内存，三缓冲，不加锁），渲染线程画每一帧时直接读最新值去移动元素。不经过 JS、DOM、样式和布局，也不比 3D 画面晚一帧。最终由 GPU 应用：页面没变时绘制记录留在显存里，每帧只上传锚点表，CPU 开销与锚点元素的个数基本无关。
-  2. 桥接：带类型的事件、调用（返回 Promise）、同步函数和视图模型，值在原生侧直接转成 JS 值，不再把 JSON 拼进脚本；另提供 CRPG 现有接口的兼容层。
-  3. C ABI 与宿主：以上能力进 C ABI，并有一个模拟引擎的宿主样例；UE 插件之后再做。
-- 另一条线是增量管线（13.5）：UI 线程只处理变化的节点，渲染线程只重建变化的子树，把上面那笔固定开销去掉。
-- 分五段：13.1 锚点（先做 CPU 参考路径，再做 GPU 路径），13.2 桥接，13.3 C ABI 与宿主，13.4 用 CRPG 的浮动 UI 验证，13.5 增量管线。
-- 预期：400 个名牌每帧只移动时，每帧 CPU 约 0.1 ms（现在约 28 ms）；同时每帧有 20 个血条掉血时约 1 ms。Gameface 那类数据绑定每帧仍要逐个改 DOM 的样式，位置这件事上锚点要快一个数量级以上。
+### 创建与销毁
 
-## 1. 目标与范围
+```c
+// 配置运行时（传入 NULL 则使用默认系统字体与 View 上限）
+weft_runtime_desc rt_desc = {
+    .struct_size = sizeof(rt_desc),
+    .abi_version = WEFT_ABI_VERSION,
+    .max_views = 16,
+    .flags = WEFT_RUNTIME_SYSTEM_FONTS,
+};
+weft_runtime* runtime = NULL;
+weft_runtime_create(&rt_desc, &runtime);
 
-| 目标 | 衡量 |
+// 创建 View（指定逻辑尺寸与设备像素缩放比）
+weft_view_desc view_desc = {
+    .struct_size = sizeof(view_desc),
+    .logical_width = 1920.0f,
+    .logical_height = 1080.0f,
+    .device_scale = 1.5f,
+};
+weft_view_handle view = {0};
+weft_view_create(runtime, &view_desc, &view);
+```
+
+- 所有自定义字体（`weft_runtime_add_font`、`weft_runtime_set_generic_family`、`weft_runtime_add_fallback_family`）与 UI 着色器效果（`weft_runtime_add_effect`）应在加载首个页面之前注册完成。
+- 销毁运行时前需先销毁全部存活 View（存在未销毁 View 时 `weft_runtime_destroy` 返回 `WEFT_BUSY`）。
+- 窗口分辨率或 DPI 变化时调用 `weft_view_resize`；移动端刘海屏/圆角屏通过 `weft_view_set_safe_area` 注入 `env(safe-area-inset-*)`。
+
+### 页面加载与运行模式标志
+
+`weft_view_load` 通过 `weft_page_desc` 加载页面的脚本、样式表与关键帧，并支持组合以下页面标志位：
+
+| 标志位 | 作用 |
 | --- | --- |
-| 每帧移动的元素不占 UI 线程 | 400 个锚点元素每帧移动时，owner 每帧 ≤ 0.1 ms（没有 DOM 变化） |
-| 不比 3D 画面晚一帧 | 渲染线程画的总是引擎最后写入的锚点值 |
-| 移动的开销与锚点个数基本无关 | 400 个锚点元素只移动时：渲染 CPU p50 ≤ 0.1 ms、p99 ≤ 0.3 ms（GPU 路径；RTX 5090 + 9950X3D，D3D11 与 Vulkan） |
-| 改动的开销与改动多少相称 | 1,600 个节点的页面每帧改 1 个元素：owner ≤ 0.2 ms、渲染 CPU ≤ 0.2 ms（13.5） |
-| 页面能调用引擎、引擎能通知页面 | 双向事件、带 Promise 的调用、同步函数、视图模型；值带类型 |
-| 线程与生命周期安全 | 任意线程可投递；处理函数在 owner 线程；不暴露裸指针；View 销毁后迟到的完成被拒绝 |
-| 现有 CRPG UI 能接上 | `window.ue.sendEvent` 与 `window.__ue_dispatch` 不改代码可用 |
+| `WEFT_PAGE_FORGIVING_CSS` | 启用浏览器风格宽容 CSS 模式：支持 `@layer`、`@media`、`@supports`、`@property`、CSS 嵌套与 Selectors 4，遇到超出场景子集的声明时丢弃并输出诊断而非拒绝页面（推荐用于 Tailwind 等构建产物） |
+| `WEFT_PAGE_WEB_PLATFORM` | 启用完整 Web 平台接口：`console`（转为诊断输出）、`localStorage`/`sessionStorage`、`dataset`、`matchMedia`、`IntersectionObserver`、`requestIdleCallback`、`focus()`/`blur()` 等 |
+| `WEFT_PAGE_SPATIAL_NAVIGATION` | 启用方向键与手柄空间导航：自动按几何位置在可交互元素间移动焦点，并同步悬停状态与滚屏 |
 
-本步不做：跨进程通信、调试用 WebSocket、JS 侧的 SharedArrayBuffer、3D 世界里的 UI 面板（渲染到纹理）、UE 插件打包（M5）、不经 JS 的 DOM 数据绑定（`data-bind-*`，见第 14 节）。
+### 资源加载与持久化存储
 
-## 2. 现状与证据
+- **资源回调**：通过 `weft_view_set_resource_reader` 注册宿主文件读取回调（例如对接 Unreal Pak、Unity Addressables 或虚拟文件系统），页面的 `<img>`、`background-image: url(...)` 与 `@font-face` 均经此统一加载。
+- **本地存储持久化**：使用 `weft_view_set_storage_item` 在加载页面前恢复 `localStorage`，帧末通过 `weft_view_get_storage` 按修订号增量读取变更并写入游戏存档。
+- **剪贴板与诊断**：通过 `weft_view_set_clipboard` 对接系统剪贴板；每帧调用 `weft_view_drain_diagnostics` 收集脚本异常、样式警告与 `console` 日志并转发至引擎日志系统。
 
-### 2.1 CRPG UI 现在的做法
+## 2. 双向引擎通信（`weft.engine`）
 
-CRPG 工程（UE，Ultralight 1.4，模块 CRPGUltralight）的 UI 是 React 19 + Zustand，三条通道都按字符串名字：
+Weft 内置强类型消息桥接层，支持 JSON 与 MessagePack 载荷，避免在热点路径上拼接脚本字符串。
 
-| 方向 | 机制 | 说明 |
-| --- | --- | --- |
-| JS → 引擎 | `window.ue.sendEvent(name, obj)` | 只发不收；引擎侧转成 JSON 文本，再分发给委托与 C++ lambda |
-| 引擎 → JS | `CallUI(fn, json)` 求值 `window.__ue_dispatch('fn', <json>)` | JSON 文本直接拼进脚本；字符串未转义，含 `"`、`\` 或 U+2028 时会出错 |
-| 视图模型 | `window.__vm_update(delta)` | 只有测试页在用 |
+### 通信模式总览
 
-- 没有请求-应答，用成对的事件代替（如 `request_settings` → `loadSettings`）。约 68 种消息，约 40 种是正式功能。
-- 浮动 UI（`UWebUIFloatingManager`）：引擎每 16 ms 在 C++ 里投影，把全部实例整份推送（`__floating_ui_batch`）：id、类型、x、y、缩放、是否在屏幕内、是否在相机后、是否在范围内、远近顺序、存活时间和视图模型字段。React 每帧重渲染全部实例；屏幕外的处理（隐藏、贴边、箭头角度）在 JS 里算。
-- 实例类型：血条（常驻）、伤害数字（存活 1.75 s）、状态标记（存活 1.7 s）、任务标记（预留）。
-- 界面缩放靠 `<html>` 上的 CSS `zoom`，位置要除以缩放；点击是否交给 UI 取决于光标下的元素是否可交互。
-
-### 2.2 Weft 上的基线
-
-`weft_d3d11_probe --hud-benchmark-hardware <dir>`（HUD_TESTS：名字加血条，每帧改 transform，约二十分之一的单位每帧掉血；RTX 5090 + Ryzen 9 9950X3D，固定 CCD0，Release，每档 240 帧中位数）。“零传输”是页面自己算出同样的值：
-
-| 单位 | 方式 | 拼 JSON | 脚本与改 DOM | 样式、布局与场景 | 渲染 CPU | 每帧合计 |
-| --- | --- | --- | --- | --- | --- | --- |
-| 100 | 推 JSON | 0.05 ms | 0.9 ms | 4.6 ms | 1.0 ms | 6.6 ms |
-| 100 | 零传输 | 0 | 1.1 ms | 4.5 ms | 1.0 ms | 6.6 ms |
-| 200 | 推 JSON | 0.09 ms | 1.8 ms | 9.2 ms | 2.0 ms | 13.0 ms |
-| 200 | 零传输 | 0 | 2.2 ms | 9.0 ms | 1.9 ms | 13.0 ms |
-| 400 | 推 JSON | 0.17 ms | 3.6 ms | 20.6 ms | 4.0 ms | 28.3 ms |
-| 400 | 零传输 | 0 | 4.4 ms | 20.0 ms | 3.8 ms | 28.2 ms |
-
-锚点模式（13.1a，CPU 参考路径；宿主每帧写全部锚点，掉血时按 JSON 推送变化的血条）：
-
-| 400 个名牌，每帧 | 引擎写锚点与 JSON | 脚本 | UI 线程 p50 / p99 | 渲染 CPU p50 |
-| --- | --- | --- | --- | --- |
-| 只移动（锚点） | 0.012 ms | 0 | 0.025 / 0.034 ms | 4.2 ms |
-| 移动（锚点）+ 20 个血条改宽度 | 0.017 ms | 0.16 ms | 10.7 / 13.2 ms | 4.0 ms |
-| 移动（锚点）+ 20 个血条改 `scaleX` | 0.018 ms | 0.33 ms | 7.1 / 10.1 ms | 4.1 ms |
-| 对照：推 JSON，每帧改 400 个 transform 与 20 个宽度 | 0.17 ms | 3.9 ms | 23.3 / 32.1 ms | 4.2 ms |
-
-- 只移动时 UI 线程每帧从 23 ms 降到 0.03 ms；渲染 CPU 没变，因为 CPU 参考路径每帧重建显示列表。
-- GPU 路径（13.1b）之后：
-
-| 400 个名牌只移动（锚点） | UI 线程 p50 / p99 | 渲染 CPU p50 / p99 | GPU p50 |
+| 方向与模式 | 宿主 C API | 页面 JS API | 典型场景 |
 | --- | --- | --- | --- |
-| D3D11，CPU 参考路径（13.1a） | 0.025 / 0.034 ms | 4.16 / 5.17 ms | 0.08 ms |
-| D3D11，GPU 路径 | 0.004 / 0.019 ms | 0.021 / 0.114 ms | 0.06 ms |
-| Vulkan，GPU 路径 | 0.006 / 0.029 ms | 0.042 / 0.111 ms | 0.23 ms |
+| **引擎 → 页面事件** | `weft_view_emit` | `weft.engine.on` / `once` / `onAny` | 伤害飘字触发、任务更新、音效/状态通知 |
+| **引擎 → 页面视图模型** | `weft_view_set_model` | `weft.engine.model(name)` | 玩家血量、弹药、准星状态、小队属性（自动批处理并通知订阅者） |
+| **页面 → 引擎单向消息** | `weft_view_drain_messages` | `weft.engine.send(name, value)` | 按钮点击、菜单切换、技能释放指令 |
+| **页面 → 引擎异步调用** | `weft_view_drain_messages` + `weft_view_complete_call` | `await weft.engine.call(name, value, {timeout})` | 背包分页查询、存档读写、异步资产加载 |
+| **页面 → 引擎同步函数** | `weft_view_register_function` | `weft.engine.invoke(name, value)` | 本地化查表、键位名称查询、轻量配置读取 |
 
-- 掉血时的开销来自整页：一处宽度变化就重新布局整页，只改 transform 也要重新求样式与场景（13.5 解决）。改 `scaleX` 省去布局。
-
-同一页 400 个单位、页面自算，每帧只改其中一部分：
-
-| 每帧改动 | 脚本与改 DOM | 样式、布局与场景（p50 / p99） | 渲染 CPU |
-| --- | --- | --- | --- |
-| 400 个 | 4.8 ms | 22.6 / 25.3 ms | 4.1 ms |
-| 40 个 | 0.5 ms | 7.0 / 18.2 ms | 4.1 ms |
-| 4 个 | 0.09 ms | 6.1 / 14.9 ms | 4.3 ms |
-| 1 个 | 0.05 ms | 5.3 / 12.1 ms | 4.0 ms |
-
-结论：
-- 数据怎么传几乎不影响结果；只要每帧逐个改 DOM，就要付样式、布局与场景更新的钱。
-- 每帧有一笔按整个文档算的固定开销（这一页约 1,600 个节点：UI 线程约 5 ms、渲染线程约 4 ms，每个节点各约 3 µs），之后每改一个单位再加约 45 µs。渲染线程每次准备都重建整份显示列表，与改动多少无关。
-- 所以每帧变化的视觉量要交给原生侧直接用，而不是交给 JS。
-- 只改 transform 每个元素也要约 50 µs，这本身值得优化（13.5）：framer-motion 这类 JS 动画走的就是这条路。
-
-### 2.3 Weft 里相关的现有结构
-
-- 单 owner：DOM、JS、样式、布局在同一线程；宿主可以在游戏线程调用推进，也可以放到独立线程（[决策](decisions.md#单个-ui-owner)）。
-- owner 生成不可变的场景帧（`SceneFrame`）发布给渲染线程；渲染线程在准备阶段把场景帧转成显示列表（`scene_display_list`）、规划绘制并录制。现在每次准备都重建显示列表。
-- 命中测试在 owner 上，用 `SceneGeometry::hit_test` 对当前场景帧做。
-- JS 侧：`ScriptDom`（QuickJS-NG），平台模块提供 Web API；全局 `weft` 对象已有 `weft.emitParticles`。QuickJS 提供 `JS_NewPromiseCapability`、`JS_NewArrayBuffer` 与 `JS_ParseJSON`。
-- 公开 C ABI（`include/weft/weft.h`）目前只有 Runtime 与 View 的骨架：创建、销毁、记录时间。加载页面、推进、取帧还在探针代码里（`GallerySceneSession`）。
-
-## 3. 设计原则
-
-1. 数据在用它的地方消费：每帧变化的视觉量（位置、缩放、可见性）交给渲染线程；业务逻辑与低频数据交给 JS。
-2. 值带类型，不拼脚本：引擎给的数据是数据，不会被当作代码求值。
-3. 跨线程只传值：队列（事件、调用完成）与新值覆盖旧值的缓冲（锚点）；渲染线程不碰 Node 与 JSValue；JS 只在 owner 线程。
-4. 句柄与代际：View、调用都用带代际的身份；迟到或过期的操作返回 `WEFT_STALE_HANDLE`，不崩溃。
-5. 不重入：宿主回调里不能同步进入 View 的 DOM 或 JS；要做的事入队到下一个安全点。
-6. 标准语义不悄悄改变：锚点是 Weft 的扩展，在兼容表与诊断里可见。
-7. 先有正确的全量路径，再加增量（保留显示列表），两者结果逐像素对照。
-
-## 4. 总体结构
-
-```mermaid
-flowchart LR
-    subgraph Game[游戏线程]
-        G1[模拟与投影]
-    end
-    subgraph Owner[UI owner 线程]
-        O1[JS 与 DOM]
-        O2[样式 布局 场景帧]
-        O3[事件与调用的收发]
-    end
-    subgraph Render[渲染线程]
-        R1[显示列表与锚点]
-        R2[规划与录制]
-    end
-    G1 -- 锚点数组 每帧 三缓冲 --> R1
-    G1 -- 锚点数组 命中用 --> O2
-    G1 -- 事件 调用完成 视图模型 入队 --> O3
-    O3 -- 消息与调用 由宿主取走 --> G1
-    O1 --> O2
-    O2 -- 不可变场景帧 --> R1
-    R1 --> R2
-```
-
-| 通道 | 方向 | 频率 | 载体 | 消费者 |
-| --- | --- | --- | --- | --- |
-| 锚点 | 引擎 → Weft | 每帧 | 定长记录数组，三缓冲 | 渲染线程（绘制）、owner（命中） |
-| 事件 | 引擎 → 页面 | 按需 | 带类型的值，入队 | owner 上的 JS |
-| 消息、调用 | 页面 → 引擎 | 按需 | 带类型的值，出队 | 宿主（在 owner 线程取走） |
-| 调用完成 | 引擎 → 页面 | 按需 | 带类型的值，入队 | owner 上的 Promise |
-| 同步函数 | 页面 ↔ 引擎 | 按需 | 带类型的值，同步 | owner 线程上的宿主回调 |
-| 视图模型 | 引擎 → 页面 | 每次推进至多一批 | 按字段合并 | owner 上的 JS |
-
-线程（推荐的 UE 接法）：owner 就是游戏线程（UMG 与 Ultralight 的推进也在游戏线程），渲染在 UE 的渲染线程，用宿主的命令列表录制。owner 放在独立线程时，同步函数的回调在 owner 线程执行，宿主要自己保证线程安全或改用调用。
-
-## 5. 锚点
-
-### 5.1 引擎侧：写入
-
-```c
-typedef struct weft_anchor {
-    uint64_t key;      /* 引擎自己的 id，页面用 data-anchor 的十进制写法引用 */
-    float x, y;        /* 锚点在 View 里的位置，逻辑 px（与 CSS 布局同单位） */
-    float scale;       /* 1 为原大 */
-    float depth;       /* 越大越远；同一容器里的锚点元素由远到近画 */
-    uint32_t flags;    /* WEFT_ANCHOR_HIDDEN | WEFT_ANCHOR_BEHIND | WEFT_ANCHOR_OFFSCREEN；0 为可见 */
-    uint32_t reserved; /* 0 */
-} weft_anchor;         /* 32 字节 */
-
-/* 用这一组替换 View 的全部锚点（复制）。读者看到的总是整组新值或整组旧值，不会混合。
- * 任意线程；同一 View 同时至多一个写者。 */
-weft_result weft_view_write_anchors(weft_runtime* runtime, weft_view_handle view,
-                                    const weft_anchor* anchors, uint32_t count);
-```
-
-- 三缓冲：写者写空闲槽，原子地发布；渲染线程与 owner 各自取最新发布的槽。400 个锚点每帧复制约 13 KB，开销可忽略。
-- 实现（13.1a，`src/scene/scene_anchor.hpp`）：两个读者各一个三缓冲，写者按 key 排序（同一 key 取最后一条）后写入两份；非法值（不是有限数、负的缩放、未知标志、保留位非零）或超过 65,536 个时什么也不发布。标志为 0 时可见（草案原为“可见”位，改成“隐藏”位，零初始化的记录可见）。HUD 基准里宿主算出 400 个位置并写入，每帧约 0.012 ms。
-- 位置由引擎投影（CRPG 现在就是），换算到 View 的逻辑 px：屏幕像素除以 View 的设备缩放。Weft 不需要知道相机与世界坐标。
-- 引擎可以在游戏线程投影后写，也可以在渲染线程用这一帧真正的相机投影后写，后者与 3D 画面完全同步。
-
-### 5.2 页面侧：声明
-
-```html
-<div class="nameplate" data-anchor="1234" data-anchor-pivot="50% 100%">
-  <div class="name">Goblin</div>
-  <div class="bar"><div class="fill" style="width: 73%"></div></div>
-</div>
-```
-
-| 属性 | 默认 | 含义 |
-| --- | --- | --- |
-| `data-anchor` | 无 | 锚点 key（十进制）。元素由锚点定位：布局仍决定它的大小，但不决定它的位置 |
-| `data-anchor-pivot` | `50% 50%` | 元素边框盒上对准锚点的点，百分比或 px |
-| `data-anchor-scale` | `on` | 是否乘锚点的缩放（绕 pivot） |
-| `data-anchor-offscreen` | `hide` | 锚点在 View 外（边界算在里面）、相机后或标记屏幕外时：`hide` 隐藏，`show` 照画；`clamp` 总是把元素（自身变换后的外接矩形）留在 View 内（`data-anchor-margin` 留边，px），放不下的轴居中 |
-| `data-anchor-missing` | `hide` | 锚点表里没有这个 key 时：`hide` 或 `stay`（停在这个元素上次拿到的、同一 key 的锚点；从未拿到过时隐藏） |
-
-- 元素最终的变换 = 锚点平移（与缩放）× 元素自己的 CSS transform（绕它的 transform-origin），所以 CSS 动画（如出现时的缩放）照常有效。
-- 锚点元素建立层叠上下文；同一父元素下的锚点元素按 depth 由远到近画，depth 相同按 DOM 顺序。
-- 裁剪与 `position: fixed` 相同：锚点元素以 View 为准定位，不受祖先 `overflow` 的裁剪；它自己和它的子孙建立的裁剪随它移动。这样整个锚点子树在同一个坐标系里，GPU 可以只用一个变换移动它。
-- React 里直接写：`<div data-anchor={unit.id}>`。实例出现、消失时 React 才渲染；每帧的移动与 React 无关。
-- 不合法的属性值是场景诊断，与其他语法错误一样整帧拒绝（草案原写“元素隐藏”）；只看 `data-anchor-` 开头的属性，未知的选项也是诊断。svg 内部的元素不能写锚点（svg 根可以）；锚点元素不能是行内盒、不能在透视平面里（整帧回退，计入原因）。
-- 没有锚点表时（例如 D2D 参考光栅），锚点元素一律隐藏。
-
-### 5.3 渲染线程：取值与应用
-
-两条路径，先做第一条作为正确性参考，再做第二条：
-
-1. CPU 参考路径（13.1a 已实现）：每次准备开始时取一次最新的锚点槽；显示列表遇到 `data-anchor` 的元素时，用锚点算出它的变换，替代布局给的位置；按 offscreen、missing 的规则决定画不画；同一容器里的锚点元素按 depth 排序。每帧全量重建，简单，用来对照。有锚点子孙的节点不做成图层，有锚点子孙的透明度组按根盒合成。
-2. GPU 路径（13.1b 已实现，见下面的实现说明）：
-   - owner 没有发布新场景帧时，上一帧的显示列表与绘制记录原样留在显存里；
-   - 每帧只在 CPU 上把引擎的锚点解析成每个锚点元素的变换（平移、缩放、显隐，贴边在这里算），一个元素 16 字节，400 个约 6 KB，上传一次；
-   - 记录里空着的 `clips.zw` 存锚点元素的序号；顶点着色器把锚点变换作用到四个角，像素着色器先用逆变换把像素位置换回布局空间，再照常求覆盖、裁剪与采样；
-   - 深度排序：每帧在 CPU 上按 depth 排锚点子树的顺序，写一个记录序号的顺序缓冲（每条记录 4 字节），实例按它取记录；
-   - 隐藏的锚点元素把四个角收成一点，不产生像素；
-   - 页面变化时退回全量重建（13.5 之后只重建变化的子树）。
-   两条路径的画面逐像素对照（采样坐标的舍入可能差 1–2 级）。
-   实现（13.1b）：
-   - “没有发布新帧”由帧的版本号判断（`SceneFrame::revision`，求解器在内容变了时换新）；每个视图保留一份 pass，版本号、缩放、目标尺寸与图层都相同时重画它；
-   - 锚点表是每个锚点元素的 {缩放, x, y, 显示}（16 字节）；顺序缓冲是全部记录的顺序，只有排序组的深度顺序变了才写；
-   - 跨批次的重排（组里夹着透明度组、不同纹理的图像等）重新准备这一帧，计入 `kept_rebuilds`；
-   - 锚点子树里有背景模糊、粒子、透视平面或效果时走 CPU 参考路径；
-   - 实测见 2.2 的表：D3D11 与 Vulkan 渲染 CPU p50 0.021、0.042 ms；画面与 CPU 参考路径相比 Vulkan 相同、D3D11 WARP 至多差 2 级。
-- 锚点元素里的文字图像、盒子不随位置重建。GPU 路径下 SVG 路径的覆盖率图随锚点平移按双线性采样，小数像素位移会略微变软；需要锐利时可以让锚点平移对齐设备像素（可选属性）。
-
-### 5.4 命中与几何读取
-
-- owner 在每次推进与处理输入前取一次最新锚点；命中测试对锚点元素用同一套变换与隐藏规则。被隐藏的锚点元素不命中。
-- `getBoundingClientRect` 等几何读取也用 owner 这一份锚点。隐藏的锚点元素是原点处的空盒（如 `display: none`）；锚点元素没有 offsetParent，偏移是锚点给的位置，它是子孙的 offsetParent。
-- 13.1a：`SceneGeometry` 的命中与几何已按此实现；画廊会话只在 JS 读几何时按锚点重算，13.3 的 View 再按锚点表的序号缓存。
-- owner 与渲染线程可能拿到相隔一帧的两份锚点：点击位置与画面至多差一帧的移动，记入 trace，不另行补偿。
-
-### 5.5 生命周期
-
-- 引擎生成实例时先写锚点、再发生成事件；页面建元素后，下一帧就画在正确位置（元素先于锚点出现时按 missing 规则处理）。
-- 实例结束：引擎停止写这个 key，发消失事件；页面移除元素（或保留到退场动画结束，退场期间按 missing 规则）。
-- View 销毁后，迟到的写入返回 `WEFT_STALE_HANDLE`。
-
-### 5.6 限制
-
-- 文档至多 16,384 个节点（13.4 由 2,048 放宽）：每个名牌 4 个节点时约 4,000 个；CRPG 的浮动 UI 每个单位约 15 个节点（伤害数字与状态标记另算），200 个单位约 3,100 个。VM 的内存上限同时放宽到 256 MiB：200 个单位的浮动 UI 在 VM 里峰值约 64 MiB（锚点）到 79 MiB（推 JSON），几乎都是 React 与 framer-motion 的对象。
-- `clamp` 只贴边，不画指向锚点的箭头；箭头角度之后再加（第 14 节）。
-
-## 6. 桥接
-
-### 6.1 值
-
-- 带类型的值：null、布尔、整数（int64/uint64）、浮点、UTF-8 字符串、字节、数组、键为字符串的对象。
-- 线上格式：MessagePack 的这个子集（规范简单，编码解码都快，自带二进制），自己实现编解码（约数百行，带随机往返测试），不引入第三方库；SDK 提供一个单文件的 C 写入器。
-- 也接受 JSON 文本（迁移期方便），由原生侧解析成同样的值。
-
-```c
-typedef enum weft_value_format { WEFT_VALUE_MSGPACK = 1, WEFT_VALUE_JSON = 2 } weft_value_format;
-typedef struct weft_value_writer weft_value_writer;   /* 库提供：同步函数把结果写进它 */
-```
-- 转成 JS 时直接构造 JS 对象与数组，不经过 JSON 文本，也不求值脚本；从 JS 转出时拒绝函数、symbol、循环引用，并有深度与大小上限。
-- 实现（13.2，`src/bridge/bridge_value.hpp`）：
-  - 读写：`ValueWriter` 写最短的形式，浮点总写 float64，先写元素后知道个数的容器用 32 位头再补；`ValueReader` 接受任何形式，拒绝扩展类型、0xc1、非有限浮点、不是 UTF-8 的字符串、超过剩余字节的个数；`valid_value` 另查键是字符串、嵌套至多 64 层（数组与对象的层数）、至多 1 MiB、没有多余字节。
-  - JSON：RFC 8259，严格（前导零、尾随逗号、控制字符、孤立代理项都拒绝）；int64 或 uint64 放得下的整数仍是整数，其余是 float64，`-0` 是浮点 −0。
-  - JS → 值：±(2^53−1) 以内的整数写成整数，其余与 −0 写成浮点；int64、uint64 以内的 BigInt 写成整数；字符串按 USVString（孤立代理项变成 U+FFFD）；ArrayBuffer 与类型化数组写成字节；数组与 Proxy 包着的数组写成数组；有 toJSON 的对象写它返回的值（只调一次，同 JSON.stringify，Date 因此是 ISO 文本）；其余对象写自有的可枚举字符串键，值为 undefined 的成员省略；拒绝函数、symbol、循环引用（同一个对象出现在自己里面；在别处出现两次不算）、非有限数与超过 64 位的 BigInt。
-  - 值 → JS：nil 是 null；超过 ±(2^53−1) 的整数与大于 int64 的 uint64 是 BigInt；字节是复制出的 Uint8Array；对象的键定义成自有数据属性（`__proto__` 键不改原型）。
-
-### 6.2 引擎 → 页面：事件
-
-```c
-/* 任意线程；复制负载；在 View 的下一个安全点按投递顺序交付。
- * WEFT_EMIT_LATEST：队列里已有同名未交付事件时，替换它（CRPG 的 ui_ready 队列就是这样）。 */
-weft_result weft_view_emit(weft_runtime* runtime, weft_view_handle view,
-                           const char* name, size_t name_size,
-                           weft_value_format format, const void* payload, size_t payload_size,
-                           uint32_t flags);
-```
+### 页面侧调用示例
 
 ```js
-const off = weft.engine.on('setBattleRound', ({round}) => store.setRound(round));
-weft.engine.once('ui_ready_ack', () => {});
-weft.engine.onAny((name, value) => { /* 路由层、兼容层用 */ });
-```
+// 1. 订阅视图模型（仅在批次更新结束时触发一次回调）
+const weapon = weft.engine.model('weapon');
+const unsub = weapon.subscribe((value, changedKeys) => {
+  ammoText.textContent = `${value.mag} / ${value.reserve}`;
+});
 
-- 交付在推进开始的任务阶段，每个事件之后做一次微任务检查点；处理函数抛出的异常记诊断，不影响其他处理函数。
-- 交付之前页面的时钟（`performance.now()`）先推到这一帧的时间（13.4），处理函数、这一帧的任务与 rAF 读同一个时间：处理函数里开始的动画从这一帧算起。
-- React 页面：每个事件之后的检查点会让 `useSyncExternalStore` 的 store 每发布一次就渲染一次。一次交付有多个事件（或视图模型的批次）时，处理函数只改数据，用 `setTimeout(0)` 合并成一次发布：View 的帧先交付、再跑任务、再跑 rAF，所以一帧只渲染一次，而且在 framer-motion 等动画库的 rAF 之前。13.4 的锚点页面（`examples/crpg-gallery/src/floating/AnchoredFloatingUIOverlay.tsx`）这样做，每个实例再用 `memo`，只有新来的、字段变了的实例重新渲染；它的 AnimatePresence 关掉 `presenceAffectsLayout`（默认每次渲染给每个子元素新的 presence context，所有实例里的 framer-motion 组件都跟着重新渲染，`memo` 挡不住；200 个单位时有事件的帧因此约慢 3 倍）。
-- 队列有上限；满时 `weft_view_emit` 返回 `WEFT_CAPACITY_EXCEEDED`，不静默丢弃。
-- 实现（13.2）：`bridge::EngineChannel::emit`、`emit_json`（`latest` 替换同名的最后一个未交付事件的值，留在它原来的位置）；`ScriptDom::deliver_engine` 一次交付全部等待的内容：先是视图模型的批次，再按投递顺序交事件与调用的完成，每项之后一次微任务检查点，共用一个执行预算；返回交付的个数与处理函数的异常（每次至多 64 条，每条至多 512 个字符）。名字的处理函数先于 `onAny`；交付中途取消的处理函数不再被调用，新增的从下一个事件起生效。
+// 2. 监听引擎事件
+const off = weft.engine.on('combat.hit', payload => {
+  showHitMarker(payload.critical);
+});
 
-### 6.3 页面 → 引擎：消息、调用、同步函数
-
-```js
-weft.engine.send('battleUI.endTurnClicked');                       // 只发
-const market = await weft.engine.call('market.load', {page: 2});   // 返回 Promise，引擎稍后完成
-const label = weft.engine.invoke('loc.get', {key: 'ui.ok'});       // 同步，宿主回调立即返回
-```
-
-```c
-/* 宿主在 owner 线程取走页面发出的消息与调用（推进之后，或两次推进之间任何时候）。 */
-typedef struct weft_message {
-    uint32_t struct_size;
-    uint32_t kind;                 /* WEFT_MESSAGE_SEND 或 WEFT_MESSAGE_CALL */
-    uint64_t call_id;              /* 调用才有；用它完成调用 */
-    const char* name; size_t name_size;
-    const void* payload; size_t payload_size;   /* MessagePack；只在回调期间有效 */
-} weft_message;
-typedef void (*weft_message_fn)(void* user, weft_view_handle view, const weft_message* message);
-weft_result weft_view_drain_messages(weft_runtime* runtime, weft_view_handle view,
-                                     weft_message_fn fn, void* user);
-
-/* 任意线程；Promise 在下一个安全点兑现或拒绝。过期的 id 返回 WEFT_STALE_HANDLE。 */
-weft_result weft_view_complete_call(weft_runtime* runtime, weft_view_handle view, uint64_t call_id,
-                                    int succeeded, weft_value_format format,
-                                    const void* payload, size_t payload_size);
-
-/* 同步函数：在 owner 线程、JS 执行当中被调用；不能重入 View；结果写进 result。 */
-typedef weft_result (*weft_function_fn)(void* user, const void* args, size_t args_size,
-                                         weft_value_writer* result);
-weft_result weft_view_register_function(weft_runtime* runtime, weft_view_handle view,
-                                        const char* name, size_t name_size,
-                                        weft_function_fn fn, void* user);
-```
-
-- 消息与调用由宿主主动取走，回调里不会再进入 JS，没有重入问题；宿主可以把处理推迟到自己合适的时机（CRPG 现在用 `SetTimerForNextTick` 达到同样的目的）。
-- 调用可以带超时（`weft.engine.call(name, value, {timeout})`），超时拒绝；完成迟于超时时返回 `WEFT_STALE_HANDLE`。
-- 同步函数只适合便宜的查询；在回调里调用会进入 View 的接口返回 `WEFT_BUSY`。
-- 实现（13.2）：
-  - `ScriptDom::take_engine_messages()` 按发出的顺序返回 `EngineMessage{call, name, value}`（`call` 为 0 是只发的消息）；页面未被取走的消息至多 4,096 条、16 MiB，超出时 `send` 与 `call` 抛出 `WEFT_ENGINE_FULL`；同时打开的调用至多 4,096 个。
-  - 调用的 id 由通道发放，从不为 0、从不重用；`call` 的各种错误都表现为被拒绝的 Promise。超时用页面的计时器（宿主时钟），到时拒绝（`WEFT_ENGINE_TIMEOUT: <name>`）并关闭调用，之后的完成返回 Stale；引擎在超时之前完成、交付在超时之后时，页面一侧把它记为 stale（`EngineDelivery::stale`）。
-  - 失败的完成拒绝成一个 Error：值是字符串时它是 message，是带字符串 `message` 的对象时用它，否则是 `weft.engine.call <name> failed`；引擎给的值在 `error.value`。
-  - 同步函数是 `ScriptDom::install_engine_function(name, fn)`（13.3 的 C ABI 改用写入器）：参数与结果都是 bridge 值，空结果是 undefined；它抛出的异常成为 `invoke` 的异常；它运行期间进入 ScriptDom 的任何接口都抛出 `WEFT_ENGINE_REENTRY`（13.3 映射到 `WEFT_BUSY`）。
-  - 调用的往返：页面在一次推进里调用，宿主在推进之后取消息并立即完成，下一次推进交付，Promise 在这次推进里兑现（1 帧）。
-
-### 6.4 视图模型
-
-```c
-/* 合并字段：fields 是 字段 → 值 的对象。任意线程入队；页面每次推进至多看到一批。 */
-weft_result weft_view_set_model(weft_runtime* runtime, weft_view_handle view,
-                                const char* model, size_t model_size,
-                                weft_value_format format, const void* fields, size_t size);
-```
-
-```js
-const player = weft.engine.model('player');      // {value, subscribe}
-// React：useSyncExternalStore(player.subscribe, () => player.value)
-```
-
-- 同一次推进里对同一字段的多次设置只保留最后一次；交给 JS 的是变化的字段。
-- 低频数据（血量、名字、状态）走视图模型或事件，不再随位置整份重推。
-- 实现（13.2）：`EngineChannel::set_model`、`set_model_json`（字段是一个对象；同一个键出现两次取后一个；满了整批不合并）。`weft.engine.model(name)` 返回同一个冻结的句柄 `{name, value, subscribe}`：`value` 在第一批之前是 undefined，之后每一批换成一个新的冻结对象（浅冻结，已有字段与这一批合并）；`subscribe(fn)` 返回取消函数，`fn(value, changed)` 在每一批之后被调用（`changed` 是这一批的字段）；页面还没问过的模型的批次也会保存。视图模型的批次先于同一次交付里的事件。
-
-### 6.5 批量数值（后续）
-
-页面不必逐项改 DOM 时（画布小地图、图表的数据），可以交给 JS 一个 ArrayBuffer：`weft_view_post_buffer` 复制一次进 JS 堆，或转移所有权零拷贝。优先级低，等有需求再做。
-
-### 6.6 CRPG 兼容层
-
-一个可选的 JS 模块，由宿主在加载页面前安装：
-
-| CRPG 现有 | 兼容层的实现 |
-| --- | --- |
-| `window.ue.sendEvent(name, obj)` | `weft.engine.send(name, obj)` |
-| `window.__ue_dispatch(fn, obj)`（页面定义，引擎调用） | `weft.engine.onAny((name, value) => window.__ue_dispatch?.(name, value))` |
-| `window.__vm_update(delta)` | 视图模型的每一批转给它 |
-| `requestFromUE()`（现为恒拒绝的占位） | 可改为 `weft.engine.call` |
-
-引擎侧把 `CallUI(fn, json)` 换成 `weft_view_emit(view, fn, WEFT_VALUE_JSON, json)`，把 `OnEvent` 换成取消息的循环；`UUIBaseSubsystem` 本来就把 `CallUI` 合同与后端分开，换后端不影响业务代码。
-
-实现（13.2）：平台模块 `ScriptPlatformModule::CrpgBridge`，装在 `Engine` 之后、页面之前。`window.ue.sendEvent(name, data)` 发 `engine.send(String(name), data ?? {})`；页面先建了 `window.ue` 时保留它，只加 `sendEvent`。引擎的每个事件转给页面定义的 `window.__ue_dispatch(name, value)`（没有定义时跳过，同 CRPG 的 `if (window.__ue_dispatch)`）；视图模型 `vm` 每一批变化的字段转给 `window.__vm_update(changed)`（CRPG 一个 widget 绑定一个视图模型）。`requestFromUE` 留给页面改写成 `weft.engine.call`。
-
-### 6.7 错误、上限与生命周期
-
-- 名字至多 256 字节；单个负载、嵌套深度、队列长度有上限（常量集中在 `constants`），超出返回错误并记诊断。
-- 页面重新加载或 View 重置：未完成的调用全部拒绝，未交付的事件丢弃；之后的完成返回 `WEFT_STALE_HANDLE`。
-- View 处于 Faulted 状态时，投递返回错误，不排队。
-- 实现（13.2，`constants/bridge.hpp`）：名字 1–256 字节的 UTF-8；单个值至多 1 MiB、嵌套至多 64 层；通道至多 4,096 项、16 MiB；页面的消息至多 4,096 条、16 MiB；打开的调用至多 4,096 个。`reset_document` 重置通道（丢弃等待的输入、关闭全部调用）并丢弃页面未被取走的消息；旧页面的 Promise 随它的 JS 上下文一起消失。通道与同步函数属于 View，重置后保留。Faulted 状态下的投递在 13.3 的 View 里处理。
-
-## 7. 线程与同步
-
-| 接口 | 线程 | 同步方式 |
-| --- | --- | --- |
-| `weft_view_write_anchors` | 任意（同一 View 一个写者） | 三缓冲，原子发布 |
-| `weft_view_emit`、`weft_view_complete_call`、`weft_view_set_model` | 任意 | 加锁的有界队列（多写一读） |
-| `weft_view_drain_messages`、`weft_view_register_function`、`weft_view_set_resource_reader` | owner | 无 |
-| 推进、取帧 | owner | 不变 |
-| 准备、录制 | 渲染线程 | 读锚点的最新槽 |
-
-- 队列只存复制好的字节，不存 JSValue 或 Node；交付在 owner 上转成 JS 值。
-- 验证：多线程压力测试（写者持续写锚点、投递事件与完成，读者同时推进与绘制），ASan 预设跑一遍；MSVC 没有 TSAN，用压力测试和不变量检查代替。
-
-## 8. 对外 View（13.3）
-
-宿主要真的接引擎，需要对外的 View 能加载页面并推进。把探针里的 `GallerySceneSession` 收拢进 `src`，C ABI 增加：
-
-| 接口 | 作用 |
-| --- | --- |
-| `weft_view_load` | 加载页面：脚本包、样式表、字体与资源的宿主回调 |
-| `weft_view_advance` | 推进：交付事件与完成、跑任务与 rAF、更新场景帧 |
-| `weft_view_input_*` | 鼠标、滚轮、键盘与手柄动作 |
-| `weft_view_hit_interactive` | 某点下是否有可交互元素（CRPG 用它决定点击交给 UI 还是游戏） |
-| `weft_view_acquire_frame` | 取最新的场景帧交给渲染器 |
-
-渲染沿用现有的渲染器 C ABI（准备、录制、提交、完成）。
-
-实现（13.3a，`src/view` 与 `include/weft/weft.h`）：
-- `weft::View` 把画廊会话收拢成通用的部件。加载（`weft_view_load`）换一个新的文档与 VM 状态，装平台模块 WebHost、AnimationFrame、ScenePlatform、Engine（`WEFT_PAGE_CRPG_BRIDGE` 时再装 CrpgBridge），设好 `innerWidth`、`innerHeight`、`devicePixelRatio`，再按序求值页面的脚本；页面的样式表、关键帧与场景根的选择器（缺省 `#root`）随页面给出。页面的脚本与样式由宿主读好交进来；样式里 `url()` 指的图片经宿主的资源回调读（2026-10-16，见下文“页面的文件”）。脚本抛出，或样式表、关键帧超出 scene 的 profile（2026-10-17 起，此前是 `WEFT_INVALID_ARGUMENT` 且没有诊断）时页面不加载：`WEFT_SCRIPT_ERROR`，View 为空，原因是一条诊断（脚本的，或样式的 scene 诊断）。
-- 推进（`weft_view_advance`）：取 owner 的锚点表，把页面的时钟推到这一帧的时间（13.4），交付引擎的输入，跑任务、rAF、任务，把 DOM 的变化同步进场景，交付 ResizeObserver，再同步一次；场景内容变了（版本号变了）或 View 的大小、缩放变了才发布新的帧。页面抛出的异常、处理函数与 rAF 回调的异常、样式做不出场景都记成诊断（`weft_view_drain_diagnostics`），推进照常返回；做不出场景时保留上一帧。VM 资源耗尽使 View 进入 Faulted（`WEFT_FAULTED`），直到重新加载。
-- 输入（`weft_view_pointer`）：移动、按下、抬起、滚轮、离开，按画廊的顺序合成 pointer 与 mouse 事件、over/out、enter/leave（随悬停元素变化）与 click（在按下的同一元素上抬起）；返回主事件的默认动作是否被阻止。键盘与焦点见下文“键盘与焦点”（2026-10-21），文本框与输入法见“文本框与输入法”（2026-10-22），手柄见“手柄与空间导航”（2026-10-22），触摸见“触摸与多点触控”（2026-11-07）。
-- 命中（`weft_view_hit_test`，取代草案的 `weft_view_hit_interactive`）：某点下最上层接收指针事件的元素是否是场景根以外的元素，以及它的 `cursor`（它或最近一个声明了 `cursor` 的祖先的值，没有时是 auto）。CRPG 现在按光标是否在可交互元素上把点击交给 UI，否则交给游戏的射线检测（`UUltralightWidget::NativeOnMouseButtonDown`），宿主可以照做。
-- 帧（`weft_view_acquire_frame`，任意线程）：引用计数的不可变帧，内容是场景树（不含元素几何）、View 的大小与缩放、布局用的字体目录与 View 的锚点通道；View 销毁后仍可用。渲染器经 `weft_renderer_prepare_scene` 画它（13.3b，见下文）。
-- 线程：加载、推进、输入、命中、取消息、注册函数、取诊断、调整大小只在 Runtime 的 owner 线程；写锚点、发事件、完成调用、设置视图模型、取帧可在任意线程，经 Runtime 里加锁的表找到 View 的共享部分，与销毁并发时返回 `WEFT_STALE_HANDLE`。宿主的回调（取消息、同步函数、取诊断）里对同一 View 的 owner 操作返回 `WEFT_BUSY`，任意线程的操作照常。owner 线程要至少 8 MiB 的栈（React 与 D3 的包递归很深）。
-- 字体：Runtime 一份字体目录：`WEFT_RUNTIME_SYSTEM_FONTS`（空描述符时默认开）用平台的系统字体，宿主再加字体文件、通用族与回退族；第一个页面加载时固定（之后 `WEFT_BUSY`），owner 建一个 SceneText，帧带着目录，渲染线程据此建自己的 SceneText。系统字体在固定时列出（Windows 上读系统字体集合，1,400 个字体约 10 ms，含第一次建 DirectWrite 工厂）；一个字体在文字第一次用到它时才打开，文件映射进内存，只读它用到的部分。
-- 同步函数（`weft_view_register_function`）：在 JS 执行当中调用，参数是 MessagePack，结果写进 `weft_value_writer`（MessagePack 或 JSON），返回其他结果即 `invoke` 的异常；注册在页面加载前也可以，跨加载保留。
-
-键盘与焦点（2026-10-21，`input` 分支；用户提出：两个引擎里的页面都能收到键盘事件，行为照 Chrome）：
-- `weft_view_key(runtime, view, const weft_key_event*, uint32_t* out_handled)`，owner 线程：一个键按下或抬起。`weft_key_event`：`struct_size`、`kind`（`WEFT_KEY_DOWN`、`WEFT_KEY_UP`）、`key` 与 `code`（KeyboardEvent 的值，UTF-8，key 1–64 字节、code 至多 64 字节；`location` 由 code 推出：左右成对的修饰键 1、2，小键盘 3）、`modifiers`（`WEFT_MODIFIER_SHIFT`、`_CONTROL`、`_ALT`、`_META`、`_ALT_GRAPH`、`_CAPS_LOCK`、`_NUM_LOCK`，事件发生时按着的；修饰键自己按下时带自己的位，抬起时不带）、`flags`（`WEFT_KEY_REPEAT` 系统的自动重复，只用于按下；`WEFT_KEY_IME` 输入法吃掉的键：按下的 key 是 `"Process"`、keyCode 229，没有默认动作，同 Chrome 对 `VK_PROCESSKEY` 的处理）、`key_code`（KeyboardEvent.keyCode，Windows 虚拟键；0 由 code 照系统给的推出：Num Lock 关着时小键盘的键是它这时的键（Numpad1 是 End，35）；Windows 上打字的键用前台窗口的布局把扫描码映射成虚拟键，同 Chrome 收到的，AZERTY 的 KeyQ 是 65；其他键与其他平台按美式键盘）、`reserved`。
-- 事件发给焦点元素（没有时是 body），capture 与冒泡经过 window；字段照 Chrome：keydown/keyup 的 keyCode、which 是虚拟键，charCode 0；keypress 的 keyCode、which、charCode 都是字符的 UTF-16 码元；`isTrusted`、`getModifierState()`（含 AltGraph、CapsLock、NumLock）。
-- 默认动作照 Chrome（Blink 的 `KeyboardEventManager::DefaultKeyboardEventHandler` 与元素的默认处理）：Tab、Shift+Tab 按顺序移动焦点（tabindex 正数在前，其余按文档顺序；跳过禁用、`display: none`、`visibility: hidden` 的元素；没有可聚焦后代、内容溢出的 `overflow: auto/scroll` 盒子也算一站，同 Chrome 130 起的键盘可聚焦滚动容器；起点是焦点元素，没有时是上次按下鼠标的地方，焦点元素被移除后从它原来的位置接着走）；到最后一个之后回到第一个（Chrome 交给浏览器的界面，嵌入的 Chromium 回绕，用户 2026-10-21 定）；按钮与按钮类的 input 在 Enter 的 keypress、空格的 keyup 时点击（空格按下期间 `:active`），复选框与单选框只认空格，获得焦点的链接在 Enter 的 keydown 时点击；点击是 Chrome 键盘点击的样子（PointerEvent，pointerId -1，pointerType 为空，detail 0，没有坐标）；方向键滚一行（40 px），Page Up/Down 与空格（按钮以外）滚可见高度的八分之七，Home/End 到头，Ctrl 只配 Home/End，Shift、Alt、Meta 不滚；滚的是焦点元素（没有时是上次按下鼠标的元素）最近的、还能往那边滚的 `overflow: auto/scroll` 容器，一步到位（Chrome 默认有平滑滚动）。没被阻止的 Enter 按下后 weft 自己派发它的 keypress（Windows 上 Chrome 的这个 keypress 来自 WM_CHAR 的 `'\r'`）。
-- `out_handled`：`WEFT_INPUT_PREVENTED`（监听器阻止了默认动作）、`WEFT_INPUT_DEFAULT`（weft 执行了默认动作，或开始了一个之后的事件完成的默认动作：移了焦点、滚动、点击、按钮变 `:active`）。宿主把两者都没有的键交给游戏，同 Chrome 把页面没用的键还给浏览器。
-- `weft_view_text(runtime, view, text, size, out_handled)`，owner 线程：键打出的文字（UTF-8，至多 4096 字节），跟在它的 keydown 之后：每个字符一个 keypress（按钮以外的空格滚一页）；U+0020 以下与 U+007F 忽略（Enter、Tab、Backspace 由 keydown 处理）；keydown 被阻止或被默认动作用掉时它的文字丢掉（`WEFT_INPUT_DEFAULT`），同 Chrome 丢掉这样的键之后的字符消息。
-- `weft_view_set_focus(runtime, view, focused)`，owner 线程：宿主的键盘焦点进出 View，同浏览器窗口：离开时焦点元素收到 blur、focusout，再是 window 的 blur（回来时 window focus，再 focus、focusin）；只有 View 有焦点时 `:focus`、`:focus-visible`、`:focus-within` 才匹配，`document.hasFocus()` 也照此。View 一开始有焦点，跨页面加载保留；页面加载之前设的在第一次加载时生效。
-- `weft_keyboard_key(code, size, modifiers, out_key[32])`，任意线程：当前键盘布局下一个物理键的 key（Shift、AltGraph、CapsLock、NumLock 有效）：打出的字符、死键 `"Dead"`、不打字的键的名字（`"Enter"`、`"ArrowLeft"`）、布局什么也不打时 `"Unidentified"`；Windows 读前台窗口线程的布局，用 `ToUnicodeEx` 而不改它的死键状态（同 Chromium 的 PlatformKeyMap），其他平台按美式键盘。不认识的 code 是 `WEFT_INVALID_ARGUMENT`。
-- `weft_keyboard_code(virtual_key, out_code[32])`，任意线程：系统键盘布局把一个 Windows 虚拟键放在哪个物理键上（它的 code），给只有虚拟键、没有扫描码的宿主（UE 的 `FKeyEvent`）：打字的键按布局反查扫描码（AZERTY 的 VK_A 是 KeyQ），左右成对的修饰键按边（VK_LSHIFT 是 ShiftLeft），其他键按美式键盘的虚拟键（VK_RETURN 是 Enter，VK_NUMPAD1 是 Numpad1；Num Lock 关着时小键盘的键来的是它这时的键，VK_END 是 End，Chrome 说 Numpad1）；其他平台按美式键盘。不认识的虚拟键是 `WEFT_INVALID_ARGUMENT`。
-- 焦点对所有页面（用户 2026-10-21 定）：`KeyboardEvent`、`FocusEvent`、`focus(options)`（`preventScroll`、`focusVisible`）、`blur()`、`document.activeElement`、`document.hasFocus()`、`tabIndex`、`scrollIntoView()` 由原生 DOM 提供，不再只在 `WEFT_PAGE_WEB_PLATFORM` 页面里。焦点移动照 Blink 的 `Document::SetFocusedElement`：旧元素先失去焦点（期间 activeElement 是 body）并收到 blur、focusout、DOMFocusOut，新元素再收到 focus、focusin、DOMFocusIn，监听器中途移走焦点时它说了算；按下鼠标时焦点给按到的元素或最近的可聚焦祖先，按在别处失焦（mousedown 被阻止时不变）；获得焦点的元素不完全可见时滚进视野（完全不可见时居中，部分可见时贴最近的边，同 Blink 的 CenterIfNeeded）；焦点元素被脚本移除（或随祖先移除、被移到别处、被 `textContent` 清掉）之前收到 blur、focusout（Chrome 155 的行为）。
-- `:focus-visible` 照 Blink：可编辑元素总是显示，鼠标给的焦点不显示，直到按下一个不带 Ctrl、Alt、Meta 的键；脚本给的焦点跟着上一次用户给焦点的方式。宽松样式的页面在 UA 样式里有 Chrome 的焦点环（`:focus-visible { outline: auto 1px #101010 }`）：2 px 的环骑在边框盒边上（四边边框都至少 1 px 时内移 1 px，再按 outline-offset 外移），外面 1 px 白边，圆角至少 3 px，同 Blink 的 `PaintFocusRing`。宽松样式的页面在 DOM 查询（`querySelector`、`matches`、`closest`）里也用 Selectors 4 的选择器，与它的样式表一致；严格页面照旧。
-- 测试：`keyboard_contract`（`tests/keyboard_tests.cpp`）把 `tests/fixtures/keyboard/scenarios.json` 的九个场景（Tab 顺序、Enter 与空格、按住空格离开、鼠标给焦点、键盘滚动、Tab 滚进视野与 scrollIntoView、各种键的字段、focus-visible、导航起点）在 View 里重放，与 Chrome 155 在同一页上的结果（`tools/browser_keyboard_reference.mjs` 经 DevTools 驱动无头 Chrome 录下的 `chrome-results.json`）逐事件、逐字段比较，只有两处是有意的不同（Tab 回绕；在文字上点击后 Shift+Tab 从被点的元素算起，Chrome 从文字之后算起，weft 的命中只到元素）；另有回绕、宿主焦点、out_handled 与丢弃的文字、输入法的键、keyCode 与 location、重入的监听器、聚焦规则、没有 web 平台的页面、焦点环的像素（参考光栅，与 Chrome 量到的位置一致）。`c_api_view_contract` 加 `keyboard`（参数、加载前的宿主焦点、同步函数里重入返回 `WEFT_BUSY`、别的线程、过期句柄）。页面运行器的时间线加 `key`、`text`、`focus` 三种步骤。
-
-文本框与输入法（2026-10-22，`input` 分支；用户提出：中文输入法能在文本框里用，候选窗在光标处）：
-- 文本框是 `<input>` 的文字类型（text、search、password、email、url、tel、number 与不认识的类型）与 `<textarea>`。值、选区与输入法的组合串在原生 DOM 里（`dom/text_field.hpp`，值的 UTF-8 偏移），随快照到样式与场景。脚本 API 照 HTML 与 Chrome：`value`（脚本设值后光标到末尾，值成为“脏”的，之后 value 属性不再改它；按类型清理换行、首尾空白与非数字）、`defaultValue`（input 的 value 属性，textarea 的子文本）、`selectionStart`、`selectionEnd`、`selectionDirection`（UTF-16 偏移；Windows 上没有方向报 forward；email 与 number 为 null）、`setSelectionRange()`、`select()`（同时聚焦）、`setRangeText()`（四种模式）、`type`、`placeholder`、`readOnly`、`disabled`、`maxLength`、`name`、`textLength`；`InputEvent`、`CompositionEvent` 的构造器；选择器 `:placeholder-shown`、`:read-only`、`:read-write` 与伪元素 `::placeholder`、`::selection`；继承属性 `caret-color`。
-- 事件照 Chrome 155，逐个对过：打字是 keydown、keypress、beforeinput（insertText，可取消）、input、keyup；Backspace、Delete（Ctrl 按词）是 deleteContentBackward/Forward、deleteWordBackward/Forward，删不到东西时只有 beforeinput；Enter 在 input 里是 beforeinput（insertLineBreak）与 change（值从获得焦点或上次 change 起变过时），在 textarea 里换行；只读框打字只有 beforeinput，Backspace 什么都没有；maxlength 截短插入的文字；beforeinput 被阻止的编辑不发生（组合串除外，页面不能阻止）；焦点离开时依次 compositionend（组合串留下）、change、blur；用户造出选区时同步发 select，脚本改的选区与 selectionchange 排成任务。
-- 键盘的默认动作照 Windows 上的 Chrome：方向键按字符移动光标，Ctrl 按词（Windows 的词：Ctrl+→ 到下一个词的开头），Home、End（textarea 是可视行）与 Ctrl+Home、Ctrl+End；input 的 ↑↓ 到两头，textarea 的 ↑↓ 到上下一行同一水平位置；Shift 从锚点扩展选区；有选区时 ←→ 收拢到它的两端；Ctrl+A 全选；search 框的 Esc 清空（input 事件）。只读框不移动光标（这些键按别处的方式处理，可滚动页面），但能全选。Tab 进入 input 时全选（Chrome 的 kReset），进入 textarea 恢复原来的选区。还没有：剪贴板（Ctrl+C、X、V）、撤销（Ctrl+Z）、拖放文字、从右到左的文字。
-- 鼠标：按下放置光标（Shift 扩展选区），按在选区里时等抬起才放（Chrome 那里可能开始拖放文字）；双击选词（Windows 连带后面的空格），三击全选（textarea 选一段）；按住拖动按按下时的粒度扩展选区；鼠标造出选区时在 click（与 dblclick）之后发 select。mousedown、mouseup、click 的 `detail` 是连击数（Windows 的双击时间 500 ms 与 4 px 的范围），第二次点击之后发 dblclick。禁用的表单控件收不到 mousedown、mouseup、click、dblclick（Chrome 丢掉它们）。
-- 绘制：值（密码显示为圆点 U+2022）或占位符（`::placeholder` 的颜色，UA 样式是 #757575）；有焦点时选区（缺省是 Chrome 的蓝底 #3367d1 白字，或 `::selection` 给的颜色）、光标（1 px，`caret-color`，530 ms 亮、530 ms 灭，内容或选区一变就从亮开始；只读框没有光标）与组合串的下划线（细 1 px，正在转换的子句粗 2 px，画在行盒底部）。文字裁在内容盒里（textarea 在内边距盒里），input 的一行在内容盒里垂直居中；键盘与输入法移动光标时文字滚动到光标可见，移动得尽量少（鼠标放下的光标不滚，同 Chrome），input 失去焦点时滚回开头；文本框的 `scrollLeft`、`scrollTop` 是文字的滚动。宽松样式的页面在 UA 样式里有 Chrome 的文本框样式（13.333px Arial、内边距、`border: 2px inset` 画成 Chrome 原生文本框的 1 px 灰色圆角框、禁用时 #545454 的字与浅底、焦点环贴着边框盒）；没有宽、高的 input 取 Blink 的固有大小（size 属性个平均字宽，缺省 20；平均字宽是字体 'x' 的宽，加最宽字符多出的部分），textarea 取 cols 与 rows（缺省 20 与 2，宽度另留 15 px 滚动条）。getComputedStyle 读到的是作者的值，不是 weft 为排版与绘制改写的值。
-- 输入法：`weft_view_text_input(runtime, view, weft_text_input*)` 告诉宿主文字往哪里去：`active`（有焦点、可编辑的文本框，且 View 有宿主的焦点；宿主据此打开、关闭输入法）、`composing`、`password`（Chrome 在密码框里关掉输入法）、`caret_x/y/width/height`（光标在 View 逻辑像素里的矩形，候选窗放在它下面）、`field_x/y/width/height`（文本框的边框盒）。`weft_view_composition(runtime, view, text, size, selection_start, selection_end, out_taken)` 交组合串（UTF-8；选区是它里面的 UTF-8 偏移，相等时是光标；空串取消组合），`weft_view_commit_text(runtime, view, text, size, out_taken)` 交上屏的文字（结束组合；没有组合时当作打字，但没有键事件）；`out_taken` 说有没有可编辑的文本框收下。输入法吃掉的键照旧以 `WEFT_KEY_IME` 送进来（key "Process"，keyCode 229）；组合进行时到来的键（keydown、keyup）`isComposing` 为 true（开始组合的那个键不算），同 Chrome。页面在组合中改值或移走焦点时组合结束（`composing` 变 0），宿主的输入法还在组合时应当取消它。
-- 可编辑的文本框里，打字的键（一个字符，或死键）按下时就是页面的（`WEFT_INPUT_DEFAULT`，文字随后进入文本框）：宿主不把它交给游戏，玩家在聊天框里打字时角色不动，同浏览器不处理页面里打字的键；只读框、带 Ctrl 的键与不打字的键照旧。
-- `weft_pointer_event` 的 `reserved` 改作 `modifiers`（`WEFT_MODIFIER_*`，Shift+点击扩展选区）；原来要求是 0，旧的宿主不受影响。
-- 测试：`text_field_contract`（`tests/text_field_tests.cpp`）把 `tests/fixtures/text_field/scenarios.json` 的十一个场景（打字、选择键、鼠标、输入法、只读/禁用/maxlength/被阻止、溢出与滚动、脚本 API、样式、Tab、textarea、textarea 的样式）在 View 里重放，与 Chrome 155 在同一页上的结果（`tools/browser_text_field_reference.mjs` 录下）逐事件、逐字段比较（selectionchange 的时机 Chrome 不定，不比；鼠标造出选区后焦点离开时 Chrome 多发的一次 select 不比），每一步之后比较所有文本框的值、选区与 scrollLeft（2 px 内）、读到的样式与矩形；十张文本框的截图由原生 D3D11 pass 画出，按亮度与 Chrome 的截图比较（允许 1 px 的水平偏移，那是两个文本引擎字距的差；组合串那张只比下划线与光标，因为 DevTools 给 Chrome 的组合串加了黄底）。
-
-
-文本框的剪贴板、撤销与重做（2026-11-08，`weft-ingame` 分支；用户在列出的缺口里选了这一项）：
-- **快捷键**：照各平台的 Chrome，由 `weft::editing_modifier` 决定，在 Apple 平台是 Command，其他平台是 Control。
-  - 全选、复制、剪切、粘贴、撤销、重做：A、C、X、V、Z，Shift+Z 重做；Windows 等平台另有 Ctrl+Y 重做、Ctrl+Insert 复制、Shift+Insert 粘贴、Shift+Delete 剪切。
-  - 只在有焦点的文本框里起作用，keydown 被页面阻止时不执行。
-  - 文本框的其余键（按词移动、删除）仍照 Windows 上的 Chrome：Apple 平台上原来的 Ctrl+A 全选改成了 Command+A。
-- **剪贴板**（`ScriptDom::clipboard_command`）：照 Chrome 的 `Editor`。
-  - copy、cut 先触发 `ClipboardEvent`（冒泡、可取消，`clipboardData` 是空的 `DataTransfer`）。没被阻止时把选中的文字放上剪贴板，cut 再删掉选区（beforeinput、input 为 `deleteByCut`）；被阻止时放上监听器 `setData` 给的 text/plain。
-  - 选区折叠时只有事件。密码框连事件都没有。只读框能复制，cut 只有事件。
-  - paste 触发 `paste`（`clipboardData` 带剪贴板的文字）。没被阻止且文本框可编辑时，用剪贴板的文字替换选区（`insertFromPaste`）：beforeinput 的 `data` 是原文，input 的 `data` 是实际插入的；单行框里换行变空格，`maxlength` 截断。
-- **撤销与重做**（`ScriptDom::history_command`）：
-  - 历史是整个文档的一个栈（Chrome 的 `UndoStack`，至多 1000 步），不是每个文本框各一个。撤销作用于最后一步，不管焦点在哪个框，并把焦点移到那一步的文本框。
-  - 连续打字合成一步，连续用键删除合成另一步；移动光标、改选区、换焦点、脚本改值都会断开。撤销删除后选中被恢复的文字。
-  - 撤销、重做有 beforeinput（可取消）和 input（`historyUndo`、`historyRedo`）。用键删除的那一步只有 input，这是 Chrome 的怪癖，照做。
-  - 新的编辑清空重做栈。输入法提交的文字是一步。脚本改过值的文本框，它的旧步骤作废。
-- **脚本**：
-  - `ClipboardEvent`、`DataTransfer`（字符串数据：`getData`、`setData`、`clearData`、`types`）。
-  - `navigator.clipboard.writeText()`、`readText()`，立即兑现，不要权限。
-  - `document.execCommand`：copy、cut（焦点不在文本框时在 body 上触发事件）、undo、redo、selectAll；paste 与其余返回 false，同 Chrome 里的普通页面。另有 `document.queryCommandSupported`。
-- **C 接口**：`weft_view_set_clipboard(runtime, view, read, write, user)`，owner 线程，载入页面前后都可设，换页面保留。
-  - `read` 把剪贴板的 UTF-8 文字用 `weft_resource_writer_set` 写出；没写、出错或不是 UTF-8 算没有文字。`write` 收到要放上剪贴板的文字。两个回调里都不能回调 View（`WEFT_BUSY`）。
-  - 两个都传 NULL 是去掉；只给一个是 `WEFT_INVALID_ARGUMENT`。
-  - 没有宿主的剪贴板时，View 用自己的：内存里最后复制的文字。示例宿主都没有把键盘交给页面，所以没有接系统剪贴板，由接入的引擎调用。
-- **测试**：
-  - `field_editing_browser_contract`（`tests/field_editing_tests.cpp`，可移植）：`tests/fixtures/field_editing/steps.json` 的 136 步在 View 里跑，与 `tools/browser_field_editing_reference.mjs` 录下的 Chrome 156 日志逐条相同，共 184 条（每个剪贴板与输入事件，以及 36 次焦点、值和选区）。关掉撤销步骤的合并，测试会在"撤销连续输入"那一步失败。
-  - `c_api_view_contract` 的 `clipboard`：宿主剪贴板的读写、非 UTF-8、`navigator.clipboard`、去掉后改用 View 自己的、参数错误、已销毁的 View。
-
-手柄与空间导航（2026-10-22，`input` 分支；用户提出：手柄能操作界面；用户 2026-10-21 定：手柄导航用页面标志开启）：
-- 页面标志 `WEFT_PAGE_SPATIAL_NAVIGATION`（8）：Blink 的空间导航（Chrome 的 `--enable-spatial-navigation`，`SpatialNavigationController`），`weft::spatial_navigation`（`src/view/view_spatial_navigation.cpp`）照它移植。方向键（不带 Shift、Ctrl、Meta）把焦点移到那个方向上最近的、看得见的候选：Tab 能到的元素，去掉边框后的盒子（Blink 的 `NodeRectInRootFrame`）与视口相交、不全被祖先的 overflow 裁掉，且没被别的元素盖住（它的可见部分的中心与四角的命中测试找到它或它里面的元素）。
-- 能拿焦点的元素（Blink 的 `Element::SupportsSpatialNavigationFocus`，2026-10-23）：开了空间导航时，有脚本监听器的元素（click、keydown、keypress、keyup、mouseover、mouseenter；SVG 元素还有 focus、blur、focusin、focusout）与自己设了 `cursor: pointer` 的元素（一棵手形光标树的顶：继承来的不算，父元素也是手形而它自己又写了的算，同 Chrome 155 的 `SpatNavUsesCursorInheritance`）也能拿焦点：`focus()`、鼠标按下、Tab（调整后的 tab index 是 0，`tabIndex` 照旧是 −1）与方向键都到得了。它们没有显式的非负 tabindex，所以里面有候选时让给里面的元素（卡片里自己设了手形的角标先于卡片）；禁用的表单控件照旧不能。监听器由原生 DOM 回答（`ScriptDom::spatial_navigation_listener`），光标由 View 从场景读（场景只存元素自己的 `cursor`）。
-- 距离照 Blink 的 `ComputeDistanceDataForNode`：两盒最近两点的欧氏距离加行进方向的距离，加横向距离（上下乘 2，左右乘 30，两盒在横向上不相交时先加当前盒一半的宽或高），减对齐（横向重叠占当前盒的比例乘 5）；与当前盒重叠的候选先于一切，从当前盒的远边量起；包含当前盒的元素不是候选；距离相等时给包含另一个的那个（由外往里）；最好的候选没有显式的非负 tabindex、也不是可编辑的根，而它的盒子里又有它的后代是候选时，回到它之前最好的那个（Blink 的 `IsSkippableCandidate`：这样的容器让里面的元素拿焦点）。
-- 搜索的起点是焦点元素看得见的部分；焦点元素滚出视野时是它最近的看得见的滚动容器那一边的边缘；没有焦点时是视口那一边的边缘（向下从顶边找）。焦点在看得见的滚动容器上时先在它里面找，然后由里往外逐层找，每层只看不在更深的滚动容器里的元素，容器自己在出去的路上不拿焦点；某层没有候选而它还能往那边滚时滚一行（40 px）：滚动容器里下一项完全被裁掉时，按键先滚动，露出来再移焦点。整页不滚（View 的文档不滚动）。
-- 移焦点是键盘给的焦点（`:focus-visible`、滚进视野；进入单行 input 全选，进入 textarea 恢复原来的选区），指针跟着移到元素看得见的部分左上角往里 1 px（Blink 的 `MoveInterestTo` 合成的鼠标移动）：mouseover/out 与 `:hover` 随焦点走。keydown 的监听器已经移走焦点时不导航；找不到目标时方向键照旧滚动。
-- 文本框里方向键先移动光标；没有选区、光标已在键要去的地方时才交给空间导航（input 的 ←↑ 在开头、→↓ 在末尾，textarea 的 ↑ 在首行开头、↓ 在末行末尾；Blink 的 `SelectionModifier::Modify` 在空间导航开启时不吃动不了光标的键），Home、End 这样时交给滚动。
-- Escape：有焦点时 blur（activeElement 变成 body，`:hover` 不变）；没有焦点时把指针移出页面（mouseout，`:hover` 清空）。
-- Enter 与空格（2026-10-23）：Enter 的 keydown 让焦点元素（没有焦点时是 body）变成 `:active`，它的 keyup 时恢复（`SpatialNavigationController::HandleEnterKeyboardEvent`；Chrome 155 的这个函数只管 `:active`，不再点击）。Enter 与空格的 keypress 点击焦点元素，除非它自己处理这些键（Blink 的 `HTMLElement::HandleKeypressEvent`）：按钮在 keypress 时点击，链接的 Enter 在 keydown 时点击（之后没有 keypress），input 的 Enter 是隐式提交，复选框的空格等 keyup，文本框与 textarea 打字，可编辑元素也不点击；可聚焦的 div（tabindex、空间导航的监听器与手形光标）与链接的空格都点击，空格因此不再滚动页面。模拟点击先取消 `:active`（Blink 的 `DispatchSimulatedClick`），所以按钮与这些元素在 keypress 之后就不是 `:active`（原先录到“Enter 没有 `:active`”就是这个原因），不点击的 body、文本框与 textarea 到 keyup 为止是。手柄的 A 是 Enter，同样。
-- 没有移植：Blink 给弹出层的优先级（weft 没有可区分的绘制层）、行内元素按行盒收缩与多片段、iframe、`focusgroup`、css-nav-1 的脚本 API（`spatialNavigationSearch()`、`navbeforefocus` 等，Chrome 也没有开放）。与 Chrome 不同：body 与 html 不在场景里，有监听器也不拿焦点，Enter 与空格也不点击它们（Chrome 会）；显式的 `cursor: inherit` 算元素自己设的（weft 的层叠只留下父元素的值，不留关键字）。
-- `weft_view_gamepad(runtime, view, const weft_gamepad_state*, uint32_t* out_handled)`，owner 线程：宿主每帧给每个连着的手柄一次，断开时给一次 `connected` 0。`weft_gamepad_state`：`struct_size`、`index`（槽 0–3，`WEFT_GAMEPAD_SLOTS`）、`connected`（0 或 1）、`pressed` 与 `touched`（按钮的位，至多 17 个）、`reserved`、`id` 与 `id_size`（UTF-8，至多 128 字节；Chrome 给 XInput 手柄的是 "Xbox 360 Controller (XInput STANDARD GAMEPAD)"）、`buttons[17]`（0–1）、`axes[4]`（−1–1：左摇杆、右摇杆的 x、y，y 向下为正）。按钮是 Gamepad API 的标准布局：A、B、X、Y，左右肩键，左右扳机，Back、Start，左右摇杆按下，D-pad 上下左右，Home；扳机按 Chrome 的阈值（XInput 30/255）算按下，由宿主给。值超范围、id 不是 UTF-8 或太长是 `WEFT_INVALID_ARGUMENT`。
-- 页面（所有页面，不用 web 平台标志）：`navigator.getGamepads()`（四个槽，空的是 null）、`Gamepad`（`id`、`index`、`connected`、`timestamp`、`mapping` 为 "standard"、冻结的 `axes` 与 `buttons`，`GamepadButton` 的 `pressed`、`touched`、`value`，按下或值大于 0 的按钮也算 touched，同 Blink；`vibrationActuator` 为 null）、`GamepadEvent`，window 上的 `gamepadconnected`、`gamepaddisconnected`。照 Chrome：某个手柄有按钮按下或某个轴超过一半（Chrome 的用户手势）之前一个手柄也不显示，之后每个连着的手柄来一次 gamepadconnected，后来连上的随即一次；Gamepad 是快照，`timestamp` 是状态上一次变化时页面的时钟；页面重新加载后重新等手势。
-- 手柄的键：开了空间导航的页面上、View 有宿主的焦点时，D-pad 与左摇杆（较大的那个轴超过一半）是方向键，A 是 Enter，B 是 Escape：按下时 keydown，抬起时 keyup（key 与 code 都是键名，keyCode 是 Windows 虚拟键 38、40、37、39、13、27），同一次状态里先抬后按（摇杆从右转到下：ArrowRight 的 keyup 在 ArrowDown 的 keydown 之前）；按住的方向 0.5 s 后每 0.1 s 重复一次（`repeat` 为 true，在推进里发；一帧太长时从这一帧接着算，不连发）；手柄断开时抬起它按着的键；宿主的焦点离开时忘掉按着的键（不发 keyup，同窗口失焦）。返回这些键的 `WEFT_INPUT_*`，宿主据此把页面用掉的手柄输入留给页面。Chrome 不把手柄变成键，这是 weft 在页面标志下的选择。
-- 测试：`spatial_navigation_contract`（`tests/spatial_navigation_tests.cpp`）把 `tests/fixtures/spatial_navigation/scenarios.json` 的十五个场景（网格、没有焦点、长短不一的链接、可聚焦与不可聚焦的面板、滚动容器、文本框、textarea、重叠的按钮、Enter 与 Escape、监听器自己移焦点、远处的按钮、有监听器的元素、手形光标的卡片与角标（Enter、空格、Tab、鼠标）、Tab 顺序与 Shift+Tab、Enter 的 `:active`（body、input、textarea、可聚焦的面板、链接的空格与 Enter））在开了空间导航的 View 里重放，与开了 `--enable-spatial-navigation` 的 Chrome 155 在同一页上的结果（`tools/browser_spatial_navigation_reference.mjs` 录下）逐事件、逐字段比较：127 步全部一致，包括 mouseover/out、`:hover`、`:focus-visible`、`:active`、滚动位置与两个文本框的光标（weft 的控件缺省没有边框，所以夹具给所有控件写了 2 px 边框，两边的盒子才一样）；另有没开空间导航的同一页（这些元素不拿焦点、Tab 越过它们、Enter 不点击面板）、拿焦点的规则（移除了的监听器、`cursor: initial` 隔开的手形、图片列表之后的关键字、SVG 元素的 focus 监听器）、`navigator.getGamepads()` 与事件（手势、快照与时间、断开与重连、接口、重新加载、拒绝的状态）、手柄的键（D-pad、重复与太长的一帧、摇杆的方向与先抬后按、右摇杆、A 与 B、宿主焦点、断开）。`c_api_view_contract` 加 `gamepads`（参数、加载前、页面上的 D-pad、同步函数里重入返回 `WEFT_BUSY`、别的线程、过期句柄）。页面运行器：page.json 的 `spatialNavigation`，时间线的 `gamepad` 步骤（之后每帧照宿主的样子再给一次）。
-
-触摸与多点触控（2026-11-07，`weft-ingame` 分支；用户提出：移动端要能触摸操作，行为照 Chrome）：
-- C 接口：`weft_view_touch(runtime, view, const weft_touch_event*, uint32_t* out_prevented)`，owner 线程。
-  - `weft_touch_event`：`struct_size`、`modifiers`、`points`（这次变化的触点，每个一次）、`count`、`time_seconds`（触点自己的时间戳，在 `weft_view_advance` 的时钟上；0 用 View 的时间，计算松手速度用）。
-  - `weft_touch_point`：`id`（宿主对这个触点从按下到抬起的称呼，iOS 用 UITouch 的地址，Android 用 pointer id）、`phase`（`WEFT_TOUCH_BEGAN/MOVED/ENDED/CANCELLED`）、`x`、`y`、`radius_x`、`radius_y`（逻辑 px，未知为 0）、`force`（0–1，未知为 0）。
-  - 一个触点按下两次、按下前就移动、坐标不是有限值，都返回 `WEFT_INVALID_ARGUMENT`。
-- 每个触点是一个指针，照 Chrome（录在 `tests/fixtures/touch`）：
-  - `pointerType` 为 "touch"，pointerId 从 2 起每个触点一个新的。同时没有别的触点时 `isPrimary` 为 true。`width`、`height` 是半径的两倍（未知为 1），`pressure` 是 force。
-  - 按下：`pointerover` → `pointerenter`（从页面根往里）→ `pointerdown` → `touchstart`。
-  - 隐式捕获到按下的元素：下一个指针事件之前补 `gotpointercapture`。
-  - 移动：`pointermove`（button −1）。抬起：`pointerup`（宽高 1、压力 0）→ `lostpointercapture` → `pointerout` → `pointerleave`（由里往外）→ `touchend`。
-  - 系统取消：`pointercancel` → `lostpointercapture` → `pointerout` → `pointerleave` → `touchcancel`。
-- 触摸事件：
-  - `TouchEvent` 带 `touches`、`targetTouches`、`changedTouches`（`TouchList`，可迭代，有 `item()`）；`Touch` 有 `identifier`、`target`、client/page/screen 坐标、`radiusX/Y`、`force`。
-  - 目标始终是按下时的元素。
-  - 只有一个触点、还没离开按下点 15 px 时，移动不发 `touchmove`（Chrome 的滑动阈值）；有第二个触点后照发。
-  - `touchstart` 可取消；第一个越过阈值的 `touchmove` 可取消，它没被阻止的话，这个触点之后的 `touchmove` 与 `touchend` 都不可取消。
-- 点按：只有一个触点、始终在阈值以内、`touchstart` 与 `touchend` 都没被阻止时算点按。抬起后在按下的位置（整像素）发兼容鼠标事件：
-  - 先是悬停转到那里（`mouseout`、`mouseleave`、`mouseover`、`mouseenter`），再 `mousemove`、`mousedown`（焦点移过去，文本框放光标）、`mouseup`，最后 `click`（PointerEvent，pointerType "touch"，detail 是连按次数）。
-  - 400 ms、20 px 内的第二次点按 detail 为 2，并补 `dblclick`。
-  - 之后被点的元素保持悬停，`:active` 再保持 150 ms。
-  - 按住多久都还是点按（Chrome 桌面没有长按菜单）。
-  - 点按停下惯性滚动的那一下不算点按。
-- 平移：
-  - 触点越过阈值、`touchmove` 没被阻止、`touch-action` 允许这个方向（横向看 pan-x，纵向看 pan-y）时，浏览器接管：先 `pointercancel`（位置 0,0），之后没有指针事件。
-  - 平移锁定到从目标往外第一个能往这个方向滚的滚动容器；没有就什么也不滚，但仍然取消指针。
-  - 第一次滚动减去阈值，之后 1:1 跟手（整像素）。
-  - `touch-action`（不继承，元素与祖先的取值求交）：`auto`、`manipulation`、`none`、`pan-x`、`pan-y`（pan-left/right/up/down 归到 pan-x/pan-y）。`none` 或页面阻止 `touchmove` 时，指针事件一直发，页面自己拖动。
-- 惯性滚动：
-  - 松手速度用 Chrome 的 VelocityTracker 算法：最近 100 ms（至多 20 个）移动采样的二次最小二乘；松手前停了 40 ms 以上为 0；钳在 30–17000 px/s。
-  - 曲线用 ui::FlingCurve：p(t) = α·e^(−γt) − β·t − α（α = −5707.62，β = 172，γ = 3.7），从松手速度进入，跑到速度为 0。
-  - `weft_view_advance` 每帧推进；滚到容器尽头或有新触点按下时停止。
-- 指针捕获（2026-11-07，同时做了鼠标的）：
-  - `element.setPointerCapture(id)`、`releasePointerCapture(id)`、`hasPointerCapture(id)`；不活动的 id 抛 `NotFoundError`。
-  - 鼠标只在按着键时能捕获：捕获期间指针与鼠标事件都发给捕获元素，不发边界事件。抬起时顺序是 `pointerup`、`mouseup`、`lostpointercapture`、`click`，然后悬停转到鼠标下面的元素。
-  - 触点在 pointerdown 里释放隐式捕获后，它的指针事件发给手指下的元素，随之发 out/leave/over/enter；它的触摸事件仍在原目标。
-- 输入设备（2026-11-07）：`weft_view_set_input_devices(runtime, view, const weft_input_devices*)`，owner 线程，可以在加载前设置，跨页面加载保留。
-  - `weft_input_devices`：`struct_size`、`primary`（`WEFT_INPUT_MOUSE`、`WEFT_INPUT_TOUCH` 或 0，0 表示没有指针，比如只有手柄）、`available`（全部设备，包含 primary）、`max_touch_points`（有触屏时 1–32，没有时 0）。
-  - 页面看到的与 Chrome 在这种设备上的一致（与 Chrome 156 桌面及触摸模拟下的结果逐项核对）：
-    - `pointer`、`hover` 按 primary 回答：鼠标是 fine、hover，触屏是 coarse、none，没有设备时都是 none；
-    - `any-pointer`、`any-hover` 按 available 回答；
-    - `navigator.maxTouchPoints` 是 max_touch_points；
-    - 有触屏时才有 `ontouchstart` 等四个处理器属性（window 与节点上，返回 false 时取消事件）。
-  - 宽松样式表的 `@media` 跟着变：结果变了的条件在下一次 `weft_view_advance` 重新层叠。
-  - `matchMedia` 的列表改为实时结果；加了 `change` 监听或 `onchange` 的列表，在结果变化时收到 `change` 事件。窗口尺寸变化后同样检查。
-  - 不设置时是鼠标，与以前相同。
-  - iOS 示例声明为触屏（primary 与 available 都是触屏，5 个触点）。
-- 顺带修正鼠标：悬停变化时先发全部指针边界事件（pointerout、pointerleave、pointerover、pointerenter），再发鼠标的，与 Chrome 一致（此前交错）。enter/leave 不可取消。
-- 与 Chrome 的差别：
-  - Chrome 对快速平移的触摸采样做重采样并预测约 8 ms（掩盖它合成器的延迟），内容比手指领先（2.5 px/ms 时约 20 px）；weft 严格跟手，之后的惯性距离一致。
-  - 平移期间 Chrome 约每 200 ms 才发一个不可取消的 `touchmove`，weft 每次都发。
-  - enter/leave 只到页面根，不到 document、html、body。
-  - 没有双指缩放、长按菜单、滚动链（滚到头不交给外层）与回弹。
-- 测试：`touch_contract`（`tests/touch_tests.cpp`，可移植）把 `tests/fixtures/touch/scenarios.json` 的十六个场景逐事件对照 Chrome 156 在同一页面上的结果（`tools/browser_touch_reference.mjs`，CDP 触摸模拟），每步也比较滚动位置与 `:hover`、`:active`，共 84 步。场景包括：
-  - 点按，阻止 `touchstart` 或 `touchend`，两次点按换元素，阈值内小移动仍算点按，拖出元素；
-  - `touch-action: none` 与页面阻止 `touchmove` 的拖动，慢速平移，惯性（比较松手后滚了多远），`pan-y` 容器里横向与纵向拖动；
-  - 两指，长按，双击，取消。
-- 另外四项测试：
-  - 新触点停下惯性且不算点按；惯性停在容器尽头；
-  - 鼠标捕获与触点释放捕获的事件序列，与 Chrome 逐个相同；
-  - 鼠标、触屏手机、触屏笔记本、没有指针四种输入设备下的 `matchMedia`、`@media` 规则、`maxTouchPoints` 与 `ontouchstart`，以及 change 事件、返回 false 的处理器、不合法的设备组合、跨页面加载保留；
-  - 不合法的触点被拒绝。
-
-渲染（13.3b，`include/weft/render_backend*.h`，详见 [渲染后端 API](render-backend-api.md#view-帧2026-10-14)）：
-- 渲染线程（渲染器的 owner）取最新的帧，`weft_renderer_prepare_scene` 准备（之后就可以释放帧的句柄），`weft_renderer_encode` 录制或画进宿主的目标，再照渲染器的协议报告提交与完成。锚点在 encode 时取最新值：准备之后、录制之前写的锚点也会画上。
-- 画在目标已有的内容（游戏画面）之上：不清屏，页面没画的地方保留游戏画面；宿主可以要求先清成某个颜色。目标是 UNORM 格式，页面按浏览器的方式在 sRGB 编码空间合成。
-- 内置后端用宿主的设备创建：D3D11（`weft_render_d3d11_create`）在 encode 时画在设备的立即上下文上；Vulkan（`weft_render_vulkan_create`）录进宿主的命令缓冲，宿主给出目标的 VkImage 时 `backdrop-filter` 能模糊游戏画面。UE 的插件在 M5 用 RHI 实现后端（同一设备上的 RHI 纹理，覆盖 D3D12、Vulkan 与主机平台）。
-- 每个 View 一个保留的 pass：内容不变、只动锚点的帧只重新摆放锚定的元素（13.1b 的 GPU 路径）；View 销毁后，下一次准备时丢弃它的 pass。
-- 样例 `samples/engine-host`：只用公开头文件的模拟引擎，HUD 页面、锚点、视图模型、事件、命中与点击、调用与同步函数，在 D3D11 与 Vulkan 上画在游戏画面之上。
-
-引擎的纹理（13.3c）：页面写 `background-image: -weft-texture(name)`，宿主每帧在 `weft_render_scene_frame::textures` 里把名字绑到它导入的纹理（外部纹理扩展的租约），不经 CPU。
-- 宿主先用后端的扩展（`weft_render_d3d11_external`、`weft_render_vulkan_external`）装到渲染器上，再导入纹理：D3D11 的着色器资源视图、Vulkan 的图像视图；线性的 RGBA8、BGRA8、RGBA16F、RGBA32F（设备能过滤时），或 sRGB 的 RGBA8、BGRA8 视图（采样时解码）：采样得到的是线性预乘的颜色。可以带 mip（`weft_render_external_texture::mip_levels`，原来的保留字段；字节预算按整条链算），缩小时在层间采样。页面按浏览器合成图片的方式画它（转成 sRGB 编码值）。
-- 每帧重画的 render target 以 `WEFT_RENDER_EXTERNAL_SAME_QUEUE_LIVE` 导入一次：引擎在同一队列上、UI 之前写它，Vulkan 上自己加屏障，之后每帧都绑同一个租约；冻结方式（默认）的纹理在退休前不能改。
-- 纹理像 CSS 画背景图那样铺排（2026-10-15）：自然大小是它的像素（1 个 CSS px 一个纹素），`background-size`、`-position`、`-repeat`、`-origin`、`-clip` 与 `background` 简写；在背景色之上、边框之下，裁剪盒的圆角里；没绑定的名字什么也不画。纹理的大小只有渲染线程知道（宿主每帧可以换），所以瓦片由着色器按纹理的大小算，CPU 上同样的算法（`scene_texture_tiles`）供 D2D 参考光栅与测试用。要铺满元素写 `background-size: 100% 100%` 或 `cover`（13.3c 时总是拉伸铺满边框盒）。
-- 别的设备或图形 API 写的纹理（如 UE 的 D3D12 设备上的 render target，经 NT 句柄共享）：宿主在后端的 D3D11 设备上打开它（`OpenSharedResource1`）与共享 fence（`OpenSharedFence`），像同设备的纹理那样以 live 导入；写与读的先后由宿主排：UI 的 pass 画在立即上下文上，宿主在 `weft_renderer_encode` 之前于立即上下文上 `Wait` 生产者写完的值，之后 `Signal` UI 读完的值，生产者写下一帧前等这个值。D3D11 接受带共享标志的纹理（键控互斥由宿主获取与释放）。测试：D3D12 在同一适配器上写、D3D11 画，两帧各是 D3D12 为它写的内容。Vulkan 上宿主可用 `VK_KHR_external_memory_win32` 与外部信号量自己导入，后端不检查图像怎么来的（未测）。
-- Vulkan 的纹理结构末尾可选的 `image`（`weft_render_vulkan_texture::image`）：宿主给出时，画进帧绑定的纹理的 pass 被拒绝（`INVALID_STATE`，同 D3D11）；没有时由宿主保证。
-- UE 插件（M5）里，UE 的 render target 就是同一设备上的 RHI 纹理，由 RHI 后端直接绑定，同样零拷贝。
-
-页面的文件（2026-10-16，用户提出：界面的共享纹理放在页面的文件夹里，不进引擎资产）：scene 页面写 `background-image: url(...)`（也可写在 `background` 简写里），图片是页面文件夹里的 PNG。
-- 页面带一个基准（`weft_page_desc::base`，接在结构末尾；`struct_size` 等于 `offsetof(weft_page_desc, base)` 的旧调用方没有基准）：样式表文件的路径，宿主怎么叫它的文件就怎么写（`UI/City/page.css` 或 `UI/City/`）。weft 按 RFC 3986 把相对 URL 并到基准最后一个 `/` 之后，去掉 `.` 与 `..` 段（`view_resolve_url`）：有根的基准（`/UI/`、`C:/UI/`）`..` 到根为止；相对的基准（如 UE 的 `../../../Game/Content/UI/`）开头没得退的 `..` 保留，宿主从它的当前目录读。带 scheme 的 URL 与以 `/` 开头的原样交给宿主，查询与片段不算路径，反斜杠当斜杠。
-- 宿主给每个 View 设一个资源回调（`weft_view_set_resource_reader`，跨加载保留，NULL 取消）：View 求解场景时在 owner 线程上同步调用它，每次页面加载里每个路径一次；它把文件的字节写进 `weft_resource_writer`（`weft_resource_writer_set` 复制，至多 16 MiB），不写就是没有这个文件；回调里对这个 View 的 owner 操作返回 `WEFT_BUSY`。同步读是有意的：界面的图片是本地小文件，第一帧就有图，不用为异步到达重做场景（那会重启动画）。
-- 解码用 lodepng（固定版本，见 [记录](../third_party/lodepng/README.md)）：任何 PNG 颜色类型与位深转成直通 sRGB RGBA8，颜色按 sRGB（不读 gAMA、iCCP）。限制：一张至多 1024 × 1024 = 1,048,576 像素、边长至多 4096（半透明的图在 pass 里是线性浮点，每像素 16 字节，与 pass 的单图上限 16 MiB 相当）；一次页面加载至多 256 张、解码后共 64 MiB。先读文件头，超界的图不解压。
-- 没有回调、没有文件、回调失败、不是 PNG 或超界：一条 scene 诊断（`WEFT_SCENE_PROFILE: url(<路径>): <原因>`），每个路径一次，那个背景不画图，页面照常。没有图片源（不经 View 的求解器）时 `url()` 本身是 scene 诊断。
-- 2026-11-08 起，同一套读取也服务 `<img>`，并按文件头识别 JPEG（libjpeg-turbo）与 WebP（libwebp），`data:` URL 不经回调直接解码。见 [图片元素](img.md#第二阶段格式与来源)。
-- 每次加载重新读：宿主改了文件，重新加载页面就生效。
-- 字体（2026-11-01，KaTeX 的字体）：宽松样式表里 `@font-face` 的 `src: url()` 也经这个回调读，在页面加载时（样式表编译之后、第一帧之前）读，同样按基准解析、每个路径一次。一条规则取第一个读得出的 TrueType 或 OpenType 来源，`woff`、`woff2` 按 `format()` 提示不读（没有提示的看文件开头），`local()` 不按全名找安装的字体；都读不出时一条 scene 诊断 `WEFT_FONT_FACE: <字族>: <每个来源的原因>`，文字退到别的字体。有 `@font-face` 的页面有自己的字体目录与文字系统（页面的字族遮住同名的安装字体），它的帧带着这个目录，渲染器按帧切换（`ViewFrame::fonts`；三个原生后端相同）；同一运行时里别的 View 不受影响。字节留在内存里（`FontFaceSource::data`），D2D 参考光栅经 DirectWrite 的内存字体加载器读同样的字节。测试：`view_fonts_contract`、`render_d3d12_view_contract` 的 `page_fonts`、`katex_browser_reference`。
-- 绘制：图片像 `-weft-texture()` 那样按 CSS 铺排（`background-size`、`-position`、`-repeat`、`-origin`、`-clip`），自然大小是它的像素；显示列表里是列表自己的资产（`paint::Image::fitted`），pass 把它当作整张纹理（不进图集；不透明的是 sRGB 纹理，半透明的是线性预乘浮点，Vulkan 与 D3D12 上设备不能过滤浮点纹理时整帧回退，同效果纹理），着色器用宿主纹理的铺排代码。显示这种背景的元素在 pass 里画，不做缓存的图层。D2D 参考光栅同样画。
-- 测试：`view_images_contract`（URL 解析、各种 PNG、超界、每个路径一次、诊断、View 的场景）；`c_api_view_contract` 的 `resources`（基准、回调、重入、写入参数、旧的结构大小）；`scene_texture_contract`（`url()` 的语法、诊断、显示列表）；`scene_background_contract`（同样九种铺排的半透明图片，D3D11 原生 pass 与参考光栅逐像素至多差 2 级）；`scene_paint_reference` 把四个纹理用例再用 `url()` 画一遍，与 Chrome 的截图（Chrome 画的就是同样的 PNG）误差与宿主纹理相同，Vulkan 与 D3D11 至多差 2 级。
-
-安全区（2026-10-23，`ios-host` 分支；用户提出：iPhone 上 HUD 下方留着 Home 条的黑边，画面应铺满全屏，只让按钮避开屏幕边缘）：
-- `weft_view_set_safe_area(runtime, view, top, right, bottom, left)`，owner 线程：View 的安全区，单位是它的逻辑 px，即屏幕的上、右、下、左边各有多宽要让开（摄像头开孔、圆角、Home 条）。页面用 CSS 的 `env(safe-area-inset-top)`、`-right`、`-bottom`、`-left` 读它（见 [兼容性](compatibility.md)）。宿主没有设时四边为 0，等于宿主自己把 View 放在安全区里；设了之后跨页面加载保留，下一次推进按新值重新布局用到它的元素。每个值须有限且不小于 0，否则 `WEFT_INVALID_ARGUMENT`。
-- 宿主的用法：让 View 铺满整块屏幕，把系统给的安全区（iOS 的 `safeAreaInsets`、Android 的 `WindowInsets`）换成 View 的逻辑 px 传进来，在旋转、换屏、改大小时再传一次；页面的背景与画面铺到边缘，按钮、文字用 `env()` 让开。`samples/ios-host` 是这样做的，HUD（`examples/engine-host/hud.css`）用 `env()` 给小地图、标题与结束回合按钮留边。
-- 测试：`c_api_view_contract` 的 `safe_area`（第一个页面之前与之后设、改了之后重新布局、跨加载保留、`calc()` 与 `padding` 简写里的 `env()` 与写成 px 的相同、后备值与嵌套、名字区分大小写、无后备值的未知名字与关键帧里的 `env()` 报诊断、错误的值与过期的句柄）；`c_api_smoke` 从 C 调用。
-
-## 9. JS API 草案
-
-```ts
-interface WeftEngine {
-  on(name: string, handler: (value: unknown) => void): () => void;
-  once(name: string, handler: (value: unknown) => void): () => void;
-  onAny(handler: (name: string, value: unknown) => void): () => void;
-  send(name: string, value?: unknown): void;
-  call<T = unknown>(name: string, value?: unknown, options?: {timeout?: number}): Promise<T>;
-  invoke<T = unknown>(name: string, value?: unknown): T;
-  model(name: string): {readonly value: Readonly<Record<string, unknown>>; subscribe(listener: () => void): () => void};
-}
-declare const weft: {readonly engine: WeftEngine; emitParticles(element: Element, name: string, options?: object): void};
-```
-
-- 随 SDK 提供 `.d.ts` 与一个小的 React 辅助（`useEngineEvent`、`useEngineModel`，基于 `useSyncExternalStore`），不进核心。
-
-## 10. 宿主接入示意（UE 风格伪代码）
-
-```cpp
-// 游戏线程，每帧
-void UWeftUISubsystem::Tick(float dt) {
-    FloatingManager->Project(Anchors);                                  // 和现在一样在 C++ 里投影
-    weft_view_write_anchors(Runtime, View, Anchors.GetData(), Anchors.Num());
-    weft_view_advance(Runtime, View, NowSeconds());                     // 交付事件、跑 JS、更新场景帧
-    weft_view_drain_messages(Runtime, View, &OnMessage, this);          // 页面发出的消息与调用
+// 3. 发起带超时的异步引擎调用
+try {
+  const presets = await weft.engine.call('settings.load', null, { timeout: 3000 });
+  applySettings(presets);
+} catch (err) {
+  console.error('Failed to load settings:', err);
 }
 
-void OnMessage(void* self, weft_view_handle view, const weft_message* m) {
-    if (m->kind == WEFT_MESSAGE_CALL && Name(m) == "market.load") {
-        Market->LoadAsync(Decode(m), [=](const FMarketPage& page) {    // 稍后，任意线程
-            weft_view_complete_call(Runtime, view, m->call_id, 1, WEFT_VALUE_MSGPACK, Encode(page));
-        });
-    }
-}
+// 4. 调用宿主注册的同步函数
+const label = weft.engine.invoke('i18n.get', 'menu.continue');
+```
 
-// 渲染线程（渲染器的 owner），每帧：取最新场景帧，准备与录制（锚点在这里取最新值）
-void FWeftRenderer::Render(void* commands, void* target) {
-    weft_view_frame* frame = nullptr;
-    weft_view_acquire_frame(Runtime, View, &frame);                     // 任意线程可取
-    const weft_render_scene_frame scene{sizeof(scene), WEFT_RENDER_ABI_VERSION, frame, 0 /* View 的缩放 */, 0};
-    weft_render_handle prepared{}, use{};
-    weft_renderer_prepare_scene(Renderer, &scene, &prepared);
-    weft_view_frame_release(frame);                                     // 准备好的帧自己持有引用
-    weft_renderer_encode(Renderer, prepared, Pass(commands, target), &use); // 画在游戏画面之上
-    weft_renderer_release_prepared(Renderer, prepared);
-    Submitted.Add(use);  // 提交后 weft_renderer_notify_submitted，GPU 完成后 weft_renderer_notify_completed
+## 3. 3D 世界锚点（Zero-Script Anchors）
+
+对于每帧跟随 3D 角色或世界物体移动的 UI（头顶血条、NPC 名牌、交互提示、目标指示器），传统做法每帧往 JS 同步坐标并修改 `transform` 会带来大量脚本与样式开销。Weft 提供**零脚本世界锚点机制**：
+
+1. **页面声明**：在元素上标注 `data-anchor="<key>"` 属性即可，无需编写每帧更新的 JS 逻辑。
+2. **宿主写入**：引擎将 3D 世界坐标投影到逻辑屏幕空间后，每帧调用 `weft_view_write_anchors(runtime, view, anchors, count)` 提交锚点数组（包含键名、逻辑屏幕坐标、缩放、深度与可见/背面裁剪标记）。
+3. **渲染直驱**：锚点变换直接进入渲染显示列表与命中测试几何，不触发 DOM 变更、样式重算或布局重排，确保 3D 物体与 UI 标记严格同帧对齐、零延迟抖动。
+
+## 4. 引擎 GPU 纹理导入（`-weft-texture`）
+
+UI 界面可直接零拷贝显示引擎渲染出的实时 GPU 纹理（例如小地图、3D 角色检视渲染目标、实时狙击镜画面、动态图标集）：
+
+1. 通过渲染器的外部纹理扩展 `weft_renderer_import_texture` 导入宿主原生 GPU 纹理并绑定逻辑名称（支持静态冻结纹理 `WEFT_RENDER_EXTERNAL_SAME_QUEUE_ORDERED` 与每帧重绘的实时渲染目标 `WEFT_RENDER_EXTERNAL_SAME_QUEUE_LIVE`）。
+2. 在页面 CSS 中直接引用：
+
+```css
+.minimap {
+  background-image: -weft-texture(minimap_rt);
+  background-size: cover;
+  border-radius: 50%;
 }
 ```
 
-## 11. 从 CRPG 的 Ultralight 桥迁移
+3. 纹理的生命周期受 GPU 完成序号保护；宿主释放租约后，渲染器会在最后一帧采样该纹理的 GPU 提交完成后通过 `retired` 回调通知安全回收。详见 [渲染后端集成指南](render-backend-api.md)。
 
-1. 引擎侧换后端：`CallUI` → `weft_view_emit`；`OnEvent` → 取消息；页面加载、推进、输入接到 View。页面代码经兼容层不改。
-2. 浮动 UI 改用锚点：`UWebUIFloatingManager` 在投影后写锚点数组，不再每 16 ms 推整份 JSON；视图模型字段（血量、名字、状态）变化时才发事件。`FloatingUIOverlay` 只在实例出现、消失时渲染，元素上写 `data-anchor={id}`；贴边策略用 `data-anchor-offscreen="clamp"`。13.4 的 `AnchoredFloatingUIOverlay`（`examples/crpg-gallery/src/floating`）是这样改写的样例：原样的实例组件与外层包装，实例的出现、消失走事件（`floating.spawn`、`floating.despawn`），字段走视图模型 `floating`。
-3. 请求-应答改用 `weft.engine.call`，成对的事件可以逐步替换。
-4. 缩放：CRPG 用 `<html>` 的 CSS `zoom`；Weft 目前不支持 `zoom`，改用 View 的逻辑尺寸与设备缩放（或之后实现 `zoom`，见第 14 节）。
+## 5. 完整游戏输入与交互路由
 
-## 12. 分段计划与验收
+Weft 不拦截操作系统消息，所有输入由宿主按需注入，并返回明确的事件消费状态，方便引擎实现“UI 优先、空白透传给游戏”的精确分流。
 
-| 段 | 内容 | 验证与退出条件 |
-| --- | --- | --- |
-| 13.1 锚点 | 每 View 的锚点三缓冲；CPU 参考路径（显示列表应用锚点：pivot、缩放、深度排序、offscreen 与 missing 规则）；owner 命中与几何读取；GPU 路径（记录与显示列表留在显存、锚点表与顺序缓冲、着色器变换）；HUD 基准增加锚点模式 | 锚点画面与用 CSS transform 摆到同样位置的画面逐像素比较；命中；隐藏、缺失、贴边；画的是最后写入的值；写者线程压力测试；保留与全量逐像素相同；GPU 路径与 CPU 参考路径逐像素对照；400 个锚点元素只移动、没有 DOM 变化时：owner ≤ 0.1 ms、渲染 CPU p50 ≤ 0.1 ms；另报每帧约二十分之一掉血（经现有的 JSON 推送改血条宽度）时的耗时 |
-| 13.2 桥接 | 值的编解码与 JS 转换；双向事件；调用与 Promise、超时；同步函数；视图模型；有界队列；CRPG 兼容层 | 值的随机往返；重入被拒；View 重置后迟到的完成被拒；多线程投递压力；兼容层跑 CRPG 的消息样例；与“JSON 拼进脚本”的转换耗时对比 |
-| 13.3 C ABI 与宿主 | 对外 View（加载、推进、输入、命中查询、取帧）；锚点与桥接的 C 接口；模拟引擎的宿主样例（HUD 加事件） | C ABI 合同测试（struct_size、版本、线程要求、过期句柄）；样例在 D3D11 与 Vulkan 上运行 |
-| 13.4 CRPG 浮动 UI | 按 CRPG 的血条、伤害数字、状态标记做的页面，改用锚点与事件；伤害数字的生成与退场 | 与推 JSON 的同一页面对比耗时与画面 |
-| 13.5 增量管线（已完成：13.5a owner 侧、13.5b 渲染侧、13.5c 每个元素的开销与局部布局，见[重构计划](refactoring-plan.md#第-13-步记录2026-10-14)） | 剖析定位按整个文档算的那笔固定开销；UI 线程只对变化的节点求样式、布局与场景（只改 transform 或 opacity 的不重新布局）；渲染线程按子树保留显示列表与记录，只重建变化的子树 | 1,600 个节点的页面每帧改 1 个元素：owner ≤ 0.2 ms、渲染 CPU ≤ 0.2 ms；改 400 个 transform：owner ≤ 4 ms；随机变更下增量与全量结果逐字节相同（M2 的退出条件）。结果（13.5c，13 节）：改 1 个 owner p50 / p99 0.111 / 0.194 ms、渲染 CPU 0.043 / 0.078 ms；400 个只移动 owner p99 3.7 ms；随机对照逐值相同 |
+### 指针、滚轮与命中测试
 
-## 13. 性能目标与测量方法
+- **快速透传判定**：调用 `weft_view_hit_test(runtime, view, x, y, &hit)` 可在逻辑线程查询指定坐标下是否存在可交互 UI 元素及其 CSS `cursor` 类型，用于决定鼠标与滚轮应交给 UI 还是透传给游戏视角控制。
+- **事件注入**：通过 `weft_view_pointer` 注入移动、按下、抬起、离开与滚轮事件；自动合成浏览器语义的 `pointer*`/`mouse*`/`click`/`dblclick` 序列及可滚动容器滚轮行为。
 
-- 硬件：RTX 5090 + Ryzen 9 9950X3D；windows-profile（Release 加 PDB）；4K 目标、2 倍缩放；进程固定在 CCD0、高优先级；多个版本交替运行、每轮换先后，取中位数；报告 p50、p95、p99 与最慢帧，以及首帧。
-- HUD 基准：推 JSON、零传输、锚点三种模式；单位数 100、200、400；400 个单位时每帧只改 1、4、40 个的档位。
-- 桥接：每秒 1,000 个事件的交付耗时；10 KB 负载的转换耗时；调用往返（宿主立即完成）的帧数。
-- 13.2 的测量（`weft_bridge_benchmark --full`，9950X3D，固定 CCD0，Release，每种 600 帧，三次运行的中位数）。UI 线程每帧 p50 / p99 / 最慢：
+### 多点触控（移动端）
 
-| 每帧 | 负载 | 拼进脚本求值（CRPG 现在的做法） | 桥接，引擎给 JSON | 桥接，引擎写 MessagePack |
-| --- | --- | --- | --- | --- |
-| 1 个事件 | 血量（7 字节） | 3.5 / 5.5 / 9.6 µs | 1.1 / 1.2 / 2.2 µs | 1.1 / 1.8 / 1.9 µs |
-| 17 个事件 | 血量 | 59 / 89 / 109 µs | 14 / 24 / 38 µs | 14 / 23 / 38 µs |
-| 1 个事件 | 市场（1 KB，8 项） | 32 / 56 / 71 µs | 6.2 / 9.8 / 31 µs | 6.1 / 11 / 40 µs |
-| 17 个事件 | 市场 1 KB | 0.56 / 0.68 / 0.90 ms | 0.10 / 0.14 / 0.18 ms | 0.10 / 0.13 / 0.17 ms |
-| 1 个事件 | 市场（10 KB，77 项） | 265 / 327 / 396 µs | 47 / 59 / 80 µs | 47 / 59 / 73 µs |
-| 17 个事件 | 市场 10 KB | 4.49 / 4.82 / 6.07 ms | 0.79 / 0.90 / 1.12 ms | 0.78 / 0.88 / 1.07 ms |
+- 通过 `weft_view_set_input_devices` 声明主输入设备（鼠标、触屏或手柄），驱动 `@media (pointer: coarse)` / `(hover: none)` 与 `navigator.maxTouchPoints`。
+- 通过 `weft_view_touch` 注入多指触点生命周期（`BEGAN` / `MOVED` / `ENDED` / `CANCELLED`），内置符合移动端浏览器习惯的点击判定、拖拽阈值、遵循 `touch-action` 的滚动与抬手惯性滑行（Fling）。
 
-  - 每秒约 1,000 个 10 KB 事件时 UI 线程约 5.7 倍快；10 KB 的 JSON 转 MessagePack 约 18 µs（在给出的线程上）；调用往返 1 帧。
-- 13.4 的测量（`weft_floating_benchmark --full`，同上的机器与固定方式，Release，系统字体，2560 × 1440 的游戏上缩放 2 的 UI，原生 D3D11 scene pass 画在 RTX 5090 上；每档 660 帧，去掉前 60 帧，三次运行的中位数）：CRPG 原样的浮动 UI（血条、伤害数字、状态标记）在同一场战斗里由两种方式驱动（见 12 节与 [重构计划](refactoring-plan.md#第-13-步记录2026-10-14)）。引擎的工作、View 的推进（UI 线程）、渲染的 CPU 与 GPU，毫秒：
+### 键盘、文本框与系统输入法（IME）
 
-| 单位（节点） | 方式 | 引擎 p50 | 推进 p50 / p95 / p99 / 最慢 | 渲染 CPU p50 / p99 | GPU p50 / p99 | 首帧 | VM 峰值 |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| 12（385） | 推 JSON | 0.091 | 23.8 / 36.4 / 41.0 / 46.8 | 2.25 / 7.77 | 0.55 / 0.90 | 41 | 17.5 MiB |
-| 12 | 锚点 | 0.004 | 4.75 / 11.4 / 13.6 / 18.8 | 1.64 / 7.34 | 0.45 / 0.78 | 20 | 15.2 MiB |
-| 50（978） | 推 JSON | 0.175 | 55.8 / 87.7 / 103 / 128 | 4.98 / 10.6 | 0.79 / 1.16 | 84 | 30.6 MiB |
-| 50 | 锚点 | 0.008 | 8.53 / 17.3 / 23.5 / 36.5 | 3.98 / 9.72 | 0.64 / 0.97 | 85 | 28.0 MiB |
-| 200（3,130） | 推 JSON | 0.479 | 191 / 286 / 336 / 364 | 14.4 / 20.9 | 1.57 / 2.09 | 374 | 79.1 MiB |
-| 200 | 锚点 | 0.021 | 29.3 / 49.5 / 63.4 / 96.3 | 14.6 / 21.1 | 1.58 / 2.02 | 336 | 64.1 MiB |
+- `weft_view_key` 与 `weft_view_text` 注入物理按键与字符输入；`weft_view_set_focus` 同步宿主窗口/控件的焦点状态。
+- 内置完整的 `<input>` / `<textarea>` 光标、选区与编辑行为；宿主可通过 `weft_view_text_input` 查询当前是否处于文本编辑态以及光标屏幕矩形（用于定位系统候选窗），并通过 `weft_view_composition` 与 `weft_view_commit_text` 无缝对接 Windows IMM/TSF、macOS 与 iOS 系统输入法。
+- 文本输入期间的按键由页面消费（防止玩家在聊天框打字时误触发角色移动），页面未消费的按键则原样交还宿主游戏输入系统。
 
-  - 推进 p50 快 5–6.5 倍，p99 快 3–5.3 倍；引擎一侧（拼 JSON 对写锚点、发事件）快 20 倍以上。加载页面约 30 ms。
-  - 锚点方式仍有一笔每帧的开销：伤害数字、状态标记与危急血条的 framer-motion 动画每帧改 DOM，样式、布局与场景按整个文档重算（200 个单位约 29 ms），渲染线程每帧重新准备整个 pass（约 14.5 ms，两种方式相同）。这是 13.5 的增量管线要解决的；只有锚点在动、没有动画时（安静期）锚点方式不发布新帧。
-  - 锚点方式的 p95、p99 是有事件的帧（新来的实例渲染、挂载）与 QuickJS 的循环回收（约 60 MiB 的堆，一次约 100 ms 以上）。
-  - 两种方式的画面在第 120、450 帧相同，差异只在锚点方式由 GPU 重采样的 svg 图标上（区域不超过 29 px，墨迹质心偏移不超过 0.28 px，各通道墨量差不超过覆盖率的 7.4%）。
-- 13.5 的测量（同上的机器与固定方式，Release，三轮中位数）：
-  - HUD 基准（`weft_d3d11_probe --hud-benchmark-hardware`，3840 × 2160，400 个单位约 1,600 个节点，每档 240 帧）：页面每帧改 1 个元素 owner p50 / p99 5.3 / 12.1 → 0.111 / 0.194 ms，渲染 CPU 4.1 → 0.043 / 0.078 ms；400 个只移动 owner 3.3 / 3.7 ms；锚点加 20 个血条改宽度 owner 10.7 → 0.91 ms，渲染 CPU 4.4 → 0.14 ms（13.5a、b、c 的分项见[重构计划](refactoring-plan.md#第-13-步记录2026-10-14)）。
-  - 浮动 UI（`weft_floating_benchmark --full`，同 13.4 的条件），毫秒；渲染 CPU 括号里是同一版本不记区间、不打补丁（13.4 的准备路径），交替运行：
+### 手柄与空间导航
 
-  | 单位（节点） | 方式 | 推进 p50 / p99 / 最慢，13.4 → 13.5c | 渲染 CPU p50，13.4 → 13.5c（不记区间） |
-  | --- | --- | --- | --- |
-  | 12（385） | 推 JSON | 23.8 / 41.0 / 46.8 → 19.6 / 36.1 / 39.3 | 2.25 → 2.19（2.16） |
-  | 12 | 锚点 | 4.75 / 13.6 / 18.8 → 1.93 / 11.0 / 15.5 | 1.64 → 1.70（1.62） |
-  | 50（978） | 推 JSON | 55.8 / 103 / 128 → 43.4 / 82.5 / 90.1 | 4.98 → 4.81（4.82） |
-  | 50 | 锚点 | 8.53 / 23.5 / 36.5 → 1.62 / 12.8 / 24.8 | 3.98 → 3.98（3.80） |
-  | 200（3,130） | 推 JSON | 191 / 336 / 364 → 148 / 276 / 294 | 14.4 → 14.7（14.5） |
-  | 200 | 锚点 | 29.3 / 63.4 / 96.3 → 1.63 / 27.0 / 63.8 | 14.6 → 13.2（12.9） |
-
-  - 锚点方式的推进 p50 快 2.5–18 倍，200 个单位只剩 1.6 ms；p99 是有事件的帧与 QuickJS 的循环回收。推 JSON 每帧改写所有值，仍在 150 ms 左右。
-  - 这个页面上 framer-motion 每帧改很多元素，渲染侧的补丁约一半被拒，渲染 CPU 与 13.4 相近（多 2–5%）；HUD 这类每帧改少量元素的页面才是补丁的用处（见上）。
-- 移动端：Android 真机尚未运行（[待办](status.md)），目标先按桌面定，真机数据出来后修订。
-
-## 14. 风险与未决问题
-
-| 问题 | 处理 |
-| --- | --- |
-| 文档节点上限 | 13.4 由 2,048 放宽到 16,384，VM 内存上限由 64 MiB 放宽到 256 MiB（200 个单位的浮动 UI 约 3,100 个节点、VM 峰值约 79 MiB） |
-| 锚点元素里的 SVG 路径 | 覆盖率按元素自身的缩放在原点画一次，GPU 按锚点的位置与缩放重采样，不随移动重画；与就地栅格化相比边缘差几级（13.4：差异区域不超过图标大小，墨迹质心偏移不超过 0.3 px）。要逐像素一致时优先用盒子与文字 |
-| CSS `zoom` 未实现 | 迁移期用 View 缩放；之后评估实现 `zoom` |
-| 伤害数字频繁生成与退场 | owner 上建、删元素仍有成本；生成与退场的开销随 13.5 变成与改动相称 |
-| 页面的退场动画（framer-motion 的 AnimatePresence） | 13.4：全部退场结束后才一起移除离开的实例。退场一直有重叠时（每 0.1 s 一个伤害数字，退场 0.15 s），离开的实例都留在文档里，React 每次都渲染它们，节点与内存随战斗增长；危急血条的脉动（无限重复）在退场时也无限重复，永不离开。这是库的规则，在浏览器里一样。页面应让实例各自退场（例如每个实例一个 AnimatePresence，退场结束后再从列表删去）；13.4 的基准把命中改成成批 |
-| 锚点元素不受祖先 overflow 裁剪 | 与 `position: fixed` 一致；需要被裁剪的跟随元素放进一个本身是锚点的容器里 |
-| 贴边时指向锚点的箭头 | 之后给子元素加 `data-anchor-arrow`，渲染线程按方向旋转 |
-| 点击穿透到游戏 | 13.3 的命中查询接口 |
-| 不经 JS 的 DOM 数据绑定（`data-bind-*`） | React 页面经视图模型已够用；有需求时再加 |
-| 引擎不在 owner 线程时的同步函数 | 回调在 owner 线程执行，线程安全由宿主负责，或改用调用 |
-
-## 15. 参考
-
-- Coherent Gameface 的数据绑定：引擎侧带类型的模型、按字段标脏、每帧在推进前同步一次、由原生代码写进 DOM（[基础](https://guide.coherent-labs.com/logic-and-interactions/data-binding--ui-state/data-binding-basics/)、[C++ 集成](https://docs.coherent-labs.com/cpp-prysm/integration/ui_scripting/htmldatabindingcpp_native)）。锚点在位置上更进一步：连样式与布局也绕开。
-- 测量与原始数据：`artifacts/local/hud/`；基准源码 `probes/hud_benchmark.cpp`，页面 `examples/crpg-gallery/native/HUD_TESTS.js`。
+- `weft_view_gamepad` 按标准 Gamepad 布局同步手柄按键、摇杆与扳机状态，向页面暴露标准 `navigator.getGamepads()` 与连接/断开事件。
+- 开启 `WEFT_PAGE_SPATIAL_NAVIGATION` 后，方向键、手柄十字键与左摇杆自动在屏幕可交互元素间执行空间焦点导航（A 确认、B 取消），内置长按连发与自动滚动，且严格向宿主反馈每个按键是否被 UI 消费，避免手柄输入泄漏至游戏角色控制。
