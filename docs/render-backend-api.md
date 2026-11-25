@@ -1,147 +1,104 @@
-# 可扩展渲染后端 API
+# 渲染后端集成指南
 
-2026-10-07：已实现独立 `render/render_backend` 模块（属 `weft::render`）和实验 v1 C ABI。实际 D3D11 参考适配器、React 原生窗口经过此接口。2026-10-12 起有 Vulkan 渲染器与它的 C ABI 适配器（`weft::render_vulkan`，见下文 Vulkan payload 与实现）；原生 Metal 和 MoltenVK 适配器尚未实现（2026-10-17 起 `metal` 分支上定了原生 Metal 的 payload、着色器的 MSL 与绑定，见下文 [Metal](#metal2026-10-17未实现)）；接口测试中的模拟 Metal/custom 后端只验证合同，不代表平台 GPU 验收。
+Weft 的渲染架构围绕**宿主拥有 GPU 设备与命令提交权**设计。本文档说明通用渲染器状态机（[`include/weft/render_backend.h`](../include/weft/render_backend.h)）、内置图形后端的接入方式以及自定义渲染后端的扩展规范。
 
-## 三层边界
+## 1. 架构边界
 
-| 层 | 负责 | 接收/输出 |
-| --- | --- | --- |
-| 通用绘制与 renderer facade | 值型绘制输入、能力校验、owner、带世代句柄、有界使用令牌、提交/完成协议 | 不包含 Node、JSValue、COM、Vk 或 Objective-C 类型 |
-| 图形 API 适配器 | 复制输入快照、创建和保护资源、材质/上传/录制、退休；解释自己的原生 pass payload | D3D11、Vulkan、Metal 或宿主自定义 function table |
-| 宿主/示例壳 | device、窗口/surface、原生录制范围、目标、实际提交、present、真实完成通知 | device epoch、队列身份、submission/completion serial |
+Weft 的渲染层分为三个解耦层级：
 
-公共入口在 [render_backend.h](../include/weft/render_backend.h)。使用 `weft_renderer_create` 注册复制后的 `weft_render_backend` function table；`user_data` 借用到成功 destroy。核心不按 API 编写渲染分支，也不自动创建 Vulkan/Metal device。新增 backend API ID 可按约定从 1024 起分配。所有回调和 renderer 操作都在创建 owner；同步重入返回 busy，异常不能跨 C ABI。
+1. **核心渲染状态机（`weft_renderer`）**：负责校验线程与句柄代次、管理准备帧（Prepared Frame）与在途提交（In-Flight Use）预算、追踪外部纹理与导出纹理租约，并在 GPU 完成序号到达时触发资源回收。
+2. **内置原生后端适配器**：分别针对 **D3D11**、**D3D12**、**Vulkan** 与 **Metal** 实现着色器管线、图集上传、离屏组合成、背景拷贝（`backdrop-filter` / 背景着色器）以及命令列表录制。
+3. **宿主集成层**：向 Weft 传入宿主已有的 GPU 设备、目标视图与当前帧命令列表，并在队列提交与 GPU Fence 完成时通知 Weft。
 
-## 当前绘制 profile
+## 2. 渲染器标准帧循环
 
-`weft_render_frame` 是 prepare 调用期间借用的完整数组：有序 quad、纯色、sRGB straight 图像、线性 coverage、单通道 signed distance。资产使用非零 immutable asset ID/version、尺寸、encoding、字节数和 SDF spread；同一个身份/version 的内容不得修改。准备成功后，适配器必须拥有完整输入快照，调用者可以立即释放原始数组与像素。不同帧不依赖前一个未提交包的上传 delta。
+以下展示宿主渲染线程对接任意后端的通用生命周期：
 
-默认上限为两个 prepared、两个未提交 use、64 个总在途 use、65,536 draw、512 asset 和 16 MiB 输入像素，可在 creation descriptor 进一步限制。在录制前校验 asset index、字节数、有限几何/颜色、opacity、UV、SDF 描边范围、capabilities 和 target。不支持能力显式返回错误。四边形帧没有 group 与裁剪，这两项由下面的显示列表帧提供；path/SVG 与生产 atlas 尚未支持。
+```c
+// 1. 初始化阶段：创建原生后端与通用渲染器
+weft_render_backend backend_table = {0};
+weft_render_d3d12* d3d12_backend = NULL;
+weft_render_d3d12_create(&d3d12_desc, &d3d12_backend, &backend_table);
 
-### 显示列表帧（2026-10-11）
+weft_renderer* renderer = NULL;
+weft_renderer_create(&backend_table, NULL, &renderer);
 
-Weft 运行时产出的帧是不可变显示列表（`paint::DisplayList`：盒子、图片、圆角裁剪链、隔离组，带自己的资产 lease），经不透明句柄 `weft_paint_list` 穿过 C ABI。宿主只是转交，不能构造或读取其内容；内置后端读取它。
+// 可选：安装外部纹理导入扩展 / 游戏内 UI 导出扩展
+weft_render_external_backend ext_table = {0};
+weft_render_d3d12_external(d3d12_backend, &ext_table);
+weft_renderer_install_external_backend(renderer, &ext_table);
 
-- 入口 `weft_renderer_prepare_list(renderer, weft_render_list_frame*, handle*)`：帧带列表句柄，以及列表所画的外部纹理的调用方 lease（个数必须等于列表声明的数量，要求已安装外部纹理扩展）。成功后 prepared handle 与四边形帧相同，encode、提交和完成协议不变。
-- 能力位 `WEFT_RENDER_FEATURE_DISPLAY_LIST` 与后端表末尾新增的可选回调 `prepare_list` 必须同时出现，否则 create 返回 `INVALID_ARGUMENT`。旧后端表的 `struct_size` 在 `prepare_list` 之前结束，按无此能力处理；对它调用 `prepare_list` 返回 `UNSUPPORTED_FEATURE`。
-- 核心在回调前校验：结构（`paint::check`，含组深度上限）、条目数与资产数上限、资产尺寸/字节数/spread 与 16 MiB 预算、有限且可逆的变换、单位范围的颜色与 opacity、盒子的半径/边宽/渐变（最多 8 个色标）、圆角裁剪可以规范化、图片的 encoding 与能力、SDF 描边小于 spread − 1。scene 光栅条目（文字、图层）不能穿过 ABI，返回 `UNSUPPORTED_FEATURE`。
-- 后端回调只在调用期间借用句柄；成功的准备自己持有列表的共享引用（列表不可变，不复制条目），外部纹理元数据与四边形帧的扩展相同。
-- 外部纹理在列表里排在资产之后：图片的 asset 下标 `assets.size() + i` 是第 i 个外部纹理，按自身颜色绘制、不能带 SDF 描边。底部起始的纹理由后端翻转记录的 uv（`render::flip_rows`），不改列表。
+// 2. 每帧渲染阶段
+weft_view_frame* view_frame = NULL;
+weft_view_acquire_frame(runtime, view, &view_frame);
 
-D3D11 参考适配器只有一条绘制路径：四边形帧在适配器里先由可移植的 `render::quad_list()` 转成显示列表（纯色四边形成为盒子，带纹理的成为图片条目），与显示列表帧走同一个线性 pass（`scene.hlsl` 的 `SPACE_LINEAR` 变体）。逐四边形绘制的 `quad.hlsl`、CPU 圆角遮罩与 `lower_to_quads` 已删除；隔离组在渲染器尺寸的线性 float 图层里合成，rtt 合成与线性 alpha 检查也是一条只含一个条目的列表。
+weft_render_handle prepared = {0};
+weft_render_scene_frame scene_frame = {
+    .struct_size = sizeof(scene_frame),
+    .abi_version = WEFT_RENDER_ABI_VERSION,
+    .frame = view_frame,
+    .scale = 1.0f,
+    .texture_count = bound_texture_count,
+    .textures = bound_textures,
+};
+weft_renderer_prepare_scene(renderer, &scene_frame, &prepared);
+weft_view_frame_release(view_frame); // Prepare 成功后即可释放逻辑帧引用
 
-### View 帧（2026-10-14）
+// 录制到宿主当前命令列表（native_pass 指向对应后端的 pass 描述）
+weft_render_handle use = {0};
+weft_renderer_encode(renderer, prepared, &pass_desc, &use);
+weft_renderer_release_prepared(renderer, prepared);
 
-13.3b 起，对外 View 的帧（`weft_view_acquire_frame` 取到的 `weft_view_frame`，见 [与引擎通信](engine-communication.md#8-对外-view133)）经渲染器 C ABI 画进宿主的目标。
+// 3. 宿主提交命令列表至 GPU 队列后通知提交序号
+weft_renderer_notify_submitted(renderer, use, queue_id, submit_serial);
 
-- 入口 `weft_renderer_prepare_scene(renderer, weft_render_scene_frame*, handle*)`：帧在调用期间借用，准备成功后自己持有一份引用（宿主可以立即 `weft_view_frame_release`，View 销毁后准备好的帧仍可画）；`scale` 是目标每 CSS px 的设备像素，0 时用 View 的缩放，负数与非有限数返回 `INVALID_ARGUMENT`；`reserved` 为 0。之后的 encode、提交与完成协议与其他帧相同。
-- 能力位 `WEFT_RENDER_FEATURE_SCENE` 与后端表末尾新增的可选回调 `prepare_scene` 必须同时出现，否则 create 返回 `INVALID_ARGUMENT`；表的 `struct_size` 在它之前结束时按无此能力处理，对它调用 `prepare_scene` 返回 `UNSUPPORTED_FEATURE`。
-- 画法：画在目标已有的内容（游戏画面）之上，不清屏，根元素的背景照常画（不折进清屏）；pass 的 `clear_target` 为 1 时先清成宿主给的颜色（线性预乘，必须是预乘的，后端转成编码值）。目标是 UNORM 格式（`LINEAR_*`），pass 写编码后的预乘值、在编码空间混合（同浏览器）；sRGB 视图不支持。锚点在 encode 时取最新值。
-- 每个 View 一个保留的 pass：内容版本、目标大小、缩放与起始方式不变时只重新摆放锚定的元素，重画保留的记录；内容版本变了时就地补丁（只重列变了的子树，只重写变了的记录，槽位只上传之后的补丁写过的部分），做不到时重新准备；View 销毁后，下一次准备时丢弃它的 pass 与槽位。一个后端只画一个 Runtime 的 View（字体目录相同），别的 Runtime 的帧返回 `INVALID_ARGUMENT`；四边形帧与显示列表帧返回 `UNSUPPORTED_FEATURE`。
-- 内置后端，用宿主的设备创建（`render_backend_d3d11.h`、`render_backend_d3d12.h`、`render_backend_vulkan.h`）：
-  - D3D11：`weft_render_d3d11_create({device, queue})`。encode 时在设备的立即上下文上直接画：`weft_render_d3d11_pass.deferred_context` 必须为空（否则 `UNSUPPORTED_FEATURE`），`out_command_list` 置空；宿主在它的帧里该画 UI 的位置调用 encode，之后上下文绑定的状态未定义。目标是同一设备的 RTV（否则 `WRONG_BACKEND`）：二维纹理的 mip 0、单采样、大小等于 pass，视图格式与 `target_format` 一致（`LINEAR_BGRA8` 是 `B8G8R8A8_UNORM`，`LINEAR_RGBA8` 是 `R8G8B8A8_UNORM`）。立即上下文按序执行、资源由 COM 引用保活，后端不按完成序号钉住资源，宿主仍照协议报告提交与完成。创建时在调用线程初始化 COM（多线程套间，参考光栅要用），销毁时对应地反初始化。
-  - D3D12（2026-10-15，为 UE 5 的 D3D12 RHI）：`weft_render_d3d12_create({device, queue})`。encode 录进宿主的命令列表（`weft_render_d3d12_pass`：打开的 direct 命令列表与目标资源），不关闭、不执行、不 signal、不等待；之后命令列表的描述符堆、根签名、管线、渲染目标、视口、裁剪与图元拓扑未定义，宿主自己重设（UE 的 D3D12 RHI 在命令列表关闭后会重设）。目标是同一设备的二维单采样纹理（一层一级 mip，至少 pass 大小，画在左上角），格式 `B8G8R8A8_UNORM` 或 `R8G8B8A8_UNORM`，或它们的 typeless 格式（游戏的交换链缓冲常是），适配器自己建 RTV；执行时处于 `RENDER_TARGET` 状态，命令结束时仍在。`backdrop-filter` 总能读目标已有的内容（适配器拷贝时自己加 barrier 再回到 `RENDER_TARGET`）。着色器就是 D3D11 用的 DXBC（scene.hlsl、backdrop.hlsl 与粒子变体，fxc 编译内嵌），加上适配器自己的根签名：View 常量是根常量（每次绘制写第一条记录的序号，D3D12 的 `SV_InstanceID` 不含起始实例），记录、圆角裁剪、记录顺序与锚点是一张描述符表里的结构化缓冲视图（越界读得 0，同 D3D11：着色器在知道记录有没有锚点之前就读它的锚点，根描述符没有越界检查，WARP 上会移除设备），图像与效果纹理是另一张表，采样器是静态采样器。适配器在每次录制里用自己的着色器可见描述符堆（录制里堆满了换一个更大的），上传缓冲在上传堆。录制的槽位（上传缓冲、临时纹理、描述符堆、目标的 RTV、宿主读的纹理的引用与租约）留到宿主报告它的提交完成；目标本身不加引用：宿主让它活到命令执行完（游戏的交换链缓冲在宿主自己的引用放掉后就能改大小，不必等录制报告完成；加了引用时 UE 改窗口大小会因 `ResizeBuffers` 返回 `DXGI_ERROR_INVALID_CALL` 而崩溃）；适配器自己的纹理在录制之间都处于 `PIXEL_SHADER_RESOURCE`，所以丢弃的录制不留下状态；另一个尚未提交的录制上传或画了帧要采样的东西时返回 `BUSY`，什么都不录。外部纹理扩展 `weft_render_d3d12_external`（`weft_render_d3d12_texture`：资源，执行时可被像素着色器读），格式同 D3D11，资源可以是 typeless（sRGB 与 UNORM 视图共用一个纹理）；画进帧绑定的纹理的 pass 是 `INVALID_STATE`。创建时在调用线程初始化 COM（同 D3D11）。
-  - Vulkan：`weft_render_vulkan_create({instance, physical_device, device, queue, queue_family, get_instance_proc_addr, queue_identity})`。后端经宿主的 `vkGetInstanceProcAddr` 载入用到的函数，在宿主设备上分配自己的内存，不销毁宿主的对象。encode 录进宿主的命令缓冲（同下文 Vulkan payload），目标是 `B8G8R8A8_UNORM`。`weft_render_vulkan_pass` 末尾新增可选的 `target_image`（目标视图的 VkImage，带传输源用途）：有它时 `backdrop-filter` 读目标里已有的内容，没有时背后为空；只到 `target_image` 之前的第一版结构仍被接受。录制的槽位（缓冲、临时图像、描述符池与租约）留到宿主报告它的提交完成；丢弃的录制归还槽位与要上传的内容；另一个尚未提交的录制首次上传帧要采样的图像时返回 `BUSY`，什么都不录。
-  - Metal（2026-10-17，`metal` 分支，尚未实现）：`render_backend_metal.h` 定了 payload（宿主的命令缓冲与目标纹理），着色器的 MSL 与绑定在 Windows 上检查，见下文 [Metal](#metal2026-10-17未实现)。
-- 引擎的纹理（13.3c）：`weft_render_scene_frame` 的 `texture_count` 与 `textures`（`weft_render_scene_texture`：名字与外部纹理扩展的调用方租约）把页面 `background-image: -weft-texture(name)` 的名字绑到宿主的纹理；在 `textures` 之前结束的第一版结构不带纹理。核心校验名字（字母、数字、`-` 与 `_`，至多 64 字节，每个名字一次；否则 `INVALID_ARGUMENT`），没装扩展时 `UNSUPPORTED_FEATURE`，钉住租约直到帧的使用完成（与外部纹理帧相同），后端失败时放开。后端表的 `prepare_scene` 回调收到解析好的纹理元数据，顺序同 `textures`。没绑定的名字什么也不画；行从底部开始的纹理翻转。内置后端的扩展：`weft_render_d3d11_external`（`weft_render_d3d11_texture`，D3D11 拒绝画进帧绑定的纹理：`INVALID_STATE`）、`weft_render_vulkan_external`（`weft_render_vulkan_texture`，图像在 `SHADER_READ_ONLY_OPTIMAL`、写入对片元着色器可见），一份资源（视图）同时只导入一次，32 张、256 MiB。
-- 纹理的限制（2026-10-15）：
-  - 格式：外部纹理扩展接受线性的 RGBA8、BGRA8、RGBA16F、RGBA32F 与 sRGB 的 RGBA8、BGRA8 视图（`format` 是视图的格式，采样得到线性预乘的颜色），内置 View 后端都列出（RGBA32F 要设备能过滤）。
-  - 层：`weft_render_external_texture::mip_levels`（原来的 `reserved`，0 与 1 都是一层）是视图从最详细的一层起的层数，至多一整条链（否则 `INVALID_ARGUMENT`），字节预算按每一层算；D3D11 核对视图的层数与纹理（`UNSUPPORTED_FEATURE`），接受 `GENERATE_MIPS`。
-  - 共享：D3D11 接受别的设备或 API 共享来、宿主在后端设备上打开的纹理（`SHARED`、`SHARED_NTHANDLE`、`SHARED_KEYEDMUTEX`），写与读的同步由宿主在立即上下文上用共享 fence 做（[技术路线 8 节](engine-communication.md#8-对外-view133)）。
-  - Vulkan：`weft_render_vulkan_texture` 末尾新增 `image`（第一版结构在它之前结束，仍被接受；介于两版之间的大小是 `INVALID_ARGUMENT`），给出时画进帧绑定的纹理的 pass 是 `INVALID_STATE`。
-- 验证：`render_view_contract`（D3D11 WARP；Vulkan 本机设备，验证层）、`render_d3d12_view_contract`（D3D12 WARP 与 D3D11 WARP 逐字节相同，D3D12 调试层无错误）与样例 `samples/engine-host`（`--d3d11`、`--d3d12`、`--vulkan`），见 [status](status.md)。
-
-所有后端遵守 linear-sRGB premultiplied 合成；coverage/distance 不经过 sRGB transfer。通用 target 类型包括 sRGB/linear RGBA8、BGRA8、linear RGBA16F/RGBA32F，由 backend capability 位选择。类型存在不等于适配器支持；当前 D3D11 reference 宣告 RGBA8 与 RGBA32F，Vulkan 宣告 sRGB RGBA8、sRGB BGRA8 与线性 RGBA16F（设备能混合时），都是单采样。
-
-2026-11-06 增加可选的反向扩展 [导出纹理](ingame-ui.md)（`render_export_texture.h`）：渲染器把 View 帧画进自有的图像环并借给宿主采样（游戏内 UI），宿主释放时给出最后一次采样的提交序号；首版只有 Metal 实现。
-
-2026-10-09 增加可选 [external texture lease v1 扩展](external-texture-lease.md)：原 v1 结构保持不变，独立 import/prepare 入口管理有界 generational lease 与 prepared/use pins。D3D11 同 device/queue、linear-premultiplied RGBA8/16F/32F、origin/alias/实际完成已验证；encoded sRGB、ANGLE 和移动尚未接入。
-
-## 原生 pass 与后端扩展
-
-`weft_render_pass` 带 renderer instance、API ID、device epoch、queue、target extent/format/sample count，外加 call-scoped `native_pass` 与字节长度。核心拒绝错实例/API、错 epoch、错误队列和不支持的目标，具体适配器再校验自己的 payload schema 与原生对象。opaque pointer 不是任意对象的通用解释方式；宿主必须传对应后端的有效类型。
-
-[D3D11 payload](../include/weft/render_backend_d3d11.h) 借用新建的 exclusive deferred context 和同 device RTV，返回一份由宿主持有的 command list COM 引用。默认保留目标内容；显式 clear 可用于独立样例。适配器只录制/关闭这份专用 list，不 Execute、Present 或等待。示例支持固定 reference canvas 尺寸，不宣称任意 target geometry 已验收。View 帧的内置后端不同：同一个 payload 不带延迟上下文，encode 时画在立即上下文上（见上文 View 帧）。
-
-[D3D12 payload](../include/weft/render_backend_d3d12.h)（2026-10-15）带打开的 direct 命令列表与目标资源两个 COM 指针，录制模型同 Vulkan（宿主执行与提交），详见上文 View 帧。
-
-[Vulkan payload](../include/weft/render_backend_vulkan.h)（2026-10-12）带设备、命令缓冲与目标视图三个句柄，按 uint64 传递：可分派句柄与 64 位平台上的不可分派句柄是指针值，32 位平台上不可分派句柄本身就是 uint64，所以核心 C ABI 不依赖 Vulkan 头文件。宿主在后端设备的图形队列族上开始一个 primary command buffer，在 render pass 之外交给 encode；适配器录入上传、各 render pass 与隔离组，不结束、不提交、不 present、不等待，之后绑定的管线、描述符、viewport 与 scissor 未定义。目标是渲染器尺寸的单采样二维颜色图像的视图（一层一级 mip），执行时处于 `COLOR_ATTACHMENT_OPTIMAL`、宿主之前的写入已对颜色附件访问可用；命令结束时仍是该布局，写入在 `COLOR_ATTACHMENT_OUTPUT` 阶段完成，宿主读、采样、拷贝或 present 前自己加 barrier。默认保留目标内容。encode 失败时什么也没录：所有资源在录制前建好，录制阶段只发命令、不会失败，所以 Vulkan 适配器的错误总是 native_use=0。
-
-各 native scope schema 分别定义，不能强迫 Metal encoder 遵循 D3D11 deferred-context 模型。通用层不会隐式 begin/end 宿主的 pass；具体 scope 开始、结束和失败取消方式由对应 schema 写明。shader 的 HLSL/SPIR-V/MSL 工具链也由适配器选择。
-
-### Metal（2026-10-17，未实现）
-
-`metal` 分支，用户定为先只做 Windows 上能验证的部分：payload、着色器的 MSL 与绑定已定，凡能翻译的构建都检查；适配器本身尚未实现，这些 MSL 没有被 Metal 编译过，也没有在任何 Metal 设备上画过。计划见 [重构计划](refactoring-plan.md#metal-计划2026-10-17)。
-
-[Metal payload](../include/weft/render_backend_metal.h) 带宿主的命令缓冲与目标纹理两个 Objective-C 对象，按不转移所有权的桥接指针传（`(__bridge void*)`），所以核心 C ABI 不依赖 Metal 头文件。录制模型同 D3D12 与 Vulkan：宿主给后端设备上一个未提交、没有打开编码器的命令缓冲；适配器在自己的 render 与 blit 编码器里编入上传、拷贝、清屏与绘制，返回前都结束；不提交、不等待、不加完成回调，完成仍由宿主按协议报告。不接受宿主打开着的 render encoder：隔离组、平面、图层与背景拷贝都要换目标，Metal 换目标只能结束编码器再开新的（同 Vulkan 换 render pass）；Unity 的 Metal 原生插件接口也是先结束它自己的编码器、再交出当前的命令缓冲。目标是带 `MTLTextureUsageRenderTarget` 的二维单采样纹理（一层一级 mip，至少 pass 大小，画在左上角），`BGRA8Unorm`、`RGBA8Unorm` 或 `RGB10A2Unorm`（`LINEAR_BGRA8`、`LINEAR_RGBA8`、`LINEAR_RGB10A2`）；宿主之前的写入在前（同一队列上受跟踪的纹理由 Metal 排序，否则宿主用 fence 或 event）。目标层级上的 `backdrop-filter` 要从目标拷贝，所以这样的目标不能是 `framebufferOnly`（CAMetalLayer 的 drawable 要设 `framebufferOnly = NO`）。适配器不保留目标的引用。外部纹理 `weft_render_metal_texture`：`MTLTextureUsageShaderRead`，格式与 D3D12 一一对应（RGBA8、BGRA8 的 Unorm 与 sRGB，RGBA16Float，设备能过滤时 RGBA32Float），适配器 retain 到租约退休。`weft_render_metal_create({device, queue})`、`_external`、`_destroy` 只在 Apple 平台声明。
-
-着色器：共享的 scene.hlsl（编码空间）、它的粒子变体、backdrop.hlsl 的三个 pass，以及 UI 着色器效果的编码空间 pass（`EffectProgram::msl_encoded`；Metal 只画 View 帧，只用编码空间），由 DXC 编成 SPIR-V（Metal 自己的寄存器偏移；顶点阶段不翻转 y：Metal 的裁剪空间、帧缓冲与纹理坐标的朝向都同 D3D），再由 Vulkan SDK 的 spirv-cross 写成 MSL 2.1（macOS 10.14、iOS 12 起），每个资源的 SPIR-V binding 就是它的 Metal 下标（`--msl-decoration-binding`），见 [WeftMetal.cmake](../cmake/WeftMetal.cmake)。文本内嵌进程序（`weft::render_metal` 的 `scene_shader()`、`particle_shader()`、`backdrop_shader()`），设备上用 `newLibraryWithSource` 编译；两个阶段各是一份源码（两边声明同样的类型）。参数表下标（`constants::render::metal`）：
-
-| 资源 | HLSL | Metal |
-| --- | --- | --- |
-| View 常量 | b0 | buffer 0 |
-| 记录 `paints` | t0 | buffer 1 |
-| 图像 `image` | t1 | texture 2 |
-| 圆角裁剪 `clips` | t2 | buffer 3 |
-| 效果纹理 `effectTexture0`–`3`，粒子贴图 `particleSprite` | t3–t6 | texture 4–7 |
-| 记录顺序 `order` | t7 | buffer 8 |
-| 锚点 `anchors` | t8 | buffer 9 |
-| `linearClamp` | s0 | sampler 0 |
-| `linearRepeat`、`effectRepeat` | s1 | sampler 1 |
-| 背景拷贝的常量、源与镜像采样器 | b0、t0、s0 | buffer 0、texture 1、sampler 0 |
-
-录制的编排（M.2，2026-10-17）：Vulkan 与 D3D12 的 scene pass 执行同一份可移植的命令（[scene_schedule.hpp](../src/scene/scene_schedule.hpp)）：开始画进一个目标（清成某色或保留）、绘制、结束、背景拷贝的复制与滤镜，目标与图像按角色命名。Metal 将执行同一份：开始是一个新的 render 编码器（load action 为 clear 或 load），结束是 `endEncoding`，复制是一个 blit 编码器，每个滤镜是一个 render 编码器；`framebufferOnly` 的目标读不了，编排已把读它的背景改为清空链的最后一张图。`scene_schedule_contract` 检查编排本身，Vulkan 与 D3D12 的像素测试检查它画出的东西。
-
-没有顶点缓冲（顶点由 `[[vertex_id]]` 算出），buffer 下标不与顶点属性冲突。`[[instance_id]]` 含起始实例（同 Vulkan），着色器读 `instance + View.baseInstance`：像 Vulkan 那样以起始实例画、`baseInstance` 为 0。整数 varying 在 Metal 只能平插，spirv-cross 不为它写 `[[flat]]`。
-
-验证（Windows）：`render_metal_shader_contract` 在凡有 DXC 与 spirv-cross 的构建上解析每个阶段的 MSL：入口名与阶段；每个资源在上表的下标、类型与种类相符、同一阶段不共用下标，没有表外的资源或内建量；记录（448 B）、圆角裁剪（80 B）、View 常量（16 B）与背景拷贝常量（176 B）按 MSL 的大小与对齐算出的大小等于 CPU 写的；片元读的每个 `user(locnN)` 都由顶点阶段以同一类型写出（效果接在场景的顶点阶段之后），两阶段共有的结构相同；目标 px 以 y 向下映射到裁剪空间，之后没有分量取反。测试里 7 段改坏的文本都被拒；构建上的 7 个反例（顶点阶段加 `-fvk-invert-y`、spirv-cross 加 `--flip-vert-y`、纹理偏移改为 2、去掉 `--msl-decoration-binding`、改 `buffer_order` 与 `texture_effects` 常量、改记录大小）都使它失败。`render_backend_c_abi` 核对 Metal 结构在 64 位平台上的布局。未验证：Metal 编译器接受这些 MSL、管线创建、任何绘制与性能，macOS 与 iOS 的配置与构建。
-
-M.3：设备端（2026-10-21，macOS，Apple M4 Pro，macOS 27.0.1）。`weft::scene_metal`（`src/render/backends/metal`，Objective-C++，ARC，只在 Apple 平台构建）：`SceneRenderer` 执行 M.2 的编排：开始是一个新的 render 编码器（load action 为 clear 或 load，视口与裁剪为 pass 的大小），结束是 `endEncoding`，复制是一个 blit 编码器，每个滤镜是一个 render 编码器；上传经槽位的共享暂存缓冲，在 blit 编码器里拷进纹理或图集页（行距按 16 字节对齐）；平面、图层与 CSS filter 的嵌套 pass 在外层 pass 开始之前录；Metal 自己为受跟踪的资源排序读写，不需要屏障与布局转换。槽位、保留的 pass（含补丁后只写变化的记录）、缓存的待提交状态与 `Busy`、租约都与 Vulkan 相同。View 后端与 `weft_render_metal_create`、`_external`、`_destroy` 的结构同 Vulkan 的：目标只接受 `LINEAR_BGRA8`（`MTLPixelFormatBGRA8Unorm`）；`framebufferOnly` 的目标读不了，读它的背景按编排为透明；外部纹理核对设备、大小、格式与 mip 数后 retain 到租约退休。部分录制失败时结束已打开的编码器再抛出（宿主不提交该命令缓冲）。
-- 验证（macOS）：Metal 在设备上编译全部 MSL（场景、粒子、三个背景 pass、构建里的 10 个测试效果）并建成管线；`render_metal_shader_contract` 在这台机器上通过（工具为 Vulkan SDK 1.4.363.0 的 DXC 与 spirv-cross，版本与固定的相同）；`logo_browser_reference_metal`（新，`tests/logo_reference_metal_tests.mm`）用 Metal pass 画四个 logo 版本的 40 帧与 Chrome 的截图对照：超过 32 级差的像素至多 0.039%（门限 0.5%）；`samples/macos-host` 经公开 C ABI（`weft_render_metal_*`、宿主的命令缓冲与 drawable）画 HUD 与 logo：logo 与 Chrome 的 color-200、dark-100 帧差 0.021%、0.016%。
-- 未验证：UI 着色器效果、背景滤镜、粒子、平面、图层与 CSS filter 在 Metal 上的像素（MSL 能编译，没有参照对比）；外部纹理的 bottom-left 与 mip；iOS；设备丢失；性能剖析。
-
-新增 adapter 需要实现 prepare、release_prepared、encode、discard_encoded、submitted、completed、abandon、shutdown，并选择能力；报告 `WEFT_RENDER_FEATURE_DISPLAY_LIST` 时还要实现 prepare_list（C++ 后端满足 `DisplayListBackend` concept，由 `make_c_backend` 生成），报告 `WEFT_RENDER_FEATURE_SCENE` 时还要实现 prepare_scene（`SceneFrameBackend`）。无需修改 DOM、布局、输入或通用提交状态机。它必须以真实资源和同步实现下面的合同，只有注册一个 API ID 不算后端完成。
-
-## 提交与错误合同
-
-1. prepare 成功返回 owner/epoch/generation handle；输入快照归适配器。
-2. encode 在写任何 GPU 资源引用前保护依赖，预留提交容量。核心也在调用 callback 前预留固定 use slot。
-3. release_prepared 只释放缓存与 CPU 快照。编码 use 独立保持资源存活。
-4. 宿主实际 submit 后调用 `weft_renderer_notify_submitted`。同一次 submit 可绑定多个 use；合法通知不得分配或因容量满而失败。错队列/serial 保留 pin，允许纠正重试。
-5. 宿主报告真实完成 timeline，`weft_renderer_notify_completed` 才退休 use。完成 serial 可以覆盖同队列里没有 UI use 的宿主工作。
-6. 取消必须先销毁/撤销该 use 的全部原生命令，再 `weft_renderer_discard_encoded`。已提交 use 不能取消。
-
-encode 的错误不总等于“没录制任何命令”。若 callback 完整撤销所有部分命令，它返回 native_use=0；否则错误仍返回有效 use handle，由宿主先取消原生命令再 discard，或者在确实提交部分命令后履行提交/完成协议。这保证失败不会释放仍被引用的资源；提交了部分命令并不代表正确绘制了 UI。
-
-destroy 开始 drain，存在 prepared/encoded/submitted handle 时返回 busy，保留 renderer 与 callback data；继续释放、取消或完成后再 destroy。设备真正丢失时，宿主首先取消未提交 native scope，并保证旧设备永远不会再访问资源，才能 `weft_renderer_abandon_device`。surface 丢失、暂停或窗口关闭不够。旧 prepared 正常 release，新设备创建新 adapter/renderer epoch；实际 driver device-removal 尚未测试。
-
-## 实际实现与复现
-
-[D3D11 reference adapter](../src/render/backends/d3d11/backend.cpp)（`weft::render_d3d11`，经 `RenderBackend` concept 与 `make_c_backend` 生成函数表）使用原有资源状态机与真实 COM/query。它是参考实现，还没有稳定 SDK factory、通用资源 broker、多线程队列或宿主引擎插件。React 三帧离屏 runner 保留旧路径作参考；[可点击窗口](native-window-probe.md) 已走新 API。
-
-[Vulkan adapter](../src/render/backends/vulkan/backend.cpp)（2026-10-12）同样经 `make_c_backend` 生成函数表：显示列表帧，以及经可移植的 `render::frame_packet` 与 `quad_list` 转成显示列表的四边形帧（`frame_packet` 与 D3D11 适配器共用）；一个 prepared 帧、两个在途 use。2026-10-12 起有外部纹理扩展（`enable_external`）：导入借用宿主的 `VkImageView`（`weft_render_vulkan_texture`，校验设备，拒绝同一视图的第二次导入），宿主负责格式、尺寸与写入的可见性；显示列表帧与四边形帧都可以采样宿主纹理，从底部开始的行翻转记录的 uv。`vulkan::Renderer` 的 prepare 为列表每个资产建纹理并在 `ResourceLifetime` 登记租约与帧；encode 把还没有已提交上传的纹理的上传与整个 pass 录进宿主的命令缓冲。上传规则与跟踪器一致：Created 与 Encoded 的纹理每次录制都上传，所以两个都未提交的录制丢弃其一不影响另一个；同一帧的第二次录制复用已提交的上传。每次录制的暂存、记录、裁剪、描述符池与帧缓冲属于该 use：丢弃时立即销毁，提交后在宿主报告完成时销毁；纹理在没有 prepared 帧与 use 引用后销毁，宿主确认设备丢失后的 abandon 立即退休所有 use。缓存渲染器（`cache_assets`，2026-10-12）与 D3D11 共用可移植的缓存策略（`render/texture_cache.hpp`）：按资产身份保留纹理，小覆盖率资产放进 R8 atlas 页面。页面也是一个跟踪器资源，它的“上传”是首次写入时那次丢弃内容的布局转换：另一个尚未提交的录制正首次写入帧所需的页面时，encode 返回 `BUSY`、什么都不录，宿主提交或丢弃那个录制后再试；已写过的页面按原内容转换，只上传新区域。`render_vulkan_backend_contract` 以宿主身份驱动它（自己的命令缓冲、目标、fence 与 serial），验证层同时开启同步验证。
-
-Vulkan 示例宿主（2026-10-12）：`vulkan::Device` 以 `presentation` 打开时启用平台的 surface 扩展与 `VK_KHR_swapchain`，并选能向窗口呈现的图形队列；[`vulkan::Swapchain`](../src/render/backends/vulkan/swapchain.hpp) 在平台创建的 surface 上管理 sRGB 交换链。[`VulkanWindowPresenter`](../probes/vulkan_window_host.hpp) 是一个按 C ABI 驱动适配器的宿主：UI 画进离屏目标后 blit 进交换链图像，两帧在途，fence 完成后报告完成 serial。它属于探针，不是稳定 SDK；引擎宿主自己的交换链与渲染图同样只需遵守上面的 payload 合同。
-
-4K flow 样例现可启用该 adapter 的私有 immutable texture 缓存：相同 asset ID/version 复用 texture/SRV，以及 Ready 或已实际提交的同队列上传，frame 仍传完整有序绘制与资产集合。准备前保护整个输入的已有依赖，避免 LRU 创建较早的 miss 时淘汰较晚的 hit；每帧 lease 和 Prepared/Encoded/Submitted pin 独立于 cache lease。容量为 1,024 资源/128 MiB 纹理有效载荷，只淘汰没有使用 pin 的资源，真实 query completion 前的相关 Submitted pin 阻止淘汰；destroy drain 后释放缓存。Created/Encoded 保留重试字节，取消/录制失败不把它当作 Ready；Submitted 可按同队列顺序读取，真实完成才 Ready。超容量准备失败可 drain/reuse，不遗留 CPU lease。该缓存不扩张 C ABI v1，也不让下一完整包依赖被丢弃的包。
-
-2026-10-12 起缓存渲染器还把不超过 128 px 的覆盖率资产放进共享的 R8 atlas 页面（复制一圈边缘纹素，过滤结果与独立纹理相同），相邻的盒子与同页字形合成一次实例化绘制；放不下时退回独立纹理，淘汰时归还区域，页面清空后才重新装箱。同日起这套策略（资产身份、按身份与版本的 LRU 纹理索引及其淘汰规则、atlas 候选、带边图像与区域 uv）移到可移植的 `render/texture_cache.hpp`，D3D11 与 Vulkan 共用，纹理本身仍是各后端的。
-
-固定值型 Asset 的身份注册表保留源对象防止地址复用，上限 2,048 项/64 MiB 源像素，清空后身份仍单调不重用。它是本探针的适配策略；通用 SDK 的资源版本、device removal 和跨 API 异步缓存仍待实现。`d3d11_warp_render_cache` 与 `--cache-hardware` 用 seed 0xCE902026 的 48 次源图、字号、圆角、位置和绘制顺序 mutation 对照无缓存全量路径，另验证丢包、容量失败、录制重试及提交后失败的真实完成退休，见 [滚动优化](flow-input-window-probe.md#4k-滚动优化2026-10-09)。
-
-4K 宿主默认使用 [TwoFramePipeline](../src/render/backends/d3d11/two_frame_pipeline.hpp)，adapter 只在此有界 host 下允许 prepare 与先前 Submitted use 重叠；一个 owner 顺序 prepare/encode，两个 GPU 在途 use 的配额沿既有 C ABI v1，未改变 API。两个 slot 各自保存 constant buffer、event query、command list 和拥有值的 host lease；HUD 替换仍保留旧 slot 的 GPU 资源。宿主非阻塞 poll 真实 event，只有两个 slot 都未完成时等待最旧者，截图/resize/关闭则 drain。提交后 host 异常仍保留 slot 并结束 completion query，已执行命令不走 discard。独立 `d3d11_warp_two_frame` / `--pipeline-hardware` 验证两个 Submitted use、同队列上传复用、48 帧像素差分、错误和关闭，详见 [两帧合同与测量](flow-input-window-probe.md#两帧流水线2026-10-09)。这不等于稳定 SDK 或 Vulkan/Metal 已实现。
-
-```powershell
-cmake --build --preset windows-debug --parallel 4
-ctest --preset windows-debug
-.\build\windows-msvc\bin\Debug\weft_d3d11_probe.exe --backend-hardware artifacts/local/backend-debug/api-hardware
-.\build\windows-msvc\bin\Debug\weft_d3d11_probe.exe --react-window-test-hardware artifacts/local/backend-debug/window-hardware
+// 4. GPU Fence 完成对应序号后通知回收内部缓冲与纹理租约
+weft_renderer_notify_completed(renderer, device_epoch, queue_id, completed_serial);
 ```
 
-`render_backend_contract` 验证不同 API/native schema、独立 instance、BGRA 能力、最新世代、输入 ownership、线程/重入、容量、分配失败期间提交/完成、部分录制失败、drain 与 host-confirmed abandon。`render_backend_c_abi` 用 C11 编译公开头文件并调用实际导出符号。
+### 关键同步与错误处理约束
 
-`d3d11_warp_backend_api` 和显式 hardware 测试由宿主提供另一份真实 deferred context 与 RTV：颜色/coverage 和 SDF 与旧 GPU reference 逐像素差异为 0，linear float target 读回 `[0, 0.5, 0, 0.5]`；已有红色目标叠半透明绿色得到 `[188,188,0,255]`。取消与注入部分录制失败不令 upload Ready；错误 device 被拒绝。每会话实际提交四帧，退休四个输入 texture，调试层 warning/error 为零。
+- **放弃未提交录制**：若宿主在 `weft_renderer_encode` 之后决定取消该命令列表且不提交 GPU，必须调用 `weft_renderer_discard_encoded(renderer, use)` 归还资源占用。
+- **失败诊断**：当 `prepare` 或 `encode` 返回错误时，宿主可通过 `weft_renderer_last_failure` 获取详细的人类可读错误原因并记入引擎日志。
+- **无分配热路径**：`weft_renderer_notify_submitted` 与 `weft_renderer_notify_completed` 均为无失败、零堆分配热路径，追踪槽位在初始化阶段按预算一次性预分配。
+- **安全关闭与设备丢失（Device Lost）**：
+  - 正常退出时先等待所有在途 GPU 序号完成，再依次释放外部纹理租约并调用 `weft_renderer_destroy`。
+  - 发生设备重置或移除时，在宿主确认旧设备不再访问任何资源后，调用 `weft_renderer_abandon_device` 立即解除未决序号等待并执行资源清理。
 
-原生 React window 的 hit/input/resize/capture/close 与 post-submit failure 继续通过，七帧退休 605 texture。Debug/Release/强制 GC 的完整结果见 [status](status.md)。产物在 artifacts/local/backend-debug、backend-release、backend-gc-stress；自动 WARP 在对应 build/artifacts/backend-$CONFIG/warp 与 window-$CONFIG/warp。
+## 3. 内置图形后端一览
 
-后续按用户当前方向继续用 D3D11 复刻 CaseCheetah 真实 workload，已接入原样九宫格和中文 AlertBar 的值型图片/coverage 快照；多字体栅格仍在 owner 完成，backend 无字体对象依赖。reference adapter 的 CPU 输入 byte budget 从 4 MiB 调到有界 32 MiB，以容纳三张原图（18 MiB decoded），不改变通用 API 的默认参数或所有权合同。Vulkan 与原生 Metal 后续分别接同一协议；跨平台 target/layout、native shader、真机输入与性能都要分别验收，见 [游戏样本](casecheetah-workload.md) 和 [中文组件](cjk-alert-probe.md)。
+| 后端 | 头文件 | 创建入口 | 扩展支持 | 典型目标格式 |
+| --- | --- | --- | --- | --- |
+| **Direct3D 11** | `render_backend_d3d11.h` | `weft_render_d3d11_create` | 外部纹理导入 | `LINEAR_BGRA8`、`LINEAR_RGBA8`、`SRGB_RGBA8`、`SRGB_BGRA8` |
+| **Direct3D 12** | `render_backend_d3d12.h` | `weft_render_d3d12_create` | 外部纹理导入 | `LINEAR_BGRA8`、`LINEAR_RGBA8`、`LINEAR_RGB10A2`、`SRGB_*` |
+| **Vulkan** | `render_backend_vulkan.h` | `weft_render_vulkan_create` | 外部纹理导入 | `LINEAR_BGRA8`、`LINEAR_RGBA8`、`LINEAR_RGBA16F` |
+| **Metal** | `render_backend_metal.h` | `weft_render_metal_create` | 外部纹理导入 + 3D 导出纹理 | `LINEAR_BGRA8`、`LINEAR_RGBA8`、`LINEAR_RGB10A2`、`SRGB_*`、`LINEAR_RGBA16F` |
+
+### 后端接入要点
+
+- **Direct3D 12（如 Unreal Engine 5 RDG / RHI）**：
+  - 直接复用宿主 `ID3D12Device` 并向宿主 `ID3D12GraphicsCommandList` 录制渲染指令。
+  - 在 RDG Pass 内调用前先冲刷引擎挂起的资源屏障；录制完成后通知引擎重置命令列表状态并绑定手动 Fence，即可实现零拷贝直接合成到后缓冲（包括 UE5 默认的 `PF_A2B10G10R10`）。
+- **Vulkan**：
+  - 运行时通过宿主提供的 Vulkan 加载函数指针与逻辑设备运行，不强制静态链接系统 Vulkan SDK 库；支持 Windows 与 Android 平台。
+  - 宿主需确保外部实时纹理在 UI 采样前已处于着色器只读布局并设置相应管线屏障。
+- **Metal（macOS / iOS）**：
+  - 共享 HLSL 着色器在构建期自动编译为原生 Metal Shading Language（MSL），不依赖 MoltenVK 翻译层。
+  - 针对 Apple TBDR 分块架构优化了 Pass 切分与 `clear_target` 行为，并在命令编码器上标注了清晰标签（`weft out`、`weft group`、`weft uploads` 等），可直接在 Xcode Metal System Trace 与 GPU Frame Capture 中定位耗时。
+
+## 4. 外部纹理导入扩展
+
+头文件 [`include/weft/render_external_texture.h`](../include/weft/render_external_texture.h) 定义了宿主 GPU 纹理零拷贝接入 UI 合成的扩展契约：
+
+- **两种同步模式**：
+  - `WEFT_RENDER_EXTERNAL_SAME_QUEUE_ORDERED`（冻结纹理）：导入后内容不可变，适合动态图标或轮换贴图。
+  - `WEFT_RENDER_EXTERNAL_SAME_QUEUE_LIVE`（实时渲染目标）：允许引擎在两帧 UI 绘制之间原地重绘同一张 `RenderTarget`（如小地图、实时场景捕获），只要写操作与 UI 录制在同一队列上保持先后顺序即可，无需每帧反复导入。
+- **安全回收**：调用 `weft_renderer_release_texture` 仅终止宿主句柄租约，底层原生纹理引用会一直维持到最后一次采样它的 GPU 提交完成后，再通过 `retired` 回调交还宿主销毁。
+
+## 5. 实现自定义渲染后端
+
+对于主机平台（PS5 / Xbox / Switch）或自研专有图形抽象层，引擎方可直接实现 `weft_render_backend` 函数表接入 Weft：
+
+- 将 `backend.api` 设置为不小于 `WEFT_RENDER_API_CUSTOM_BEGIN`（`1024`）的自定义标识。
+- 实现 `prepare_scene`、`release_prepared`、`encode`、`discard_encoded`、`submitted`、`completed`、`abandon` 与 `shutdown` 回调。
+- 核心渲染状态机将自动为自定义后端提供完整的句柄校验、帧配额保护、线程检查与 GPU 序号生命周期管理。
