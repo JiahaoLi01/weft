@@ -1,0 +1,625 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 1280px;
+  height: 720px;
+  overflow: hidden;
+  background-color: transparent;
+  color: #e2ecf8;
+  font-family: "Segoe UI", "DIN Next LT Pro", sans-serif;
+}
+
+#root {
+  position: relative;
+  width: 1280px;
+  height: 720px;
+  overflow: hidden;
+  background-color: transparent;
+}
+
+.overlay-svg {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1280px;
+  height: 720px;
+  pointer-events: none;
+}
+
+/* ==================== TOP STELLARIS EMPIRE BAR ==================== */
+.topbar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1280px;
+  height: 44px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background-color: rgba(6, 13, 24, 0.86);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(56, 189, 248, 0.30);
+}
+
+.empire-id {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.empire-emblem {
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
+  background-color: rgba(14, 116, 144, 0.24);
+  border: 1px solid rgba(56, 189, 248, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.empire-name {
+  font-family: "DIN Next LT Pro", "Bahnschrift", "Segoe UI", sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #f0f7ff;
+}
+
+.sys-pill {
+  padding: 2px 7px;
+  border-radius: 3px;
+  background-color: rgba(56, 189, 248, 0.15);
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #38bdf8;
+}
+
+.res-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.res-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background-color: rgba(12, 23, 39, 0.78);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.res-val {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: #e2ecf8;
+}
+
+.res-delta {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #34d399;
+}
+
+.res-delta-gold { color: #fbbf24; }
+.res-delta-cyan { color: #38bdf8; }
+.res-delta-violet { color: #a78bfa; }
+
+.clock-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  background-color: rgba(12, 24, 42, 0.85);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+}
+
+.clock-date {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #e2ecf8;
+}
+
+.clock-spd {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  font-weight: 700;
+  color: #38bdf8;
+  letter-spacing: 0.08em;
+}
+
+/* ==================== 3D WORLD-PROJECTED PLANET NAMEPLATES ==================== */
+.tag-pin {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background-color: rgba(7, 14, 26, 0.78);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  color: #cbd5e1;
+}
+
+.tag-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.dot-sun { background-color: #fbbf24; }
+.dot-saturn { background-color: #eab308; }
+.dot-mars { background-color: #fb923c; }
+.dot-earth { background-color: #38bdf8; }
+
+.tag-sub {
+  color: #7dd3fc;
+  font-size: 9px;
+}
+
+.tag-dim {
+  color: #94a3b8;
+  font-size: 9px;
+}
+
+.tag-earth {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 10px;
+  border-radius: 5px;
+  background-color: rgba(6, 18, 34, 0.88);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(56, 189, 248, 0.82);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55);
+}
+
+.tag-earth-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tag-earth-name {
+  font-family: "DIN Next LT Pro", "Bahnschrift", sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #f0f9ff;
+}
+
+.tag-earth-cap {
+  padding: 1px 5px;
+  border-radius: 2px;
+  background-color: rgba(56, 189, 248, 0.22);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 8.5px;
+  font-weight: 700;
+  color: #38bdf8;
+}
+
+.tag-earth-sub {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  color: #94a3b8;
+}
+
+/* ==================== BOTTOM-LEFT SOL SYSTEM ORBITAL BAR ==================== */
+.sol-dock {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  width: 504px;
+  padding: 9px 14px;
+  border-radius: 7px;
+  background-color: rgba(6, 14, 26, 0.82);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(56, 189, 248, 0.26);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sol-dock-left {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.sol-dock-title {
+  font-family: "DIN Next LT Pro", "Bahnschrift", sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #e0f2fe;
+}
+
+.sol-dock-sub {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  color: #94a3b8;
+}
+
+.sol-dock-stats {
+  display: flex;
+  gap: 8px;
+}
+
+.dock-kpi {
+  padding: 4px 10px;
+  border-radius: 4px;
+  background-color: rgba(14, 28, 48, 0.78);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 72px;
+}
+
+.dock-kpi-lbl {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #7dd3fc;
+}
+
+.dock-kpi-val {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+/* ==================== RIGHT EARTH PLANETARY VISUALIZATION PANEL ==================== */
+.earth-panel {
+  position: absolute;
+  right: 16px;
+  top: 56px;
+  width: 540px;
+  height: 648px;
+  padding: 13px 15px;
+  border-radius: 8px;
+  background-color: rgba(7, 15, 27, 0.88);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(56, 189, 248, 0.34);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.62);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ep-accent-top {
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  top: 0;
+  height: 2px;
+  background-image: linear-gradient(90deg, rgba(56, 189, 248, 0) 0%, rgba(56, 189, 248, 0.9) 50%, rgba(56, 189, 248, 0) 100%);
+}
+
+/* Header */
+.ep-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 9px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.ep-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ep-title {
+  font-family: "DIN Next LT Pro", "Bahnschrift", sans-serif;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: 0.10em;
+  color: #f8fafc;
+  line-height: 1;
+}
+
+.ep-class-pill {
+  padding: 2px 6px;
+  border-radius: 3px;
+  background-color: rgba(52, 211, 153, 0.16);
+  border: 1px solid rgba(52, 211, 153, 0.45);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 8.5px;
+  font-weight: 700;
+  color: #34d399;
+}
+
+.ep-sub {
+  margin-top: 3px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  color: #94a3b8;
+}
+
+.ep-kpis {
+  display: flex;
+  gap: 6px;
+}
+
+.ep-kpi {
+  padding: 4px 8px;
+  border-radius: 5px;
+  background-color: rgba(15, 28, 46, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 58px;
+}
+
+.ep-kpi-val {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.ep-kpi-lbl {
+  margin-top: 2px;
+  font-size: 7.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+}
+
+.c-cyan { color: #38bdf8; }
+.c-emerald { color: #34d399; }
+.c-amber { color: #fbbf24; }
+.c-orange { color: #fb923c; }
+.c-violet { color: #a78bfa; }
+
+/* Sub-cards inside Earth Panel */
+.viz-card {
+  border-radius: 6px;
+  background-color: rgba(11, 21, 36, 0.78);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  padding: 9px 11px;
+}
+
+.viz-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.viz-title {
+  font-family: "DIN Next LT Pro", "Bahnschrift", sans-serif;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  color: #cbd5e1;
+}
+
+.viz-legend {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.leg-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 8.5px;
+  color: #94a3b8;
+}
+
+.leg-swatch {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+}
+
+/* Split Row 2: Sankey + Donut */
+.split-row {
+  display: flex;
+  gap: 10px;
+}
+
+.card-sankey {
+  width: 294px;
+  height: 184px;
+}
+
+.card-donut {
+  width: 204px;
+  height: 184px;
+  display: flex;
+  flex-direction: column;
+}
+
+.donut-body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.donut-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.donut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 9.5px;
+}
+
+.donut-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #cbd5e1;
+}
+
+.donut-pct {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #f1f5f9;
+}
+
+/* Split Row 3: Districts + Sparklines */
+.card-districts {
+  width: 266px;
+  height: 138px;
+}
+
+.card-sparks {
+  width: 232px;
+  height: 138px;
+}
+
+.dist-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 2px;
+}
+
+.dist-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.dist-name {
+  width: 72px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #cbd5e1;
+}
+
+.dist-pips {
+  display: flex;
+  gap: 3px;
+  flex: 1;
+}
+
+.pip {
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+}
+
+.pip-empty {
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+  background-color: rgba(30, 41, 59, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.20);
+}
+
+.pip-city { background-color: #38bdf8; }
+.pip-ind { background-color: #fb923c; }
+.pip-gen { background-color: #fbbf24; }
+.pip-res { background-color: #a78bfa; }
+
+.dist-cnt {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  color: #94a3b8;
+  width: 28px;
+  text-align: right;
+}
+
+.spark-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.spark-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.spark-meta {
+  display: flex;
+  flex-direction: column;
+}
+
+.spark-lbl {
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  color: #94a3b8;
+}
+
+.spark-val {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* Bottom Balance Strip */
+.ep-footer {
+  margin-top: auto;
+  border-radius: 6px;
+  background-color: rgba(11, 21, 36, 0.82);
+  border: 1px solid rgba(56, 189, 248, 0.22);
+  padding: 9px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.foot-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9.5px;
+}
+
+.foot-bar {
+  width: 100%;
+  height: 7px;
+  border-radius: 3px;
+  background-color: rgba(15, 23, 42, 0.9);
+  overflow: hidden;
+  display: flex;
+  gap: 2px;
+}
+
+.fb-seg { height: 100%; }

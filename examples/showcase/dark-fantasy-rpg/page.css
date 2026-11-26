@@ -1,0 +1,1188 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 1280px;
+  height: 720px;
+  overflow: hidden;
+  background-color: #09090b;
+  color: #e4e4e7;
+  font-family: "Segoe UI", "Noto Sans SC", sans-serif;
+}
+
+#root {
+  position: relative;
+  width: 1280px;
+  height: 720px;
+  overflow: hidden;
+  background-color: #09090b;
+  background-image: radial-gradient(ellipse at 42% 38%, rgba(39, 39, 42, 0.42) 0%, rgba(9, 9, 11, 1) 72%);
+}
+
+/* ==================== TOP BAR (Flat Modern Zinc + Subtle Brass Rule) ==================== */
+.topbar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1280px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+  background-color: #0c0c0f;
+  border-bottom: 1px solid #27272a;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-mark {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  background-color: #18181b;
+  border: 1px solid rgba(199, 166, 103, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.brand-title {
+  font-family: "Georgia", "Palatino Linotype", serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: #e9ddc1;
+}
+
+.brand-sep {
+  width: 1px;
+  height: 14px;
+  background-color: #27272a;
+}
+
+.brand-sub {
+  font-family: "JetBrains Mono", "DIN Next LT Pro", monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: #71717a;
+}
+
+.nav-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 42px;
+}
+
+.nav-tab {
+  position: relative;
+  height: 42px;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: #71717a;
+}
+
+.nav-tab.active {
+  color: #e9ddc1;
+}
+
+.nav-tab-bar {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 0;
+  height: 2px;
+  background-color: #c7a667;
+}
+
+.top-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.top-metric {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 4px;
+  background-color: #121215;
+  border: 1px solid #27272a;
+  font-family: "JetBrains Mono", "DIN Next LT Pro", monospace;
+  font-size: 11px;
+  color: #d4d4d8;
+}
+
+.top-metric-gold {
+  color: #fbbf24;
+  font-weight: 700;
+}
+
+.top-metric-dim {
+  color: #71717a;
+  font-size: 10px;
+}
+
+/* ==================== MAIN 3-COLUMN WORKSPACE ==================== */
+.workspace {
+  position: absolute;
+  left: 16px;
+  top: 54px;
+  width: 1248px;
+  height: 650px;
+  display: flex;
+  gap: 12px;
+}
+
+/* Shared Flat Panel Surface */
+.panel {
+  background-color: #101013;
+  border: 1px solid #27272a;
+  border-radius: 8px;
+}
+
+/* ==================== LEFT COLUMN: CHARACTER SHEET ==================== */
+.col-left {
+  width: 274px;
+  height: 650px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.char-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #27272a;
+}
+
+.char-name {
+  font-family: "Georgia", "Palatino Linotype", serif;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #f4f4f5;
+  line-height: 1.2;
+}
+
+.char-meta {
+  margin-top: 3px;
+  font-size: 11px;
+  color: #a1a1aa;
+}
+
+.char-ac {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 6px;
+  background-color: #18181b;
+  border: 1px solid rgba(199, 166, 103, 0.45);
+}
+
+.char-ac-val {
+  font-family: "JetBrains Mono", "DIN Next LT Pro", monospace;
+  font-size: 15px;
+  font-weight: 700;
+  color: #e9ddc1;
+  line-height: 1;
+}
+
+.char-ac-lbl {
+  margin-top: 2px;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #c7a667;
+}
+
+/* Flat Vital Bars (CRPGFramework VitalBar style) */
+.vitals {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vital-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.vital-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 11px;
+}
+
+.vital-label {
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: #a1a1aa;
+  font-size: 10px;
+}
+
+.vital-num {
+  font-family: "JetBrains Mono", "DIN Next LT Pro", monospace;
+  font-size: 11px;
+  color: #e4e4e7;
+}
+
+.vital-num-dim {
+  color: #71717a;
+}
+
+.vital-track {
+  width: 100%;
+  height: 8px;
+  border-radius: 3px;
+  background-color: #18181b;
+  border: 1px solid #27272a;
+  overflow: hidden;
+}
+
+.vital-fill-hp {
+  height: 100%;
+  background-color: #5e8f6a;
+}
+
+.vital-fill-mp {
+  height: 100%;
+  background-color: #3b82f6;
+}
+
+/* Action Resource Dot-Grid Pills (CRPGFramework BattleUnitPanel signature) */
+.res-pills {
+  display: flex;
+  gap: 6px;
+}
+
+.res-pill {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 7px;
+  border-radius: 4px;
+  background-color: #18181b;
+  border: 1px solid rgba(199, 166, 103, 0.30);
+}
+
+.res-pill-lbl {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #a1a1aa;
+}
+
+.res-dots {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+}
+
+.res-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background-color: #c7a667;
+}
+
+.res-dot-empty {
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background-color: transparent;
+  border: 1px solid rgba(199, 166, 103, 0.38);
+}
+
+/* Section Heading */
+.sec-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.sec-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #71717a;
+}
+
+.sec-sub {
+  font-family: "JetBrains Mono", "DIN Next LT Pro", monospace;
+  font-size: 10px;
+  color: #a1a1aa;
+}
+
+/* Active Status Chips (left color bar matching BuffTooltip family) */
+.status-row {
+  display: flex;
+  gap: 6px;
+}
+
+.status-chip {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+  background-color: #141418;
+  border: 1px solid #27272a;
+  overflow: hidden;
+}
+
+.status-bar {
+  width: 3px;
+  height: 26px;
+  flex-shrink: 0;
+}
+
+.status-bar-red { background-color: #f87171; }
+.status-bar-emerald { background-color: #34d399; }
+.status-bar-amber { background-color: #fbbf24; }
+
+.status-body {
+  padding: 3px 6px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.status-name {
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.status-turn {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 8.5px;
+  color: #71717a;
+}
+
+/* 6 Core Attributes Grid */
+.attr-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.attr-card {
+  width: 78px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  background-color: #16161a;
+  border: 1px solid #27272a;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.attr-card.hi {
+  border: 1px solid rgba(199, 166, 103, 0.45);
+}
+
+.attr-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.attr-key {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #71717a;
+}
+
+.attr-mod {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  font-weight: 700;
+  color: #34d399;
+}
+
+.attr-val {
+  font-family: "JetBrains Mono", "DIN Next LT Pro", monospace;
+  font-size: 16px;
+  font-weight: 700;
+  color: #f4f4f5;
+  line-height: 1.1;
+}
+
+/* Radar Container */
+.radar-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 4px 2px 4px;
+  border-radius: 6px;
+  background-color: #0c0c0f;
+  border: 1px solid #1f1f23;
+}
+
+/* Resistances Strip */
+.res-grid {
+  display: flex;
+  gap: 5px;
+}
+
+.res-item {
+  flex: 1;
+  padding: 5px 4px;
+  border-radius: 4px;
+  background-color: #16161a;
+  border: 1px solid #27272a;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.res-item-lbl {
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #71717a;
+}
+
+.res-item-val {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* ==================== CENTER COLUMN: LIVE 3D RENDER TEXTURE + ROLL LOG ==================== */
+.col-center {
+  width: 452px;
+  height: 650px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.stage-wrap {
+  position: relative;
+  width: 452px;
+  height: 516px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #27272a;
+  background-color: #09090b;
+}
+
+.stage-3d {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 452px;
+  height: 516px;
+  background-image: -weft-texture(stage3d);
+  background-size: cover;
+  background-position: center;
+}
+
+.stage-vignette {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 452px;
+  height: 516px;
+  background-image: linear-gradient(180deg, rgba(9, 9, 11, 0.52) 0%, rgba(9, 9, 11, 0) 18%, rgba(9, 9, 11, 0) 76%, rgba(9, 9, 11, 0.78) 100%);
+}
+
+.stage-top {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.rt-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: 4px;
+  background-color: rgba(9, 9, 11, 0.84);
+  border: 1px solid #27272a;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.05em;
+  color: #a1a1aa;
+}
+
+.rt-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background-color: #34d399;
+}
+
+.rt-pill-strong {
+  color: #e4e4e7;
+  font-weight: 700;
+}
+
+.stage-relic-tag {
+  padding: 4px 9px;
+  border-radius: 4px;
+  background-color: rgba(9, 9, 11, 0.84);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #fbbf24;
+}
+
+/* Flanking Equipment Slots inside 3D Viewport */
+.equip-col {
+  position: absolute;
+  top: 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.equip-col-left { left: 12px; }
+.equip-col-right { right: 12px; }
+
+.eq-slot {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  background-color: rgba(16, 16, 20, 0.88);
+  border: 1px solid #27272a;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.eq-slot-rare { border: 1px solid rgba(96, 165, 250, 0.55); }
+.eq-slot-epic { border: 1px solid rgba(192, 132, 252, 0.55); }
+.eq-slot-legend {
+  background-color: rgba(24, 18, 12, 0.94);
+  border: 1px solid #fbbf24;
+  box-shadow: 0 0 16px rgba(251, 191, 36, 0.24);
+}
+
+.eq-slot-lbl {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 2px;
+  text-align: center;
+  font-size: 7.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #71717a;
+}
+
+.eq-slot-legend .eq-slot-lbl {
+  color: #fbbf24;
+}
+
+.eq-plus {
+  position: absolute;
+  right: 3px;
+  top: 2px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 8.5px;
+  font-weight: 700;
+  color: #fbbf24;
+}
+
+.stage-bottom {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+}
+
+.stage-caption-title {
+  font-family: "Georgia", serif;
+  font-size: 14px;
+  font-weight: 700;
+  color: #f4f4f5;
+}
+
+.stage-caption-sub {
+  margin-top: 2px;
+  font-size: 10.5px;
+  color: #a1a1aa;
+}
+
+.stage-cam-bar {
+  display: flex;
+  gap: 5px;
+}
+
+.cam-btn {
+  padding: 4px 8px;
+  border-radius: 4px;
+  background-color: rgba(16, 16, 20, 0.86);
+  border: 1px solid #27272a;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  color: #a1a1aa;
+}
+
+.cam-btn.active {
+  border: 1px solid rgba(199, 166, 103, 0.55);
+  color: #e9ddc1;
+}
+
+/* Bottom Combat & Roll Log */
+.log-panel {
+  width: 452px;
+  height: 122px;
+  padding: 10px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.log-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: #d4d4d8;
+  line-height: 1.25;
+}
+
+.roll-tag {
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  font-weight: 700;
+  background-color: #18181b;
+  border: 1px solid #27272a;
+  color: #a1a1aa;
+  flex-shrink: 0;
+}
+
+.roll-tag-crit {
+  background-color: rgba(251, 191, 36, 0.14);
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  color: #fbbf24;
+}
+
+.roll-tag-burn {
+  background-color: rgba(248, 113, 113, 0.14);
+  border: 1px solid rgba(248, 113, 113, 0.42);
+  color: #f87171;
+}
+
+.roll-tag-ok {
+  background-color: rgba(52, 211, 153, 0.12);
+  border: 1px solid rgba(52, 211, 153, 0.38);
+  color: #34d399;
+}
+
+/* ==================== RIGHT COLUMN: INVENTORY BAG ==================== */
+.col-right {
+  width: 498px;
+  height: 650px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bag-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #27272a;
+}
+
+.bag-title-wrap {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.bag-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #f4f4f5;
+}
+
+.bag-count {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: #71717a;
+}
+
+.bag-filters {
+  display: flex;
+  gap: 4px;
+}
+
+.bag-pill {
+  padding: 3px 8px;
+  border-radius: 4px;
+  background-color: #16161a;
+  border: 1px solid #27272a;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: #71717a;
+}
+
+.bag-pill.active {
+  background-color: #1e1b14;
+  border: 1px solid rgba(199, 166, 103, 0.50);
+  color: #e9ddc1;
+}
+
+.bag-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  flex: 1;
+  align-content: flex-start;
+  justify-content: space-between;
+}
+
+.inv-slot {
+  position: relative;
+  width: 60px;
+  height: 59px;
+  border-radius: 6px;
+  background-color: #151519;
+  border: 1px solid #27272a;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.inv-slot-empty {
+  background-color: #0e0e11;
+  border: 1px solid #1d1d22;
+}
+
+.inv-slot-sel {
+  border: 1px solid #fbbf24;
+  background-color: #1c1710;
+}
+
+.inv-rarity-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+}
+
+.rb-legend { background-color: #fbbf24; }
+.rb-epic { background-color: #c084fc; }
+.rb-rare { background-color: #60a5fa; }
+.rb-uncommon { background-color: #34d399; }
+.rb-common { background-color: #52525b; }
+
+.inv-qty {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  font-weight: 700;
+  color: #d4d4d8;
+}
+
+.inv-tag {
+  position: absolute;
+  left: 4px;
+  top: 3px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 8px;
+  font-weight: 700;
+  color: #a1a1aa;
+}
+
+.inv-tag-gold { color: #fbbf24; }
+.inv-tag-purple { color: #c084fc; }
+.inv-tag-blue { color: #60a5fa; }
+
+.bag-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 8px;
+  border-top: 1px solid #27272a;
+}
+
+.weight-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  color: #a1a1aa;
+}
+
+.weight-track {
+  width: 110px;
+  height: 6px;
+  border-radius: 3px;
+  background-color: #18181b;
+  border: 1px solid #27272a;
+  overflow: hidden;
+}
+
+.weight-fill {
+  width: 57%;
+  height: 100%;
+  background-color: #c7a667;
+}
+
+.bag-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.bag-btn {
+  padding: 4px 10px;
+  border-radius: 4px;
+  background-color: #18181b;
+  border: 1px solid #27272a;
+  font-size: 10px;
+  font-weight: 600;
+  color: #d4d4d8;
+}
+
+/* ==================== INLINE KEYWORDS (CRPGFramework KeywordSpan) ==================== */
+.kw {
+  font-weight: 600;
+  padding-bottom: 1px;
+}
+
+.kw-amber { color: #fbbf24; border-bottom: 1px dotted #fbbf24; }
+.kw-orange { color: #fb923c; border-bottom: 1px dotted #fb923c; }
+.kw-red { color: #f87171; border-bottom: 1px dotted #f87171; }
+.kw-violet { color: #a78bfa; border-bottom: 1px dotted #a78bfa; }
+.kw-emerald { color: #34d399; border-bottom: 1px dotted #34d399; }
+.kw-sky { color: #38bdf8; border-bottom: 1px dotted #38bdf8; }
+
+.kw-active-red {
+  color: #fca5a5;
+  background-color: rgba(248, 113, 113, 0.16);
+  border-bottom: 1px solid #f87171;
+  padding: 0 3px;
+}
+
+.kw-active-violet {
+  color: #c4b5fd;
+  background-color: rgba(167, 139, 250, 0.16);
+  border-bottom: 1px solid #a78bfa;
+  padding: 0 3px;
+}
+
+/* ==================== CRPGFRAMEWORK NESTED TOOLTIP CASCADE ==================== */
+.tt-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1280px;
+  height: 720px;
+  pointer-events: none;
+}
+
+.conn-svg {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1280px;
+  height: 720px;
+}
+
+/* Card 1: EquipmentTooltip (bg-zinc-950 border-amber-400 rounded-lg + SmokeBg mist) */
+.tt-equip {
+  position: absolute;
+  left: 754px;
+  top: 102px;
+  width: 244px;
+  background-color: #09090b;
+  border: 1px solid #fbbf24;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.78);
+}
+
+.tt-smoke-amber {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 244px;
+  height: 112px;
+  background-image: radial-gradient(ellipse at 50% 0%, rgba(245, 158, 11, 0.28) 0%, rgba(245, 158, 11, 0.08) 54%, rgba(9, 9, 11, 0) 90%);
+}
+
+.tt-inner {
+  position: relative;
+  padding: 12px;
+}
+
+.tt-pin-ctrl {
+  position: absolute;
+  right: 9px;
+  top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.tt-pin-badge {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  color: #71717a;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background-color: #18181b;
+  border: 1px solid #27272a;
+}
+
+.tt-close {
+  font-size: 11px;
+  color: #71717a;
+  line-height: 1;
+}
+
+.tt-eq-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 8px;
+}
+
+.tt-eq-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 5px;
+  background-color: #18181b;
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.tt-title-amber {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #fbbf24;
+  line-height: 1.2;
+}
+
+.tt-rarity {
+  margin-top: 1px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: #71717a;
+}
+
+.tt-rule-amber {
+  height: 1px;
+  background-color: rgba(251, 191, 36, 0.28);
+  margin-bottom: 8px;
+}
+
+.tt-desc {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #d4d4d8;
+}
+
+.tt-stats {
+  margin-top: 9px;
+  padding-top: 7px;
+  border-top: 1px solid #27272a;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.tt-stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 11px;
+}
+
+.tt-stat-k {
+  color: #71717a;
+}
+
+.tt-stat-v {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: #e4e4e7;
+}
+
+.tt-stat-pos {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: #34d399;
+}
+
+.tt-stat-neg {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: #f87171;
+}
+
+/* Card 2: BuffTooltip (bg-zinc-950 border-zinc-800 rounded-lg + 4px left accent bar) */
+.tt-buff {
+  position: absolute;
+  left: 1012px;
+  top: 128px;
+  width: 248px;
+  background-color: #09090b;
+  border: 1px solid #27272a;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.80);
+}
+
+.tt-buff-bar {
+  width: 4px;
+  background-color: #f87171;
+  flex-shrink: 0;
+}
+
+.tt-buff-body {
+  position: relative;
+  flex: 1;
+  padding: 11px 12px;
+}
+
+.tt-buff-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 7px;
+}
+
+.tt-buff-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.tt-title-red {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f87171;
+}
+
+.tt-life {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: #71717a;
+  margin-right: 12px;
+}
+
+.tt-rule-red {
+  height: 1px;
+  background-color: rgba(248, 113, 113, 0.28);
+  margin-bottom: 8px;
+}
+
+/* Card 3: TermTooltip (bg-zinc-950 border-zinc-800 rounded-lg + signature PinRing SVG!) */
+.tt-term {
+  position: absolute;
+  left: 944px;
+  top: 344px;
+  width: 254px;
+  background-color: #09090b;
+  border: 1px solid #3f3f46;
+  border-radius: 8px;
+  padding: 11px 12px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.84);
+}
+
+.tt-title-violet {
+  font-size: 13px;
+  font-weight: 700;
+  color: #a78bfa;
+  margin-bottom: 6px;
+}
+
+.tt-rule-zinc {
+  height: 1px;
+  background-color: #3f3f46;
+  margin-bottom: 8px;
+}
+
+.tt-pinring-wrap {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tt-pinring-lbl {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  color: #71717a;
+}
+
+/* Utility text colors */
+.c-red { color: #f87171; }
+.c-emerald { color: #34d399; }
+.c-amber { color: #fbbf24; }
+.c-sky { color: #38bdf8; }
+.c-violet { color: #a78bfa; }
+.c-zinc { color: #a1a1aa; }

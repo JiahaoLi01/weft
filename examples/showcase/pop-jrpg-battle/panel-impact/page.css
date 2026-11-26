@@ -1,0 +1,73 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+#root {
+  position: relative;
+  width: 320px;
+  height: 240px;
+  overflow: hidden;
+  background-color: transparent;
+  color: #ffffff;
+  font-family: "DIN Next LT Pro", "Segoe UI Black";
+}
+
+.starburst-svg { position: absolute; left: 16px; top: 10px; display: block; }
+
+.weak-stamp {
+  position: absolute;
+  left: 52px;
+  top: 46px;
+  transform: rotate(-11deg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.weak-word {
+  font-family: "Impact", "Segoe UI Black";
+  font-size: 44px;
+  line-height: 40px;
+  letter-spacing: 2px;
+  color: #e60023;
+  text-shadow: 3px 3px 0 #0a0a0e, -1px -1px 0 #ffffff;
+}
+
+.one-more {
+  margin-top: 3px;
+  padding: 2px 12px;
+  background-color: #0a0a0e;
+  color: #ffe600;
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 1.8px;
+  border: 2px solid #ffffff;
+  transform: matrix(1, 0, -0.2126, 1, 0, 0);
+}
+
+.dmg-pop {
+  position: absolute;
+  left: 106px;
+  top: 132px;
+  transform: rotate(-6deg);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.dmg-crit {
+  padding: 2px 9px;
+  background-color: #e60023;
+  color: #ffffff;
+  border: 2px solid #0a0a0e;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 1.8px;
+  transform: matrix(1, 0, -0.2493, 1, 0, 0);
+}
+
+.dmg-num {
+  font-family: "Impact", "Segoe UI Black";
+  font-size: 62px;
+  line-height: 54px;
+  letter-spacing: 1px;
+  color: #ffffff;
+  text-shadow: 6px 6px 0 #0a0a0e, -2px -2px 0 #e60023, 2px -2px 0 #0a0a0e;
+}

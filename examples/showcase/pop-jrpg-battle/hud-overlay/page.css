@@ -1,0 +1,102 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+#root {
+  position: relative;
+  width: 1280px;
+  height: 720px;
+  overflow: hidden;
+  background-color: transparent;
+  color: #ffffff;
+  font-family: "DIN Next LT Pro", "Segoe UI Black";
+  font-variant-numeric: tabular-nums;
+}
+
+.corner-slash-tl {
+  position: absolute;
+  left: -30px;
+  top: -16px;
+  width: 310px;
+  height: 112px;
+  background-color: #e60023;
+  clip-path: polygon(0 0, 100% 0, 84% 76%, 0 100%);
+  transform: rotate(-2deg);
+}
+
+.corner-slash-dots {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-image: radial-gradient(circle, rgba(9, 9, 13, 0.34) 2px, transparent 2.5px);
+  background-size: 9px 9px;
+}
+
+.date-cluster {
+  position: absolute;
+  left: 20px;
+  top: 14px;
+  transform: rotate(-3deg);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.date-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 18px 5px 14px;
+  background-color: #0a0a0e;
+  border: 3px solid #ffffff;
+  box-shadow: 6px 6px 0 #0a0a0e;
+  clip-path: polygon(0 4px, 100% 0, 96% 100%, 4px 94%);
+}
+
+.date-num { font-family: "Impact", "Segoe UI Black"; font-size: 32px; line-height: 30px; letter-spacing: 1px; color: #ffffff; }
+.date-day { padding: 2px 7px; background-color: #ffe600; color: #0a0a0e; font-size: 13px; font-weight: 900; transform: matrix(1, 0, -0.2126, 1, 0, 0); }
+.date-phase { display: flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 900; letter-spacing: 1.5px; color: #ffdd4a; }
+
+.turn-banner {
+  margin-left: 12px;
+  padding: 4px 16px 4px 12px;
+  background-color: #ffffff;
+  color: #0a0a0e;
+  border: 2.5px solid #0a0a0e;
+  box-shadow: 5px 5px 0 #e60023;
+  transform: matrix(1, 0, -0.2126, 1, 0, 0);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 1.4px;
+}
+
+.turn-tag { padding: 1px 6px; background-color: #e60023; color: #ffffff; font-size: 11px; }
+
+.control-strip {
+  position: absolute;
+  left: 24px;
+  bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transform: rotate(-1deg);
+}
+
+.ctrl-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 11px 4px 7px;
+  background-color: #0a0a0f;
+  border: 2px solid #ffffff;
+  box-shadow: 3px 3px 0 #e60023;
+  transform: matrix(1, 0, -0.2126, 1, 0, 0);
+  font-size: 10.5px;
+  font-weight: 900;
+  letter-spacing: 1px;
+}
+
+.ctrl-btn { padding: 1px 5px; background-color: #ffe600; color: #0a0a0e; font-size: 10px; font-weight: 900; }

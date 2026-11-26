@@ -1,0 +1,966 @@
+/* Showcase 1: Tactical Sci-Fi FPS HUD
+   1280x720 logical CSS px (rendered at 1.5x -> 1920x1080 Full HD) */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 1280px;
+  height: 720px;
+  overflow: hidden;
+  background-color: transparent;
+}
+
+#root {
+  position: relative;
+  width: 1280px;
+  height: 720px;
+  overflow: hidden;
+  background-color: transparent;
+  color: #eef5fa;
+  font-family: "DIN Next LT Pro", "Bahnschrift", "Noto Sans SC", "Segoe UI";
+  font-variant-numeric: tabular-nums;
+}
+
+.vignette {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1280px;
+  height: 720px;
+  background-image: radial-gradient(ellipse 82% 76% at 50% 48%, rgba(4, 9, 16, 0) 56%, rgba(4, 8, 15, 0.36) 100%);
+  pointer-events: none;
+}
+
+.scan-tint {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1280px;
+  height: 720px;
+  background-image: linear-gradient(180deg, rgba(4, 10, 18, 0.32) 0%, rgba(4, 10, 18, 0) 18%, rgba(4, 10, 18, 0) 78%, rgba(4, 10, 18, 0.42) 100%);
+  pointer-events: none;
+}
+
+/* ---------- Top Tactical Compass (mask-image edge fade) ---------- */
+.compass-wrap {
+  position: absolute;
+  left: 440px;
+  top: 8px;
+  width: 400px;
+  height: 36px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.compass-track {
+  width: 390px;
+  height: 19px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  border-bottom: 1px solid rgba(190, 232, 255, 0.25);
+  mask-image: linear-gradient(90deg, transparent 0%, #000000 18%, #000000 82%, transparent 100%);
+  font-family: "JetBrains Mono", "Bahnschrift";
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  color: rgba(218, 236, 248, 0.78);
+}
+
+.compass-cardinal {
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.compass-caret {
+  margin-top: 3px;
+  padding: 1px 9px;
+  background-color: rgba(8, 16, 26, 0.84);
+  border: 1px solid rgba(0, 240, 255, 0.48);
+  font-family: "JetBrains Mono";
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  color: #00f0ff;
+}
+
+/* ---------- Top Center Match Scoreboard ---------- */
+.scoreboard {
+  position: absolute;
+  left: 390px;
+  top: 49px;
+  width: 500px;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.team-strip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.agent-pip {
+  position: relative;
+  width: 24px;
+  height: 32px;
+  background-color: rgba(9, 15, 24, 0.62);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(185, 224, 245, 0.2);
+  clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 2px 3px 2px;
+}
+
+.agent-pip.ally {
+  border-color: rgba(0, 240, 255, 0.42);
+}
+
+.agent-pip.enemy {
+  border-color: rgba(255, 59, 82, 0.42);
+}
+
+.agent-pip.dead {
+  opacity: 0.36;
+  background-color: rgba(10, 14, 20, 0.5);
+}
+
+.pip-bar {
+  width: 14px;
+  height: 3px;
+  border-radius: 1px;
+}
+
+.pip-bar.ally {
+  background-color: #00f0ff;
+}
+
+.pip-bar.enemy {
+  background-color: #ff3b52;
+}
+
+.pip-bar.dead {
+  background-color: rgba(255, 255, 255, 0.25);
+}
+
+.pip-ult {
+  width: 5px;
+  height: 5px;
+  transform: rotate(45deg);
+  background-color: rgba(255, 255, 255, 0.16);
+}
+
+.pip-ult.ready {
+  background-color: #ffb830;
+  box-shadow: 0 0 6px rgba(255, 184, 48, 0.85);
+}
+
+.score-core {
+  display: flex;
+  align-items: stretch;
+  height: 48px;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.55));
+}
+
+.score-box {
+  width: 54px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(14px) saturate(1.3);
+}
+
+.score-box.ally {
+  background-image: linear-gradient(135deg, rgba(0, 240, 255, 0.26), rgba(6, 16, 28, 0.82));
+  border-top: 2px solid #00f0ff;
+  border-bottom: 1px solid rgba(0, 240, 255, 0.35);
+  clip-path: polygon(10px 0, 100% 0, 100% 100%, 0 100%, 0 10px);
+}
+
+.score-box.enemy {
+  background-image: linear-gradient(225deg, rgba(255, 59, 82, 0.28), rgba(24, 8, 14, 0.82));
+  border-top: 2px solid #ff3b52;
+  border-bottom: 1px solid rgba(255, 59, 82, 0.35);
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%);
+}
+
+.score-num {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 24px;
+}
+
+.score-num.ally {
+  color: #00f0ff;
+  text-shadow: 0 0 12px rgba(0, 240, 255, 0.55);
+}
+
+.score-num.enemy {
+  color: #ff3b52;
+  text-shadow: 0 0 12px rgba(255, 59, 82, 0.55);
+}
+
+.score-side {
+  font-size: 9px;
+  letter-spacing: 1.4px;
+  color: rgba(212, 228, 240, 0.66);
+  margin-top: 1px;
+}
+
+.timer-box {
+  width: 92px;
+  background-color: rgba(7, 12, 20, 0.78);
+  backdrop-filter: blur(16px);
+  border-top: 2px solid rgba(255, 255, 255, 0.82);
+  border-bottom: 1px solid rgba(185, 224, 245, 0.2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.timer-val {
+  font-size: 23px;
+  font-weight: 700;
+  line-height: 24px;
+  letter-spacing: 1px;
+  color: #ffffff;
+}
+
+.timer-round {
+  font-family: "JetBrains Mono";
+  font-size: 8.5px;
+  letter-spacing: 1.5px;
+  color: #ffb830;
+  margin-top: 2px;
+}
+
+/* ---------- Top-Left Tactical Radar Minimap ---------- */
+.radar-shell {
+  position: absolute;
+  left: 22px;
+  top: 20px;
+  width: 214px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.radar-frame {
+  position: relative;
+  width: 214px;
+  height: 196px;
+  padding: 1px;
+  background-image: linear-gradient(135deg, rgba(0, 240, 255, 0.55), rgba(140, 190, 220, 0.14) 55%, rgba(0, 240, 255, 0.35));
+  clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+}
+
+.radar-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(7, 14, 24, 0.74);
+  backdrop-filter: blur(16px) saturate(1.25);
+  clip-path: polygon(13px 0, 100% 0, 100% calc(100% - 13px), calc(100% - 13px) 100%, 0 100%, 0 13px);
+  overflow: hidden;
+}
+
+.radar-grid {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-image: repeating-linear-gradient(0deg, rgba(0, 240, 255, 0.05) 0 1px, transparent 1px 24px);
+}
+
+.radar-grid-v {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-image: repeating-linear-gradient(90deg, rgba(0, 240, 255, 0.05) 0 1px, transparent 1px 24px);
+}
+
+.radar-svg {
+  position: relative;
+  display: block;
+}
+
+.radar-tag-tl {
+  position: absolute;
+  left: 10px;
+  top: 7px;
+  font-family: "JetBrains Mono";
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: #00f0ff;
+}
+
+.radar-tag-br {
+  position: absolute;
+  right: 12px;
+  bottom: 7px;
+  font-family: "JetBrains Mono";
+  font-size: 8.5px;
+  color: rgba(210, 232, 248, 0.72);
+}
+
+.sector-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 10px;
+  background-color: rgba(9, 15, 24, 0.62);
+  backdrop-filter: blur(12px);
+  border-left: 3px solid #00f0ff;
+  border-right: 1px solid rgba(185, 224, 245, 0.2);
+  border-top: 1px solid rgba(185, 224, 245, 0.2);
+  border-bottom: 1px solid rgba(185, 224, 245, 0.2);
+}
+
+.sector-name {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  color: #ffffff;
+}
+
+.sector-cn {
+  color: #00f0ff;
+  font-weight: 600;
+  margin-left: 4px;
+}
+
+.sector-badge {
+  font-family: "JetBrains Mono";
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  background-color: rgba(255, 184, 48, 0.18);
+  border: 1px solid rgba(255, 184, 48, 0.65);
+  color: #ffb830;
+}
+
+/* ---------- Top-Right Kill Feed & Telemetry ---------- */
+.top-right {
+  position: absolute;
+  right: 22px;
+  top: 20px;
+  width: 288px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.telemetry-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 10px;
+  background-color: rgba(6, 12, 20, 0.56);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(185, 224, 245, 0.16);
+  font-family: "JetBrains Mono";
+  font-size: 9.5px;
+  color: rgba(212, 228, 240, 0.66);
+}
+
+.tele-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #2ce8a2;
+  box-shadow: 0 0 6px #2ce8a2;
+}
+
+.tele-hi {
+  color: #eef8ff;
+  font-weight: 700;
+}
+
+.kill-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px 5px 14px;
+  background-color: rgba(8, 14, 23, 0.72);
+  backdrop-filter: blur(14px);
+  border-right: 3px solid #ff3b52;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  clip-path: polygon(10px 0, 100% 0, 100% 100%, 0 100%, 0 10px);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+}
+
+.kill-card.own {
+  background-image: linear-gradient(90deg, rgba(0, 240, 255, 0.16), rgba(9, 16, 26, 0.82) 45%, rgba(255, 59, 82, 0.22));
+  border-right: 3px solid #ffb830;
+  border-top: 1px solid rgba(0, 240, 255, 0.35);
+}
+
+.kill-ally {
+  color: #00f0ff;
+}
+
+.kill-enemy {
+  color: #ff7080;
+}
+
+.kill-hs {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background-color: rgba(255, 59, 82, 0.22);
+  border: 1px solid rgba(255, 59, 82, 0.65);
+}
+
+/* ---------- Center Crosshair & 3D World-Anchored Target Nameplate ---------- */
+.crosshair {
+  position: absolute;
+  left: 616px;
+  top: 336px;
+  width: 48px;
+  height: 48px;
+  pointer-events: none;
+}
+
+.anchor-target {
+  position: absolute;
+  left: 634px;
+  top: 256px;
+  width: 174px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.target-card {
+  width: 174px;
+  padding: 5px 8px 6px 8px;
+  background-color: rgba(12, 10, 16, 0.78);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 59, 82, 0.55);
+  border-left: 3px solid #ff3b52;
+  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
+}
+
+.target-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.target-name {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.9px;
+  color: #ffe8eb;
+}
+
+.target-dist {
+  font-family: "JetBrains Mono";
+  font-size: 9px;
+  font-weight: 700;
+  color: #ffb830;
+}
+
+.target-shield-bg {
+  width: 100%;
+  height: 3px;
+  background-color: rgba(255, 255, 255, 0.14);
+  margin-bottom: 3px;
+}
+
+.target-shield-fill {
+  width: 24%;
+  height: 100%;
+  background-color: #00f0ff;
+}
+
+.target-hp-bg {
+  position: relative;
+  width: 100%;
+  height: 6px;
+  background-color: rgba(255, 255, 255, 0.14);
+}
+
+.target-hp-ghost {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 62%;
+  height: 100%;
+  background-color: rgba(255, 232, 180, 0.62);
+}
+
+.target-hp-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 38%;
+  height: 100%;
+  background-image: linear-gradient(90deg, #ff2a46, #ff6d5e);
+}
+
+.target-stem {
+  width: 2px;
+  height: 24px;
+  background-image: linear-gradient(180deg, rgba(255, 59, 82, 0.85), rgba(255, 59, 82, 0.1));
+}
+
+.target-diamond {
+  width: 14px;
+  height: 14px;
+  transform: rotate(45deg);
+  border: 1.5px solid #ff3b52;
+  background-color: rgba(255, 59, 82, 0.16);
+  box-shadow: 0 0 10px rgba(255, 59, 82, 0.7);
+}
+
+/* ---------- Bottom-Left Agent Vitality Core ---------- */
+.vital-wrap {
+  position: absolute;
+  left: 22px;
+  bottom: 22px;
+  width: 318px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.buff-row {
+  display: flex;
+  gap: 6px;
+}
+
+.buff-pill {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  background-color: rgba(8, 16, 28, 0.72);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(0, 240, 255, 0.35);
+  clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
+  font-family: "JetBrains Mono";
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #00f0ff;
+}
+
+.buff-pill.amber {
+  border-color: rgba(255, 184, 48, 0.45);
+  color: #ffb830;
+}
+
+.vital-border {
+  padding: 1px;
+  background-image: linear-gradient(120deg, rgba(0, 240, 255, 0.65), rgba(255, 255, 255, 0.14) 55%, rgba(0, 240, 255, 0.25));
+  clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+}
+
+.vital-panel {
+  position: relative;
+  padding: 11px 15px 12px 14px;
+  background-color: rgba(7, 13, 22, 0.74);
+  backdrop-filter: blur(18px) saturate(1.35);
+  clip-path: polygon(0 0, calc(100% - 15px) 0, 100% 15px, 100% 100%, 13px 100%, 0 calc(100% - 13px));
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+
+.agent-hex {
+  width: 58px;
+  height: 64px;
+  flex-shrink: 0;
+  background-image: linear-gradient(160deg, rgba(0, 240, 255, 0.3), rgba(8, 20, 36, 0.92));
+  clip-path: polygon(50% 0%, 100% 22%, 100% 78%, 50% 100%, 0% 78%, 0% 22%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vital-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.vital-top {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.vital-callsign {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 1.8px;
+  color: rgba(0, 240, 255, 0.85);
+  white-space: nowrap;
+}
+
+.vital-nums {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.stat-pair {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.shield-val {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 24px;
+  color: #00f0ff;
+  text-shadow: 0 0 10px rgba(0, 240, 255, 0.45);
+}
+
+.hp-val {
+  font-size: 36px;
+  font-weight: 700;
+  line-height: 32px;
+  color: #ffffff;
+  text-shadow: 0 2px 12px rgba(0, 240, 255, 0.25);
+}
+
+.stat-unit {
+  font-family: "JetBrains Mono";
+  font-size: 9px;
+  color: rgba(212, 228, 240, 0.66);
+}
+
+.shield-segs {
+  display: flex;
+  gap: 4px;
+  height: 5px;
+}
+
+.shield-seg {
+  flex: 1;
+  background-color: rgba(0, 240, 255, 0.16);
+}
+
+.shield-seg.filled {
+  background-image: linear-gradient(90deg, #00d2ff, #6bf7ff);
+  box-shadow: 0 0 8px rgba(0, 240, 255, 0.55);
+}
+
+.hp-bar-track {
+  position: relative;
+  height: 9px;
+  background-color: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.hp-bar-fill {
+  position: relative;
+  width: 86%;
+  height: 100%;
+  background-image: linear-gradient(90deg, #d8eeff, #ffffff);
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.5);
+}
+
+.hp-bar-hatch {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-image: repeating-linear-gradient(-55deg, rgba(8, 16, 28, 0.18) 0 4px, transparent 4px 10px);
+}
+
+/* ---------- Bottom-Center Ability Loadout Dock ---------- */
+.ability-dock {
+  position: absolute;
+  left: 454px;
+  bottom: 22px;
+  width: 372px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 10px;
+}
+
+.ability-slot {
+  position: relative;
+  width: 74px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+
+.ability-slot.ult {
+  width: 92px;
+}
+
+.ability-pips {
+  display: flex;
+  gap: 3px;
+}
+
+.ab-pip {
+  width: 10px;
+  height: 3px;
+  background-color: rgba(255, 255, 255, 0.22);
+}
+
+.ab-pip.on {
+  background-color: #00f0ff;
+  box-shadow: 0 0 6px rgba(0, 240, 255, 0.8);
+}
+
+.ab-pip.ult-pip {
+  width: 7px;
+  height: 7px;
+  transform: rotate(45deg);
+  background-color: #ffb830;
+  box-shadow: 0 0 6px rgba(255, 184, 48, 0.85);
+}
+
+.ability-border {
+  width: 100%;
+  height: 66px;
+  padding: 1px;
+  background-image: linear-gradient(180deg, rgba(190, 232, 255, 0.35), rgba(190, 232, 255, 0.08));
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+}
+
+.ability-slot.active .ability-border {
+  background-image: linear-gradient(180deg, #00f0ff, rgba(0, 240, 255, 0.25));
+}
+
+.ability-slot.ult .ability-border {
+  height: 74px;
+  background-image: linear-gradient(135deg, #ffb830, #ff3b52 55%, #ffb830);
+  box-shadow: 0 0 22px rgba(255, 59, 82, 0.38);
+}
+
+.ability-box {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(8, 15, 24, 0.72);
+  backdrop-filter: blur(16px) saturate(1.3);
+  clip-path: polygon(9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.ability-slot.ult .ability-box {
+  background-image: radial-gradient(circle at 50% 42%, rgba(255, 92, 64, 0.35), rgba(18, 8, 14, 0.86) 72%);
+}
+
+.ability-cd-sweep {
+  position: absolute;
+  left: -14px;
+  top: -14px;
+  width: 102px;
+  height: 94px;
+  background-image: conic-gradient(from 0deg, rgba(4, 9, 16, 0.82) 0%, rgba(4, 9, 16, 0.82) 64%, rgba(0, 240, 255, 0.38) 64.5%, transparent 66%);
+}
+
+.ability-cd-num {
+  position: absolute;
+  font-family: "JetBrains Mono";
+  font-size: 17px;
+  font-weight: 700;
+  color: #ffffff;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.95);
+}
+
+.ability-flare {
+  position: absolute;
+  left: 6px;
+  top: -14px;
+  width: 78px;
+  height: 44px;
+  border-radius: 50%;
+  background-image: radial-gradient(circle, rgba(255, 210, 100, 0.55), transparent 70%);
+  mix-blend-mode: screen;
+}
+
+.ability-key {
+  padding: 1px 8px;
+  background-color: rgba(8, 14, 22, 0.85);
+  border: 1px solid rgba(190, 232, 255, 0.28);
+  font-family: "JetBrains Mono";
+  font-size: 10px;
+  font-weight: 700;
+  color: #e4f2fb;
+}
+
+.ability-slot.ult .ability-key {
+  background-color: #ff3b52;
+  border-color: #ffb830;
+  color: #ffffff;
+}
+
+.ability-name {
+  font-size: 8.5px;
+  letter-spacing: 0.9px;
+  color: rgba(212, 228, 240, 0.66);
+  margin-top: -2px;
+}
+
+/* ---------- Bottom-Right Weapon & Ammo Module ---------- */
+.weapon-wrap {
+  position: absolute;
+  right: 22px;
+  bottom: 22px;
+  width: 306px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.slot-tabs {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.w-tab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  background-color: rgba(8, 14, 22, 0.62);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(185, 224, 245, 0.16);
+  font-family: "JetBrains Mono";
+  font-size: 9.5px;
+  color: rgba(212, 228, 240, 0.66);
+}
+
+.w-tab.active {
+  background-color: rgba(0, 240, 255, 0.18);
+  border-color: rgba(0, 240, 255, 0.6);
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.weapon-border {
+  padding: 1px;
+  background-image: linear-gradient(240deg, rgba(0, 240, 255, 0.62), rgba(255, 255, 255, 0.14) 55%, rgba(255, 59, 82, 0.35));
+  clip-path: polygon(16px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 16px);
+}
+
+.weapon-panel {
+  padding: 11px 15px 12px 15px;
+  background-color: rgba(7, 13, 22, 0.74);
+  backdrop-filter: blur(18px) saturate(1.35);
+  clip-path: polygon(15px 0, 100% 0, 100% calc(100% - 13px), calc(100% - 13px) 100%, 0 100%, 0 15px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.weapon-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.weapon-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
+  color: #ffffff;
+}
+
+.fire-mode {
+  font-family: "JetBrains Mono";
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 6px;
+  background-color: rgba(0, 240, 255, 0.15);
+  border: 1px solid rgba(0, 240, 255, 0.45);
+  color: #00f0ff;
+}
+
+.weapon-mid {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ammo-readout {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.ammo-cur {
+  font-size: 42px;
+  font-weight: 700;
+  line-height: 36px;
+  color: #ffffff;
+  text-shadow: 0 0 14px rgba(0, 240, 255, 0.35);
+}
+
+.ammo-sep {
+  font-size: 20px;
+  color: rgba(255, 255, 255, 0.32);
+}
+
+.ammo-max {
+  font-size: 20px;
+  font-weight: 600;
+  color: rgba(212, 228, 240, 0.66);
+}
+
+.bullet-strip {
+  display: flex;
+  gap: 3px;
+  height: 7px;
+}
+
+.bullet-pip {
+  flex: 1;
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+.bullet-pip.lit {
+  background-color: #d8f7ff;
+  box-shadow: 0 0 5px rgba(0, 240, 255, 0.55);
+}
+
+.bullet-pip.low {
+  background-color: #ffb830;
+}

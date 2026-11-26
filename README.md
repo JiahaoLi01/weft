@@ -21,6 +21,18 @@
 
 相比传统的内置浏览器进程（CEF / WebView）或封闭的二进制资产工作流，Weft 以纯 **C ABI** 嵌入引擎进程内部：不启动额外子进程，不创建独立 GPU 设备，不经过 CPU 像素回读与拷贝；其纯文本、声明式的界面描述也天然契合**现代前端工具链与 AI 辅助界面开发工作流**。
 
+<p align="center">
+  <img src="docs/images/showcase/dark-fantasy-rpg.png" width="99%" alt="CRPG UI">
+</p>
+<p align="center">
+  <img src="docs/images/showcase/pop-jrpg-battle.png" width="49%" alt="JRPG 3D In-Game UI">
+  <img src="docs/images/showcase/4x-strategy.png" width="49%" alt="4X Strategy UI">
+</p>
+<p align="center">
+  <img src="docs/images/showcase/tactical-fps.png" width="49%" alt="Tactical FPS HUD">
+  <img src="docs/images/showcase/cozy-workshop.png" width="49%" alt="Cozy Workshop UI">
+</p>
+
 ## 核心优势
 
 - **AI-First 声明式界面工作流**：界面逻辑与样式以标准 Web 子集编写，具备清晰的文本 Diff、组件化复用与极高的 AI 生成/迭代精度；配合内建的 Chrome DevTools 协议与热重载工具，改写界面无需重新编译或打包游戏。
