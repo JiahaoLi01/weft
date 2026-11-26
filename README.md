@@ -5,21 +5,19 @@
   </picture>
 </p>
 
-<h3 align="center">面向游戏引擎的嵌入式原生 Web 标准 UI 运行时</h3>
+<h3 align="center">写 Web，跑在引擎里。</h3>
 
 <p align="center">
-  <strong>C++20 核心</strong> · <strong>纯 C ABI</strong> · <strong>D3D11 / D3D12 / Vulkan / Metal</strong> · <strong>Windows / macOS / iOS / Android</strong>
+  <strong>C++20</strong> · <strong>纯 C ABI</strong> · <strong>D3D11 / D3D12 / Vulkan / Metal</strong> · <strong>Windows / macOS / iOS / Android</strong>
 </p>
 
 <p align="center">
-  <sub>上方动态 Logo 由 Weft 运行时自身渲染（<a href="examples/logo">examples/logo</a>，纯 SVG 描边与 CSS 关键帧，与 Chrome 逐帧校验）。</sub>
+  <sub>上方动态 Logo 由 Weft 自身渲染，纯 SVG 描边与 CSS 关键帧（<a href="examples/logo">examples/logo</a>）。</sub>
 </p>
 
 ---
 
-**Weft** 是一套专为实时游戏引擎设计的轻量级嵌入式 UI 运行时。它让团队使用标准的 HTML、CSS、DOM 与 JavaScript 生态构建游戏界面，同时将**线程调度、资源加载、GPU 设备与命令列表控制权完全交还给宿主引擎**。
-
-相比传统的内置浏览器进程（CEF / WebView）或封闭的二进制资产工作流，Weft 以纯 **C ABI** 嵌入引擎进程内部：不启动额外子进程，不创建独立 GPU 设备，不经过 CPU 像素回读与拷贝；其纯文本、声明式的界面描述也天然契合**现代前端工具链与 AI 辅助界面开发工作流**。
+**Weft** 是为实时游戏引擎打造的嵌入式 Web UI 运行时。用 HTML、CSS 与 JavaScript 构建游戏界面：没有独立的浏览器进程，没有像素回读，也不接管你的主循环。每一笔绘制，都通过纯 C ABI 直接写进引擎自己的 GPU 命令列表。
 
 <p align="center">
   <img src="docs/images/showcase/dark-fantasy-rpg.png" width="99%" alt="CRPG UI">
@@ -33,15 +31,46 @@
   <img src="docs/images/showcase/cozy-workshop.png" width="49%" alt="Cozy Workshop UI">
 </p>
 
-## 核心优势
+## 核心特性
 
-- **AI-First 声明式界面工作流**：界面逻辑与样式以标准 Web 子集编写，具备清晰的文本 Diff、组件化复用与极高的 AI 生成/迭代精度；配合内建的 Chrome DevTools 协议与热重载工具，改写界面无需重新编译或打包游戏。
-- **宿主掌控的零拷贝 GPU 渲染**：渲染器直接向引擎自身的 GPU 设备与命令列表录制绘制指令（支持 D3D11、D3D12、Vulkan、Metal），无缝接入 Unreal Engine RDG/RHI、Unity 或自研渲染管线。
-- **为游戏帧预算设计的增量管线**：样式层叠、Yoga 布局、字形塑形与显示列表均为增量更新，仅重算受变化影响的子树；在包含数千节点的复杂 HUD 场景下，单帧局部更新的 UI 与录制开销保持在亚毫秒级。
-- **原版前端生态兼容**：内置 QuickJS-ng 运行时，可直接运行未修改的 React、D3（含原生 SVG 渲染）、Zustand、KaTeX 等现代前端库。
-- **面向游戏场景的引擎桥接**：提供双向事件、Promise 异步调用、同步函数与视图模型；支持 **3D 世界锚点（`data-anchor`）** 由渲染线程直驱位置，彻底绕过脚本与布局重排；支持零拷贝双向 GPU 纹理互通（场景纹理导入 UI / UI 渲染导出为 3D 世界材质）。
-- **完整的游戏级交互与国际化排版**：覆盖键鼠、多点触控（点击/滑动/惯性回弹）、系统输入法（IMM/TSF/macOS/iOS IME）、手柄与空间导航（Spatial Navigation）、移动端安全区（`env(safe-area-inset-*)`）；集成 HarfBuzz、FreeType 与 SheenBidi，完整支持 CJK 及阿拉伯语/希伯来语双向混排（BiDi / RTL）。
-- **浏览器对照验证与双构型交付**：核心排版、渲染、命中测试与动画行为均建立与 Chrome 逐帧对照的自动化契约测试；提供 ABI 完全一致的 Dev / Release 双构型，发布版彻底剥离开发者工具代码与网络符号。
+### 直接画进你的 GPU 管线。
+
+原生录制 D3D11、D3D12、Vulkan 与 Metal 命令列表，接入 Unreal Engine RDG/RHI、Unity 或自研渲染管线。毛玻璃、矢量裁切、渐变遮罩、混合模式与技能冷却扫描，全部零拷贝直出。
+
+<p align="center">
+  <img src="docs/images/showcase/feature-effects.png" width="100%" alt="GPU CSS Effects">
+</p>
+
+### 原版前端库，拿来就跑。
+
+内置 QuickJS-ng，不改一行源码即可运行 React、D3、Zustand 与 KaTeX。改完界面保存即热重载，不用重新编译游戏。
+
+<p align="center">
+  <img src="docs/images/showcase/feature-katex.png" width="100%" alt="KaTeX & SVG">
+</p>
+
+### 注音排版，字字落位。
+
+原生支持 CSS Ruby。日文剧情的逐字振假名，中文典籍的生僻字拼音，一行 `<ruby>` 精准对齐。
+
+<p align="center">
+  <img src="docs/images/showcase/feature-ruby.png" width="100%" alt="CSS Ruby">
+</p>
+
+### 从左到右，从右到左，一样自然。
+
+内置 HarfBuzz、FreeType 与 SheenBidi。阿拉伯语与希伯来语的双向混排、RTL 布局镜像、泰文与天城文连写塑形，全部原生渲染。
+
+<p align="center">
+  <img src="docs/images/showcase/feature-bidi.png" width="100%" alt="Arabic BiDi & Complex Scripts">
+</p>
+
+---
+
+- **千节点 HUD，亚毫秒更新。** 样式层叠、Yoga 布局、字形塑形与显示列表全程增量计算，只重算发生变化的那一小块。
+- **3D 与 UI，零拷贝互通。** 渲染线程直驱 3D 世界锚点（`data-anchor`），绕过脚本与重排；GPU 纹理双向共享，3D 舞台进界面，界面进 3D 场景。
+- **全平台输入，原生响应。** 键鼠、多点触控、惯性滚动、系统输入法（IMM / TSF / CoreText IME）、手柄空间导航与移动端安全区（`env(safe-area-inset-*)`）。
+- **开发连 Chrome，发布干干净净。** 开发期直连 Chrome DevTools 审查 DOM 与热更新，核心行为与 Chrome 逐帧校验；切到 Release 构型，调试代码与网络符号在编译期彻底剥离。
 
 ## 平台与图形后端支持
 

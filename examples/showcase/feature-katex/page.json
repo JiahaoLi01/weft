@@ -1,0 +1,6 @@
+{
+  "scripts": ["../../../third_party/katex/katex.min.js", "page.js"],
+  "stylesheet": "../../../third_party/katex/katex.css",
+  "webPlatform": true,
+  "forgivingCss": true
+}

@@ -1,0 +1,103 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 920px;
+  height: 118px;
+  overflow: hidden;
+  background-color: #0d1017;
+  color: #e4e4e7;
+  font-family: "Noto Sans JP", "Noto Sans SC", "Segoe UI", sans-serif;
+}
+
+#root {
+  width: 920px;
+  height: 118px;
+  padding: 10px 12px;
+  background-color: #0d1017;
+  border: 1px solid #242936;
+  border-radius: 8px;
+  display: flex;
+  gap: 10px;
+}
+
+.chip {
+  position: relative;
+  border-radius: 6px;
+  background-color: #131722;
+  border: 1px solid #232836;
+  padding: 10px 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.chip-jp {
+  flex: 1.48;
+  border: 1px solid rgba(199, 166, 103, 0.34);
+}
+
+.chip-cn {
+  flex: 1;
+}
+
+.tag {
+  position: absolute;
+  right: 10px;
+  top: 7px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #71717a;
+}
+
+.tag-gold { color: #c7a667; }
+
+.jp-line {
+  margin-top: 8px;
+  font-family: "Noto Serif JP", "Meiryo", serif;
+  font-size: 20px;
+  line-height: 48px;
+  color: #f4f4f5;
+}
+
+.jp-line ruby {
+  ruby-position: over;
+  ruby-align: center;
+}
+
+.jp-line rt {
+  font-family: "Noto Sans JP", "Meiryo", sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  color: #c7a667;
+}
+
+.hl-fire {
+  color: #fb923c;
+  font-weight: 700;
+}
+
+.cn-line {
+  margin-top: 8px;
+  font-family: "Noto Serif SC", serif;
+  font-size: 19px;
+  line-height: 46px;
+  color: #f4f4f5;
+}
+
+.cn-line rt {
+  font-family: "Segoe UI", sans-serif;
+  font-size: 9.5px;
+  font-weight: 600;
+  color: #34d399;
+}
+
+.cn-gold {
+  color: #fbbf24;
+  font-weight: 700;
+}
